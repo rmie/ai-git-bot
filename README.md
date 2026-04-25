@@ -162,7 +162,7 @@ All configuration is managed through a **web-based UI** — no environment varia
 ### More Features
 
 - **Session Management** — Maintains conversation history per PR, persisted in the database, enabling context-aware follow-up reviews
-- **Configurable System Prompts** — Select from built-in prompt templates or define custom prompts per bot
+- **Configurable System Prompts** — Manage reusable review and issue-agent prompt entries in System settings and assign them per bot
 - **AI-Driven Code Validation** — The agent validates generated code with build tools (Maven, Gradle, npm, Go, Cargo, etc.)
 - **Health Endpoint** — `/actuator/health` for monitoring and orchestration
 
@@ -242,7 +242,7 @@ This starts:
 3. **Create a Bot:**
    - Go to **Bots → New Bot**
    - Select your AI and Git integrations
-   - Optionally select a system prompt template
+   - Select a system prompt entry from **System settings**
    - Copy the generated **Webhook URL**
 
 ### 4. Configure Webhooks

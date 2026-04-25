@@ -31,16 +31,25 @@ public class CodeReviewService {
     private final PromptService promptService;
     private final SessionService sessionService;
     private final String botUsername;
+    private final String reviewSystemPrompt;
     private final PrContextEnricher contextEnricher;
 
     public CodeReviewService(RepositoryApiClient repositoryClient, AiClient aiClient,
+                              PromptService promptService, SessionService sessionService,
+                              String botUsername, ReviewConfigProperties reviewConfig) {
+        this(repositoryClient, aiClient, promptService, sessionService, botUsername, reviewConfig, null);
+    }
+
+    public CodeReviewService(RepositoryApiClient repositoryClient, AiClient aiClient,
                              PromptService promptService, SessionService sessionService,
-                             String botUsername, ReviewConfigProperties reviewConfig) {
+                             String botUsername, ReviewConfigProperties reviewConfig,
+                             String reviewSystemPrompt) {
         this.repositoryClient = repositoryClient;
         this.aiClient = aiClient;
         this.promptService = promptService;
         this.sessionService = sessionService;
         this.botUsername = botUsername;
+        this.reviewSystemPrompt = reviewSystemPrompt;
         this.contextEnricher = new PrContextEnricher(repositoryClient, reviewConfig);
     }
 
@@ -60,7 +69,7 @@ public class CodeReviewService {
                 return;
             }
 
-            String systemPrompt = promptService.getSystemPrompt(promptName);
+            String systemPrompt = resolveSystemPrompt(promptName);
 
             // Build enriched context for better review quality
             String headRef = resolveHeadRef(payload);
@@ -130,7 +139,7 @@ public class CodeReviewService {
                 log.warn("Failed to add reaction to comment #{}: {}", commentId, e.getMessage());
             }
 
-            String systemPrompt = promptService.getSystemPrompt(promptName);
+            String systemPrompt = resolveSystemPrompt(promptName);
 
             // Get or create session
             ReviewSession session = sessionService.getOrCreateSession(owner, repo, prNumber, promptName);
@@ -218,7 +227,7 @@ public class CodeReviewService {
                 log.warn("Failed to add reaction to inline comment #{}: {}", commentId, e.getMessage());
             }
 
-            String systemPrompt = promptService.getSystemPrompt(promptName);
+            String systemPrompt = resolveSystemPrompt(promptName);
 
             // Get or create session for conversation context
             ReviewSession session = sessionService.getOrCreateSession(owner, repo, prNumber, promptName);
@@ -315,7 +324,7 @@ public class CodeReviewService {
         log.info("Handling review submitted event for PR #{} in {}/{}", prNumber, owner, repo);
 
         try {
-            String systemPrompt = promptService.getSystemPrompt(promptName);
+            String systemPrompt = resolveSystemPrompt(promptName);
 
             // Fetch all reviews for the PR to find the latest one
             List<Review> reviews = repositoryClient.getReviews(owner, repo, prNumber);
@@ -460,6 +469,13 @@ public class CodeReviewService {
     String formatBotResponse(String response) {
         return "## 🤖 Bot Response\n\n" + response +
                 "\n\n---\n*Response by AI Git Bot*";
+    }
+
+    private String resolveSystemPrompt(String promptName) {
+        if ((promptName == null || promptName.isBlank()) && reviewSystemPrompt != null && !reviewSystemPrompt.isBlank()) {
+            return reviewSystemPrompt;
+        }
+        return promptService.getSystemPrompt(promptName);
     }
 
     private String buildPrSummaryMessage(String prTitle, String prBody) {

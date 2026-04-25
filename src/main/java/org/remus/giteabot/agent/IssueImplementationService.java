@@ -53,6 +53,7 @@ public class IssueImplementationService {
     private final AgentSessionService sessionService;
     private final ToolExecutionService toolExecutionService;
     private final WorkspaceService workspaceService;
+    private final String issueAgentSystemPrompt;
 
     // Extracted helpers
     private final AiResponseParser responseParser;
@@ -60,10 +61,20 @@ public class IssueImplementationService {
     private final IssueNotificationService notificationService;
 
     public IssueImplementationService(RepositoryApiClient repositoryClient,
+                                       AiClient aiClient, PromptService promptService,
+                                       AgentConfigProperties agentConfig, AgentSessionService sessionService,
+                                       ToolExecutionService toolExecutionService,
+                                       WorkspaceService workspaceService) {
+        this(repositoryClient, aiClient, promptService, agentConfig, sessionService,
+                toolExecutionService, workspaceService, null);
+    }
+
+    public IssueImplementationService(RepositoryApiClient repositoryClient,
                                       AiClient aiClient, PromptService promptService,
                                       AgentConfigProperties agentConfig, AgentSessionService sessionService,
                                       ToolExecutionService toolExecutionService,
-                                      WorkspaceService workspaceService) {
+                                      WorkspaceService workspaceService,
+                                      String issueAgentSystemPrompt) {
         this.repositoryClient = repositoryClient;
         this.aiClient = aiClient;
         this.promptService = promptService;
@@ -71,6 +82,7 @@ public class IssueImplementationService {
         this.sessionService = sessionService;
         this.toolExecutionService = toolExecutionService;
         this.workspaceService = workspaceService;
+        this.issueAgentSystemPrompt = issueAgentSystemPrompt;
 
         this.responseParser = new AiResponseParser();
         this.promptBuilder = new AgentPromptBuilder();
@@ -127,7 +139,7 @@ public class IssueImplementationService {
             // Fetch repository tree for context
             List<Map<String, Object>> tree = repositoryClient.getRepositoryTree(owner, repo, baseBranch);
             String treeContext  = promptBuilder.buildTreeContext(tree);
-            String systemPrompt = promptService.getSystemPrompt(AGENT_PROMPT_NAME);
+            String systemPrompt = resolveAgentSystemPrompt();
 
             // STEP 1: Ask AI which context it needs
             log.info("Step 1: Asking AI which files are needed for issue #{}", issueNumber);
@@ -447,7 +459,7 @@ public class IssueImplementationService {
             }
             workspaceDir = wsResult.workspacePath();
 
-            String systemPrompt = promptService.getSystemPrompt(AGENT_PROMPT_NAME);
+            String systemPrompt = resolveAgentSystemPrompt();
             String userMessage  = promptBuilder.buildContinuationPrompt(commentBody);
 
             log.info("Requesting AI to continue implementation for issue #{}", issueNumber);
@@ -528,6 +540,13 @@ public class IssueImplementationService {
                 + String.join(", ", toolExecutionService.getAvailableContextTools())
                 + "\n**Available validation tools** (results posted as comments): "
                 + String.join(", ", availableTools);
+    }
+
+    private String resolveAgentSystemPrompt() {
+        if (issueAgentSystemPrompt != null && !issueAgentSystemPrompt.isBlank()) {
+            return issueAgentSystemPrompt;
+        }
+        return promptService.getSystemPrompt(AGENT_PROMPT_NAME);
     }
 
     /**

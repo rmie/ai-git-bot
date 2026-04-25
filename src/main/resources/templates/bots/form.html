@@ -39,20 +39,22 @@
                         </div>
 
                         <div class="col-12">
-                            <label for="prompt" class="form-label">System Prompt</label>
-                            <div class="mb-2">
-                                <label for="promptTemplate" class="form-label text-muted small">Load from template:</label>
-                                <select class="form-select form-select-sm" id="promptTemplate" style="max-width: 300px;">
-                                    <option value="">-- Select a template --</option>
-                                    <option th:each="template : ${promptTemplates}"
-                                            th:value="${template.key}"
-                                            th:text="${template.key}"></option>
+                            <label for="systemPromptId" class="form-label">System Prompt</label>
+                            <div class="input-group">
+                                <select class="form-select" id="systemPromptId" name="systemPromptId" required>
+                                    <option value="">Select a system prompt...</option>
+                                    <option th:each="systemPrompt : ${systemPrompts}"
+                                            th:value="${systemPrompt.id}"
+                                            th:text="${systemPrompt.name}"
+                                            th:selected="${bot.systemPrompt != null and bot.systemPrompt.id == systemPrompt.id}">
+                                    </option>
                                 </select>
+                                <button class="btn btn-outline-secondary" type="button" id="previewSystemPrompt">
+                                    <i class="bi bi-eye"></i> Preview
+                                </button>
                             </div>
-                            <textarea class="form-control" id="prompt" th:field="*{prompt}"
-                                      rows="8" placeholder="System prompt for the AI bot..."></textarea>
                             <div class="form-text">
-                                The system prompt instructs the AI how to behave during code reviews.
+                                Select the prompt set used for code reviews and issue-agent implementations.
                             </div>
                         </div>
 
@@ -105,25 +107,65 @@
             </div>
         </div>
 
+        <div class="modal fade" id="systemPromptPreviewModal" tabindex="-1" aria-labelledby="systemPromptPreviewTitle"
+             aria-hidden="true">
+            <div class="modal-dialog modal-xl modal-dialog-scrollable">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title" id="systemPromptPreviewTitle">System Prompt Preview</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body">
+                        <h6>Review System-Prompt</h6>
+                        <div class="border rounded p-3 mb-4 bg-light" id="reviewPromptPreview"></div>
+                        <h6>Issue-Agent System-Prompt</h6>
+                        <div class="border rounded p-3 bg-light" id="agentPromptPreview"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <script th:inline="javascript">
             /*<![CDATA[*/
-            const promptTemplates = /*[[${promptTemplates}]]*/ {};
+            const systemPromptPreviews = /*[[${systemPromptPreviews}]]*/ {};
 
             document.addEventListener('DOMContentLoaded', function() {
-                const templateSelect = document.getElementById('promptTemplate');
-                const promptTextarea = document.getElementById('prompt');
+                const systemPromptSelect = document.getElementById('systemPromptId');
+                const previewButton = document.getElementById('previewSystemPrompt');
+                const previewTitle = document.getElementById('systemPromptPreviewTitle');
+                const reviewPreview = document.getElementById('reviewPromptPreview');
+                const agentPreview = document.getElementById('agentPromptPreview');
+                const previewModal = new bootstrap.Modal(document.getElementById('systemPromptPreviewModal'));
 
-                templateSelect.addEventListener('change', function() {
-                    const selectedTemplate = this.value;
-                    if (selectedTemplate && promptTemplates[selectedTemplate]) {
-                        // Ask for confirmation if there's existing content
-                        if (promptTextarea.value.trim() &&
-                            !confirm('This will replace the current prompt. Continue?')) {
-                            this.value = '';
-                            return;
-                        }
-                        promptTextarea.value = promptTemplates[selectedTemplate];
+                function escapeHtml(value) {
+                    const div = document.createElement('div');
+                    div.textContent = value || '';
+                    return div.innerHTML;
+                }
+
+                function renderMarkdown(markdown) {
+                    const escaped = escapeHtml(markdown);
+                    return escaped
+                        .replace(/^### (.*)$/gm, '<h5>$1</h5>')
+                        .replace(/^## (.*)$/gm, '<h4>$1</h4>')
+                        .replace(/^# (.*)$/gm, '<h3>$1</h3>')
+                        .replace(/^\- (.*)$/gm, '<li>$1</li>')
+                        .replace(/(<li>.*<\/li>)/gs, '<ul>$1</ul>')
+                        .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+                        .replace(/`([^`]+)`/g, '<code>$1</code>')
+                        .replace(/\n/g, '<br/>');
+                }
+
+                previewButton.addEventListener('click', function() {
+                    const selectedPrompt = systemPromptPreviews[systemPromptSelect.value];
+                    if (!selectedPrompt) {
+                        alert('Select a system prompt first.');
+                        return;
                     }
+                    previewTitle.textContent = selectedPrompt.name + ' Preview';
+                    reviewPreview.innerHTML = renderMarkdown(selectedPrompt.reviewSystemPrompt);
+                    agentPreview.innerHTML = renderMarkdown(selectedPrompt.issueAgentSystemPrompt);
+                    previewModal.show();
                 });
             });
             /*]]>*/

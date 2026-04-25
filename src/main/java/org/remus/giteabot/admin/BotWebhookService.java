@@ -238,7 +238,9 @@ public class BotWebhookService {
     private CodeReviewService createCodeReviewService(Bot bot) {
         AiClient aiClient = aiClientFactory.getClient(bot.getAiIntegration());
         RepositoryApiClient repoClient = giteaClientFactory.getApiClient(bot.getGitIntegration());
-        return new CodeReviewService(repoClient, aiClient, promptService, sessionService, bot.getUsername(), reviewConfig);
+        String reviewSystemPrompt = bot.getSystemPrompt() != null ? bot.getSystemPrompt().getReviewSystemPrompt() : null;
+        return new CodeReviewService(repoClient, aiClient, promptService, sessionService, bot.getUsername(),
+                reviewConfig, reviewSystemPrompt);
     }
 
     /**
@@ -247,7 +249,10 @@ public class BotWebhookService {
     private IssueImplementationService createIssueImplementationService(Bot bot) {
         AiClient aiClient = aiClientFactory.getClient(bot.getAiIntegration());
         RepositoryApiClient repoClient = giteaClientFactory.getApiClient(bot.getGitIntegration());
+        String issueAgentSystemPrompt = bot.getSystemPrompt() != null
+                ? bot.getSystemPrompt().getIssueAgentSystemPrompt()
+                : null;
         return new IssueImplementationService(repoClient, aiClient, promptService, agentConfig,
-                agentSessionService, toolExecutionService, workspaceService);
+                agentSessionService, toolExecutionService, workspaceService, issueAgentSystemPrompt);
     }
 }

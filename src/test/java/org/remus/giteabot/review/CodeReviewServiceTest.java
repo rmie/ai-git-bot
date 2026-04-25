@@ -114,6 +114,28 @@ class CodeReviewServiceTest {
     }
 
     @Test
+    void reviewPullRequest_withConfiguredSystemPrompt_usesBotPrompt() {
+        codeReviewService = new CodeReviewService(repositoryClient, aiClient,
+                promptService, sessionService, "ai_bot", new ReviewConfigProperties(), "Configured review prompt");
+        WebhookPayload payload = createTestPayload();
+        ReviewSession session = new ReviewSession("testowner", "testrepo", 1L, null);
+
+        when(sessionService.getOrCreateSession("testowner", "testrepo", 1L, null)).thenReturn(session);
+        when(sessionService.addMessage(any(), anyString(), anyString())).thenReturn(session);
+        when(repositoryClient.getPullRequestDiff("testowner", "testrepo", 1L))
+                .thenReturn("diff --git a/file.txt b/file.txt\n+new line");
+        when(aiClient.reviewDiff(eq("Test PR"), eq("Test body"), anyString(),
+                eq("Configured review prompt"), isNull(), anyString()))
+                .thenReturn("Configured prompt used.");
+
+        codeReviewService.reviewPullRequest(payload, null);
+
+        verify(promptService, never()).getSystemPrompt(any());
+        verify(repositoryClient).postReviewComment(
+                eq("testowner"), eq("testrepo"), eq(1L), contains("Configured prompt used."));
+    }
+
+    @Test
     void reviewPullRequest_existingSession_usesChat() {
         WebhookPayload payload = createTestPayload();
         ReviewSession session = new ReviewSession("testowner", "testrepo", 1L, null);

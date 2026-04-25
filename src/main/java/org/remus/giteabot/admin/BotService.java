@@ -27,7 +27,7 @@ public class BotService {
 
     @Transactional(readOnly = true)
     public Optional<Bot> findById(Long id) {
-        return botRepository.findById(id);
+        return botRepository.findByIdWithIntegrations(id);
     }
 
     @Transactional(readOnly = true)
