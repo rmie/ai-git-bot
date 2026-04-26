@@ -84,7 +84,7 @@ public class WriterResponseParser {
                 if (c == '}') {
                     braces--;
                     if (braces < 0) {
-                        return json;
+                        return null;
                     }
                     if (braces == 0) {
                         return json.substring(0, i + 1);

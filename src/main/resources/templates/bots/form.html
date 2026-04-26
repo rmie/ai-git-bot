@@ -166,9 +166,7 @@
 
                 function updateAgentVisibility() {
                     const isWriter = botTypeSelect.value === 'WRITER';
-                    agentContainer.classList.toggle('d-none', isWriter);
                     agentContainer.hidden = isWriter;
-                    agentContainer.style.display = isWriter ? 'none' : '';
                     if (isWriter) {
                         agentEnabled.checked = false;
                     }
