@@ -1,6 +1,8 @@
 package org.remus.giteabot.agent.session;
 
+import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -17,6 +19,14 @@ public interface AgentSessionRepository extends JpaRepository<AgentSession, Long
             @Param("repo") String repoName,
             @Param("issueNumber") Long issueNumber);
 
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT s FROM AgentSession s LEFT JOIN FETCH s.messages " +
+           "WHERE s.repoOwner = :owner AND s.repoName = :repo AND s.issueNumber = :issueNumber")
+    Optional<AgentSession> findByRepoOwnerAndRepoNameAndIssueNumberForUpdate(
+            @Param("owner") String repoOwner,
+            @Param("repo") String repoName,
+            @Param("issueNumber") Long issueNumber);
+
     @Query("SELECT s FROM AgentSession s LEFT JOIN FETCH s.messages " +
            "WHERE s.repoOwner = :owner AND s.repoName = :repo AND s.prNumber = :prNumber")
     Optional<AgentSession> findByRepoOwnerAndRepoNameAndPrNumber(
@@ -26,4 +36,3 @@ public interface AgentSessionRepository extends JpaRepository<AgentSession, Long
 
     void deleteByRepoOwnerAndRepoNameAndIssueNumber(String repoOwner, String repoName, Long issueNumber);
 }
-

@@ -44,6 +44,25 @@ public class AgentSessionService {
         return repository.findByRepoOwnerAndRepoNameAndIssueNumber(owner, repo, issueNumber);
     }
 
+    @Transactional
+    public Optional<AgentSession> claimSessionForUpdate(String owner, String repo, Long issueNumber,
+                                                        AgentSession.AgentSessionType sessionType) {
+        Optional<AgentSession> sessionOpt = repository.findByRepoOwnerAndRepoNameAndIssueNumberForUpdate(
+                owner, repo, issueNumber);
+        if (sessionOpt.isEmpty()) {
+            return Optional.empty();
+        }
+        AgentSession session = sessionOpt.get();
+        if (session.getSessionType() != sessionType
+                || session.getStatus() == AgentSession.AgentSessionStatus.UPDATING
+                || session.getStatus() == AgentSession.AgentSessionStatus.ISSUE_CREATED
+                || session.getStatus() == AgentSession.AgentSessionStatus.FAILED) {
+            return Optional.empty();
+        }
+        session.setStatus(AgentSession.AgentSessionStatus.UPDATING);
+        return Optional.of(repository.save(session));
+    }
+
     @Transactional(readOnly = true)
     public Optional<AgentSession> getSessionByPr(String owner, String repo, Long prNumber) {
         return repository.findByRepoOwnerAndRepoNameAndPrNumber(owner, repo, prNumber);

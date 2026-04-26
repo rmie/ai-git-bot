@@ -80,14 +80,14 @@ public class WriterPromptBuilder {
         }
     }
 
-    public String buildTreeContext(List<java.util.Map<String, Object>> tree) {
+    public String buildTreeContext(List<java.util.Map<String, Object>> tree, int maxFiles) {
         if (tree == null || tree.isEmpty()) {
             return "No repository tree is available.";
         }
         StringBuilder sb = new StringBuilder();
         int count = 0;
         for (java.util.Map<String, Object> entry : tree) {
-            if (count >= 500) {
+            if (count >= maxFiles) {
                 sb.append("... (truncated, ").append(tree.size() - count).append(" more entries)\n");
                 break;
             }

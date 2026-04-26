@@ -14,6 +14,7 @@ import org.remus.giteabot.config.AgentConfigProperties;
 import org.remus.giteabot.config.PromptService;
 import org.remus.giteabot.gitea.model.WebhookPayload;
 import org.remus.giteabot.repository.RepositoryApiClient;
+import org.springframework.dao.DataIntegrityViolationException;
 import tools.jackson.databind.ObjectMapper;
 
 import java.nio.file.Path;
@@ -28,6 +29,7 @@ public class WriterAgentService {
 
     private static final String WRITER_PROMPT_NAME = "writer";
     private static final int MAX_TOOL_ROUNDS = 3;
+    private static final int MAX_INITIAL_TREE_FILES = 100;
 
     private final RepositoryApiClient repositoryClient;
     private final AiClient aiClient;
@@ -88,14 +90,22 @@ public class WriterAgentService {
         }
 
         String issueAuthor = findIssueAuthor(owner, repo, issueNumber);
-        AgentSession session = sessionService.createSession(owner, repo, issueNumber, issueTitle,
-                AgentSession.AgentSessionType.WRITER, issueAuthor);
+        AgentSession session;
+        String baseBranch = issueRef != null && !issueRef.isBlank()
+                ? issueRef : repositoryClient.getDefaultBranch(owner, repo);
+        try {
+            session = sessionService.createSession(owner, repo, issueNumber, issueTitle,
+                    AgentSession.AgentSessionType.WRITER, issueAuthor);
+            sessionService.setBranchName(session, baseBranch);
+            sessionService.setStatus(session, AgentSession.AgentSessionStatus.UPDATING);
+        } catch (DataIntegrityViolationException e) {
+            log.info("Writer session was created concurrently for issue #{} in {}/{}", issueNumber, owner, repo);
+            return;
+        }
         Path workspaceDir = null;
         repositoryClient.postComment(owner, repo, issueNumber,
                 "🤖 **AI Technical Writer**: I've been assigned and will review this issue for completeness.");
         try {
-            String baseBranch = issueRef != null && !issueRef.isBlank()
-                    ? issueRef : repositoryClient.getDefaultBranch(owner, repo);
             WorkspaceResult wsResult = workspaceService.prepareWorkspace(
                     owner, repo, baseBranch, repositoryClient.getCloneUrl(), repositoryClient.getToken());
             if (!wsResult.success()) {
@@ -107,7 +117,7 @@ public class WriterAgentService {
             }
             workspaceDir = wsResult.workspacePath();
             String treeContext = promptBuilder.buildTreeContext(
-                    repositoryClient.getRepositoryTree(owner, repo, baseBranch));
+                    repositoryClient.getRepositoryTree(owner, repo, baseBranch), MAX_INITIAL_TREE_FILES);
             runWriterLoop(session, owner, repo, issueNumber, workspaceDir,
                     promptBuilder.buildInitialPrompt(issueNumber, issueTitle, issueBody, treeContext));
         } finally {
@@ -137,14 +147,29 @@ public class WriterAgentService {
             log.debug("Writer session already created an issue for #{}", issueNumber);
             return;
         }
-        if (!isIssueAuthor(owner, repo, issueNumber, payload)) {
-            repositoryClient.postComment(owner, repo, issueNumber,
-                    "🤖 **AI Technical Writer**: I'm waiting for the original issue author to answer before proceeding.");
+        if (session.getStatus() == AgentSession.AgentSessionStatus.UPDATING) {
+            log.debug("Writer session already running for #{}", issueNumber);
             return;
         }
+        if (session.getStatus() == AgentSession.AgentSessionStatus.FAILED) {
+            log.debug("Writer session already failed for #{}", issueNumber);
+            return;
+        }
+        if (!isIssueAuthor(owner, repo, issueNumber, payload)) {
+            log.debug("Ignoring non-author writer follow-up on issue #{} in {}/{}", issueNumber, owner, repo);
+            return;
+        }
+        Optional<AgentSession> claimedSession = sessionService.claimSessionForUpdate(
+                owner, repo, issueNumber, AgentSession.AgentSessionType.WRITER);
+        if (claimedSession.isEmpty()) {
+            log.debug("Writer session for issue #{} in {}/{} is already claimed or complete",
+                    issueNumber, owner, repo);
+            return;
+        }
+        session = claimedSession.get();
         Path workspaceDir = null;
         try {
-            String baseBranch = repositoryClient.getDefaultBranch(owner, repo);
+            String baseBranch = resolveBaseBranch(owner, repo, payload, session);
             WorkspaceResult wsResult = workspaceService.prepareWorkspace(
                     owner, repo, baseBranch, repositoryClient.getCloneUrl(), repositoryClient.getToken());
             if (!wsResult.success()) {
@@ -178,15 +203,24 @@ public class WriterAgentService {
 
             if (plan.hasContextRequests() && round < MAX_TOOL_ROUNDS) {
                 List<ImplementationPlan.ToolRequest> contextRequests = buildContextRequests(plan);
-                List<ToolResult> results = executeTools(owner, repo, issueNumber, workspaceDir, contextRequests);
+                BranchSwitchResult branchSwitch = applyRequestedBranchSwitch(
+                        workspaceDir, session.getBranchName(), contextRequests, issueNumber);
+                if (branchSwitch.selectedBranch() != null
+                        && !branchSwitch.selectedBranch().equals(session.getBranchName())) {
+                    sessionService.setBranchName(session, branchSwitch.selectedBranch());
+                    session.setBranchName(branchSwitch.selectedBranch());
+                }
+                List<ToolResult> results = executeTools(owner, repo, issueNumber, workspaceDir,
+                        branchSwitch.remainingToolRequests());
                 history.add(AiMessage.builder().role("user").content(currentMessage).build());
                 history.add(AiMessage.builder().role("assistant").content(aiResponse).build());
-                currentMessage = promptBuilder.buildToolFeedback(contextRequests, results);
+                currentMessage = promptBuilder.buildToolFeedback(branchSwitch.remainingToolRequests(), results);
                 sessionService.addMessage(session, "user", currentMessage);
                 continue;
             }
 
             if (plan.hasQuestions() || !plan.isReadyToCreate()) {
+                sessionService.setStatus(session, AgentSession.AgentSessionStatus.IN_PROGRESS);
                 repositoryClient.postComment(owner, repo, issueNumber,
                         promptBuilder.buildClarifyingQuestionComment(plan));
                 return;
@@ -208,6 +242,10 @@ public class WriterAgentService {
                             + " from this discussion.");
             return;
         }
+        sessionService.setStatus(session, AgentSession.AgentSessionStatus.IN_PROGRESS);
+        repositoryClient.postComment(owner, repo, issueNumber,
+                "⚠️ **AI Technical Writer**: I need more context before I can continue. "
+                        + "Please add more details and mention me again.");
     }
 
     private List<ImplementationPlan.ToolRequest> buildContextRequests(WriterPlan plan) {
@@ -227,6 +265,44 @@ public class WriterAgentService {
             }
         }
         return requests;
+    }
+
+    private BranchSwitchResult applyRequestedBranchSwitch(Path workspaceDir,
+                                                          String baseBranch,
+                                                          List<ImplementationPlan.ToolRequest> toolRequests,
+                                                          Long issueNumber) {
+        if (toolRequests == null || toolRequests.isEmpty()) {
+            return new BranchSwitchResult(baseBranch, List.of());
+        }
+        String selectedBranch = baseBranch;
+        boolean switched = false;
+        List<ImplementationPlan.ToolRequest> remaining = new ArrayList<>();
+        for (ImplementationPlan.ToolRequest toolRequest : toolRequests) {
+            if (toolRequest == null || toolRequest.getTool() == null || toolRequest.getTool().isBlank()) {
+                continue;
+            }
+            if ("branch-switcher".equalsIgnoreCase(toolRequest.getTool()) && !switched) {
+                ToolResult result = toolExecutionService.executeContextTool(
+                        workspaceDir, "branch-switcher", toolRequest.getArgs());
+                String switchedBranch = extractSwitchedBranch(result);
+                if (switchedBranch != null && !switchedBranch.isBlank()) {
+                    selectedBranch = switchedBranch;
+                    switched = true;
+                    log.info("Switched writer workspace/context branch to '{}' for issue #{}",
+                            selectedBranch, issueNumber);
+                } else {
+                    log.warn("Writer branch switch request failed for issue #{}: {}",
+                            issueNumber, describeToolFailure(result));
+                }
+                continue;
+            }
+            if ("branch-switcher".equalsIgnoreCase(toolRequest.getTool())) {
+                log.info("Ignoring additional writer branch-switcher request for issue #{}", issueNumber);
+                continue;
+            }
+            remaining.add(toolRequest);
+        }
+        return new BranchSwitchResult(selectedBranch, remaining);
     }
 
     private List<ToolResult> executeTools(String owner, String repo, Long issueNumber,
@@ -366,6 +442,14 @@ public class WriterAgentService {
         }
     }
 
+    private String resolveBaseBranch(String owner, String repo, WebhookPayload payload, AgentSession session) {
+        if (session.getBranchName() != null && !session.getBranchName().isBlank()) {
+            return session.getBranchName();
+        }
+        String issueRef = payload.getIssue() != null ? normalizeBranchRef(payload.getIssue().getRef()) : null;
+        return issueRef != null && !issueRef.isBlank() ? issueRef : repositoryClient.getDefaultBranch(owner, repo);
+    }
+
     private String resolveWriterSystemPrompt() {
         if (writerAgentSystemPrompt != null && !writerAgentSystemPrompt.isBlank()) {
             return writerAgentSystemPrompt;
@@ -389,6 +473,7 @@ public class WriterAgentService {
                 }
                 Available writer tools: get-issue, search-issues, branch-switcher, rg, ripgrep, grep, find, cat, git-log, git-blame, tree.
                 You may use requestFiles or read-only repository requestTools when existing issue or repository context is needed before asking or finalizing.
+                If you need another base branch, request `branch-switcher` first and wait for its result before requesting files or search results from that branch.
                 Do not request repository write tools, file mutation tools, or build/validation tools.
                 If critical information is missing, set readyToCreate=false and include clarifyingQuestions.
                 If no critical questions remain, set readyToCreate=true and include revisedIssueDraft.
@@ -403,5 +488,34 @@ public class WriterAgentService {
             return ref.substring("refs/heads/".length());
         }
         return ref;
+    }
+
+    private String extractSwitchedBranch(ToolResult result) {
+        if (result == null || !result.success() || result.output() == null) {
+            return null;
+        }
+        String prefix = "Switched workspace branch to:";
+        int idx = result.output().indexOf(prefix);
+        if (idx < 0) {
+            return null;
+        }
+        return normalizeBranchRef(result.output().substring(idx + prefix.length()).trim());
+    }
+
+    private String describeToolFailure(ToolResult result) {
+        if (result == null) {
+            return "unknown tool failure";
+        }
+        if (result.error() != null && !result.error().isBlank()) {
+            return result.error();
+        }
+        if (result.output() != null && !result.output().isBlank()) {
+            return result.output();
+        }
+        return "tool returned no details";
+    }
+
+    private record BranchSwitchResult(String selectedBranch,
+                                      List<ImplementationPlan.ToolRequest> remainingToolRequests) {
     }
 }
