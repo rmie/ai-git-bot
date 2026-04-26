@@ -140,6 +140,20 @@ public class GiteaApiClient implements RepositoryApiClient {
         return issue != null ? issue : Map.of();
     }
 
+    @Override
+    public List<Map<String, Object>> searchIssues(String owner, String repo, String query) {
+        log.info("Searching issues in {}/{} for '{}'", owner, repo, query);
+        List<Map<String, Object>> issues = giteaRestClient.get()
+                .uri(uriBuilder -> uriBuilder
+                        .path("/api/v1/repos/{owner}/{repo}/issues")
+                        .queryParam("state", "all")
+                        .queryParam("q", query)
+                        .build(owner, repo))
+                .retrieve()
+                .body(new ParameterizedTypeReference<>() {});
+        return issues != null ? issues : List.of();
+    }
+
     // ---- Repository operations for the issue implementation agent ----
 
     @Override
@@ -274,6 +288,20 @@ public class GiteaApiClient implements RepositoryApiClient {
     }
 
     @Override
+    public Long createIssue(String owner, String repo, String title, String body) {
+        log.info("Creating issue '{}' in {}/{}", title, owner, repo);
+        Map<String, Object> result = giteaRestClient.post()
+                .uri("/api/v1/repos/{owner}/{repo}/issues", owner, repo)
+                .body(new CreateIssue(title, body))
+                .retrieve()
+                .body(new ParameterizedTypeReference<>() {});
+        if (result != null && result.get("number") instanceof Number number) {
+            return number.longValue();
+        }
+        return null;
+    }
+
+    @Override
     public void deleteBranch(String owner, String repo, String branchName) {
         log.info("Deleting branch '{}' in {}/{}", branchName, owner, repo);
         try {
@@ -297,5 +325,6 @@ public class GiteaApiClient implements RepositoryApiClient {
     record CreateFileRequest(String content, String message, String branch) {}
     record UpdateFileRequest(String content, String message, String branch, String sha) {}
     record CreatePullRequest(String title, String body, String head, String base) {}
+    record CreateIssue(String title, String body) {}
     record DeleteFileRequest(String message, String branch, String sha) {}
 }

@@ -48,6 +48,19 @@ class BotServiceTest {
     }
 
     @Test
+    void save_writerBotDisablesCodingAgentCheckbox() {
+        Bot bot = new Bot();
+        bot.setWebhookSecret("existing-secret");
+        bot.setBotType(BotType.WRITER);
+        bot.setAgentEnabled(true);
+        when(botRepository.save(any(Bot.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        Bot result = botService.save(bot);
+
+        assertFalse(result.isAgentEnabled());
+    }
+
+    @Test
     void incrementWebhookCallCount_incrementsAndSetsTimestamp() {
         Bot bot = new Bot();
         bot.setWebhookCallCount(5);

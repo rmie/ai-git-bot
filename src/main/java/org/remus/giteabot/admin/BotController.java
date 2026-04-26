@@ -95,6 +95,7 @@ public class BotController {
         model.addAttribute("aiIntegrations", aiIntegrationService.findAll());
         model.addAttribute("gitIntegrations", gitIntegrationService.findAll());
         model.addAttribute("systemPrompts", systemPrompts);
+        model.addAttribute("botTypes", BotType.values());
         model.addAttribute("activeNav", "bots");
     }
 

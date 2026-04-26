@@ -74,6 +74,7 @@ class SystemPromptServiceTest {
         SystemPrompt systemPrompt = new SystemPrompt();
         systemPrompt.setReviewSystemPrompt("review");
         systemPrompt.setIssueAgentSystemPrompt("agent");
+        systemPrompt.setWriterAgentSystemPrompt("writer");
 
         IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
                 () -> systemPromptService.save(systemPrompt));
@@ -88,6 +89,7 @@ class SystemPromptServiceTest {
         systemPrompt.setName("Custom");
         systemPrompt.setReviewSystemPrompt("review");
         systemPrompt.setIssueAgentSystemPrompt("agent");
+        systemPrompt.setWriterAgentSystemPrompt("writer");
         when(systemPromptRepository.existsByName("Custom")).thenReturn(true);
 
         IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
@@ -106,6 +108,7 @@ class SystemPromptServiceTest {
         systemPrompt.setName("Custom");
         systemPrompt.setReviewSystemPrompt("review");
         systemPrompt.setIssueAgentSystemPrompt("agent");
+        systemPrompt.setWriterAgentSystemPrompt("writer");
         systemPrompt.setDefaultEntry(true);
         when(systemPromptRepository.existsByNameAndIdNot("Custom", 2L)).thenReturn(false);
         when(systemPromptRepository.findByDefaultEntryTrue()).thenReturn(Optional.of(existingDefault));

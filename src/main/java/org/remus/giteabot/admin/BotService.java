@@ -39,6 +39,9 @@ public class BotService {
         if (bot.getWebhookSecret() == null) {
             bot.setWebhookSecret(UUID.randomUUID().toString());
         }
+        if (bot.getBotType() == BotType.WRITER) {
+            bot.setAgentEnabled(false);
+        }
         return botRepository.save(bot);
     }
 

@@ -302,6 +302,7 @@ class WebhookIntegrationTest {
             systemPrompt.setName("Default Test");
             systemPrompt.setReviewSystemPrompt("Review test prompt");
             systemPrompt.setIssueAgentSystemPrompt("Agent test prompt");
+            systemPrompt.setWriterAgentSystemPrompt("Writer test prompt");
             systemPrompt.setDefaultEntry(true);
             return systemPromptService.save(systemPrompt);
         });

@@ -56,6 +56,7 @@ public class SystemSettingsController {
                     clone.setName("Copy of " + source.getName());
                     clone.setReviewSystemPrompt(source.getReviewSystemPrompt());
                     clone.setIssueAgentSystemPrompt(source.getIssueAgentSystemPrompt());
+                    clone.setWriterAgentSystemPrompt(source.getWriterAgentSystemPrompt());
                     model.addAttribute("systemPrompt", clone);
                     model.addAttribute("activeNav", "system-settings");
                     return "system-settings/form";
@@ -93,7 +94,8 @@ public class SystemSettingsController {
                 .map(systemPrompt -> ResponseEntity.ok(Map.of(
                         "name", systemPrompt.getName(),
                         "reviewSystemPrompt", systemPrompt.getReviewSystemPrompt(),
-                        "issueAgentSystemPrompt", systemPrompt.getIssueAgentSystemPrompt())))
+                        "issueAgentSystemPrompt", systemPrompt.getIssueAgentSystemPrompt(),
+                        "writerAgentSystemPrompt", systemPrompt.getWriterAgentSystemPrompt())))
                 .orElseGet(() -> ResponseEntity.notFound().build());
     }
 

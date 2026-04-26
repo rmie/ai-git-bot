@@ -25,6 +25,9 @@ public class SystemPrompt {
     @Column(nullable = false, columnDefinition = "TEXT")
     private String issueAgentSystemPrompt;
 
+    @Column(nullable = false, columnDefinition = "TEXT")
+    private String writerAgentSystemPrompt;
+
     @Column(nullable = false)
     private boolean defaultEntry = false;
 

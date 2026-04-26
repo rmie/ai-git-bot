@@ -83,6 +83,14 @@ public interface RepositoryApiClient {
         return Map.of();
     }
 
+    default List<Map<String, Object>> searchIssues(String owner, String repo, String query) {
+        return List.of();
+    }
+
+    default Long createIssue(String owner, String repo, String title, String body) {
+        throw new UnsupportedOperationException("Creating issues is not supported by this repository provider");
+    }
+
     // ---- Repository operations ----
 
     String getDefaultBranch(String owner, String repo);

@@ -47,6 +47,9 @@ public class SystemPromptService {
         if (systemPrompt.getIssueAgentSystemPrompt() == null || systemPrompt.getIssueAgentSystemPrompt().isBlank()) {
             throw new IllegalArgumentException("Issue-Agent System-Prompt is required");
         }
+        if (systemPrompt.getWriterAgentSystemPrompt() == null || systemPrompt.getWriterAgentSystemPrompt().isBlank()) {
+            throw new IllegalArgumentException("Writer-Agent System-Prompt is required");
+        }
         boolean duplicateName = systemPrompt.getId() == null
                 ? systemPromptRepository.existsByName(systemPrompt.getName())
                 : systemPromptRepository.existsByNameAndIdNot(systemPrompt.getName(), systemPrompt.getId());

@@ -39,6 +39,19 @@
                         </div>
 
                         <div class="col-12">
+                            <label for="botType" class="form-label">Bot Type</label>
+                            <select class="form-select" id="botType" th:field="*{botType}" required>
+                                <option th:each="type : ${botTypes}"
+                                        th:value="${type}"
+                                        th:text="${type == T(org.remus.giteabot.admin.BotType).WRITER ? 'Writer bot' : 'Coding bot'}">
+                                </option>
+                            </select>
+                            <div class="form-text">
+                                Coding bots review pull requests and can implement issues. Writer bots ignore pull requests and draft improved issues.
+                            </div>
+                        </div>
+
+                        <div class="col-12">
                             <label for="systemPromptId" class="form-label">System Prompt</label>
                             <div class="input-group">
                                 <select class="form-select" id="systemPromptId" name="systemPromptId"
@@ -87,7 +100,8 @@
                                 <label class="form-check-label" for="enabled">Enabled</label>
                             </div>
                         </div>
-                        <div class="col-md-6">
+                        <div class="col-md-6" id="agentEnabledContainer"
+                             th:hidden="${bot.botType != null and bot.botType.name() == 'WRITER'}">
                             <div class="form-check form-switch mt-3">
                                 <input class="form-check-input" type="checkbox" id="agentEnabled"
                                        th:field="*{agentEnabled}"/>
@@ -120,7 +134,9 @@
                         <h6>Review System-Prompt</h6>
                         <div class="border rounded p-3 mb-4 bg-light" id="reviewPromptPreview"></div>
                         <h6>Issue-Agent System-Prompt</h6>
-                        <div class="border rounded p-3 bg-light" id="agentPromptPreview"></div>
+                        <div class="border rounded p-3 mb-4 bg-light" id="agentPromptPreview"></div>
+                        <h6>Writer-Agent System-Prompt</h6>
+                        <div class="border rounded p-3 bg-light" id="writerPromptPreview"></div>
                     </div>
                 </div>
             </div>
@@ -138,11 +154,26 @@
                 const previewTitle = document.getElementById('systemPromptPreviewTitle');
                 const reviewPreview = document.getElementById('reviewPromptPreview');
                 const agentPreview = document.getElementById('agentPromptPreview');
+                const writerPreview = document.getElementById('writerPromptPreview');
+                const botTypeSelect = document.getElementById('botType');
+                const agentContainer = document.getElementById('agentEnabledContainer');
+                const agentEnabled = document.getElementById('agentEnabled');
                 const previewModal = new bootstrap.Modal(document.getElementById('systemPromptPreviewModal'));
 
                 function renderMarkdown(markdown) {
                     return DOMPurify.sanitize(marked.parse(markdown || ''));
                 }
+
+                function updateAgentVisibility() {
+                    const isWriter = botTypeSelect.value === 'WRITER';
+                    agentContainer.hidden = isWriter;
+                    if (isWriter) {
+                        agentEnabled.checked = false;
+                    }
+                }
+
+                botTypeSelect.addEventListener('change', updateAgentVisibility);
+                updateAgentVisibility();
 
                 previewButton.addEventListener('click', function() {
                     const selectedPromptId = systemPromptSelect.value;
@@ -161,6 +192,7 @@
                             previewTitle.textContent = selectedPrompt.name + ' Preview';
                             reviewPreview.innerHTML = renderMarkdown(selectedPrompt.reviewSystemPrompt);
                             agentPreview.innerHTML = renderMarkdown(selectedPrompt.issueAgentSystemPrompt);
+                            writerPreview.innerHTML = renderMarkdown(selectedPrompt.writerAgentSystemPrompt);
                             previewModal.show();
                         })
                         .catch(function(error) {

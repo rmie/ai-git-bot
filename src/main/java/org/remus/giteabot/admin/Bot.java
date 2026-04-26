@@ -43,6 +43,10 @@ public class Bot {
     @Column(nullable = false)
     private boolean agentEnabled = false;
 
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false)
+    private BotType botType = BotType.CODING;
+
     @Column(nullable = false)
     private long webhookCallCount = 0;
 

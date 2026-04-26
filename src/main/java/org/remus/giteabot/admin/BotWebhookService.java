@@ -5,6 +5,7 @@ import org.remus.giteabot.agent.IssueImplementationService;
 import org.remus.giteabot.agent.session.AgentSessionService;
 import org.remus.giteabot.agent.validation.ToolExecutionService;
 import org.remus.giteabot.agent.validation.WorkspaceService;
+import org.remus.giteabot.agent.writerimpl.WriterAgentService;
 import org.remus.giteabot.ai.AiClient;
 import org.remus.giteabot.config.AgentConfigProperties;
 import org.remus.giteabot.config.PromptService;
@@ -71,6 +72,10 @@ public class BotWebhookService {
      */
     @Async
     public void reviewPullRequest(Bot bot, WebhookPayload payload) {
+        if (bot.getBotType() == BotType.WRITER) {
+            log.debug("[Bot '{}'] Writer bot ignores pull request review event", bot.getName());
+            return;
+        }
         try {
             createCodeReviewService(bot).reviewPullRequest(payload, null);
         } catch (Exception e) {
@@ -85,6 +90,10 @@ public class BotWebhookService {
      */
     @Async
     public void handleBotCommand(Bot bot, WebhookPayload payload) {
+        if (bot.getBotType() == BotType.WRITER) {
+            log.debug("[Bot '{}'] Writer bot ignores pull request command", bot.getName());
+            return;
+        }
         try {
             createCodeReviewService(bot).handleBotCommand(payload, null);
         } catch (Exception e) {
@@ -101,6 +110,10 @@ public class BotWebhookService {
      */
     @Async
     public void handlePrComment(Bot bot, WebhookPayload payload) {
+        if (bot.getBotType() == BotType.WRITER) {
+            log.debug("[Bot '{}'] Writer bot ignores pull request comment", bot.getName());
+            return;
+        }
         String owner = payload.getRepository().getOwner().getLogin();
         String repo = payload.getRepository().getName();
         Long prNumber = payload.getPullRequest().getNumber();
@@ -136,6 +149,10 @@ public class BotWebhookService {
      */
     @Async
     public void handleInlineComment(Bot bot, WebhookPayload payload) {
+        if (bot.getBotType() == BotType.WRITER) {
+            log.debug("[Bot '{}'] Writer bot ignores inline review comment", bot.getName());
+            return;
+        }
         try {
             createCodeReviewService(bot).handleInlineComment(payload, null);
         } catch (Exception e) {
@@ -150,6 +167,10 @@ public class BotWebhookService {
      */
     @Async
     public void handleReviewSubmitted(Bot bot, WebhookPayload payload) {
+        if (bot.getBotType() == BotType.WRITER) {
+            log.debug("[Bot '{}'] Writer bot ignores submitted review", bot.getName());
+            return;
+        }
         try {
             createCodeReviewService(bot).handleReviewSubmitted(payload, null);
         } catch (Exception e) {
@@ -163,6 +184,10 @@ public class BotWebhookService {
      * Delegates to {@link CodeReviewService#handlePrClosed(WebhookPayload)}.
      */
     public void handlePrClosed(Bot bot, WebhookPayload payload) {
+        if (bot.getBotType() == BotType.WRITER) {
+            log.debug("[Bot '{}'] Writer bot ignores pull request closed event", bot.getName());
+            return;
+        }
         createCodeReviewService(bot).handlePrClosed(payload);
     }
 
@@ -172,6 +197,15 @@ public class BotWebhookService {
      */
     @Async
     public void handleIssueAssigned(Bot bot, WebhookPayload payload) {
+        if (bot.getBotType() == BotType.WRITER) {
+            try {
+                createWriterAgentService(bot).handleIssueAssigned(payload);
+            } catch (Exception e) {
+                log.error("[Bot '{}'] Failed to handle writer issue assignment: {}", bot.getName(), e.getMessage(), e);
+                botService.recordError(bot, e.getMessage());
+            }
+            return;
+        }
         if (!bot.isAgentEnabled()) {
             log.debug("[Bot '{}'] Agent feature disabled, ignoring issue assignment", bot.getName());
             return;
@@ -190,6 +224,15 @@ public class BotWebhookService {
      */
     @Async
     public void handleIssueComment(Bot bot, WebhookPayload payload) {
+        if (bot.getBotType() == BotType.WRITER) {
+            try {
+                createWriterAgentService(bot).handleIssueComment(payload);
+            } catch (Exception e) {
+                log.error("[Bot '{}'] Failed to handle writer issue comment: {}", bot.getName(), e.getMessage(), e);
+                botService.recordError(bot, e.getMessage());
+            }
+            return;
+        }
         if (!bot.isAgentEnabled()) {
             log.debug("[Bot '{}'] Agent feature disabled, ignoring issue comment", bot.getName());
             return;
@@ -261,5 +304,16 @@ public class BotWebhookService {
         return new IssueImplementationService(repoClient, aiClient, promptService, agentConfig,
                 agentSessionService, toolExecutionService, workspaceService,
                 bot.getSystemPrompt().getIssueAgentSystemPrompt());
+    }
+
+    private WriterAgentService createWriterAgentService(Bot bot) {
+        AiClient aiClient = aiClientFactory.getClient(bot.getAiIntegration());
+        RepositoryApiClient repoClient = giteaClientFactory.getApiClient(bot.getGitIntegration());
+        if (bot.getSystemPrompt() == null) {
+            throw new IllegalStateException("Bot must have a system prompt assigned");
+        }
+        return new WriterAgentService(repoClient, aiClient, promptService, agentConfig,
+                agentSessionService, toolExecutionService, workspaceService,
+                bot.getSystemPrompt().getWriterAgentSystemPrompt(), bot.getUsername());
     }
 }

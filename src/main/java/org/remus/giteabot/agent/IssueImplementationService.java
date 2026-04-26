@@ -59,6 +59,7 @@ public class IssueImplementationService {
     private final AiResponseParser responseParser;
     private final AgentPromptBuilder promptBuilder;
     private final IssueNotificationService notificationService;
+    private final AgentErrorNotificationService errorNotificationService;
 
     public IssueImplementationService(RepositoryApiClient repositoryClient,
                                        AiClient aiClient, PromptService promptService,
@@ -87,6 +88,7 @@ public class IssueImplementationService {
         this.responseParser = new AiResponseParser();
         this.promptBuilder = new AgentPromptBuilder();
         this.notificationService = new IssueNotificationService(repositoryClient, responseParser, toolExecutionService);
+        this.errorNotificationService = new AgentErrorNotificationService(repositoryClient);
     }
 
     public void handleIssueAssigned(WebhookPayload payload) {
@@ -103,6 +105,11 @@ public class IssueImplementationService {
         // Check if there's already a session for this issue
         Optional<AgentSession> existingSession = sessionService.getSessionByIssue(owner, repo, issueNumber);
         if (existingSession.isPresent()) {
+            if (existingSession.get().getSessionType() != AgentSession.AgentSessionType.CODING) {
+                repositoryClient.postComment(owner, repo, issueNumber,
+                        "🤖 **AI Agent**: A technical-writer session already exists for this issue. "
+                                + "Please clone the issue if you want the coding agent to implement it separately.");
+            }
             log.info("Session already exists for issue #{}, skipping initial implementation", issueNumber);
             return;
         }
@@ -226,16 +233,9 @@ public class IssueImplementationService {
         } catch (Exception e) {
             log.error("Failed to implement issue #{} in {}: {}", issueNumber, repoFullName, e.getMessage(), e);
             sessionService.setStatus(session, AgentSession.AgentSessionStatus.FAILED);
-            try {
-                repositoryClient.postComment(owner, repo, issueNumber,
-                        String.format("""
-                                🤖 **AI Agent**: Implementation failed with error: `%s`
-
-                                You can mention me in a comment to try again with more details.""",
-                                e.getMessage()));
-            } catch (Exception ce) {
-                log.error("Failed to post failure comment on issue #{}: {}", issueNumber, ce.getMessage());
-            }
+            errorNotificationService.postInternalErrorComment(owner, repo, issueNumber,
+                    "AI Agent",
+                    "Please try again or mention me again with more details.", e);
         } finally {
             if (workspaceDir != null) {
                 workspaceService.cleanupWorkspace(workspaceDir);
@@ -433,6 +433,12 @@ public class IssueImplementationService {
         }
 
         AgentSession session = sessionOpt.get();
+        if (session.getSessionType() != AgentSession.AgentSessionType.CODING) {
+            repositoryClient.postComment(owner, repo, issueNumber,
+                    "🤖 **AI Agent**: This issue is currently owned by a technical-writer session. "
+                            + "Please clone the issue if you want the coding agent to implement it separately.");
+            return;
+        }
         Path workspaceDir = null;
 
         try {
@@ -509,15 +515,9 @@ public class IssueImplementationService {
 
         } catch (Exception e) {
             log.error("Failed to handle comment on issue #{}: {}", issueNumber, e.getMessage(), e);
-            try {
-                repositoryClient.postComment(owner, repo, issueNumber,
-                        String.format("""
-                                🤖 **AI Agent**: Failed to process your request: `%s`
-
-                                Please try again or provide more details.""", e.getMessage()));
-            } catch (Exception ce) {
-                log.error("Failed to post error comment on issue #{}: {}", issueNumber, ce.getMessage());
-            }
+            errorNotificationService.postInternalErrorComment(owner, repo, issueNumber,
+                    "AI Agent",
+                    "Please try again or mention me again with more details.", e);
             if (session.getStatus() == AgentSession.AgentSessionStatus.UPDATING) {
                 sessionService.setStatus(session,
                         session.getPrNumber() != null ? AgentSession.AgentSessionStatus.PR_CREATED
