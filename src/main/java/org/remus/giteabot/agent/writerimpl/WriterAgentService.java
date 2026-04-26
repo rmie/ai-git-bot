@@ -201,6 +201,14 @@ public class WriterAgentService {
             sessionService.addMessage(session, "assistant", aiResponse);
             WriterPlan plan = responseParser.parse(aiResponse);
 
+            if (plan.hasContextRequests() && round >= MAX_TOOL_ROUNDS) {
+                sessionService.setStatus(session, AgentSession.AgentSessionStatus.IN_PROGRESS);
+                repositoryClient.postComment(owner, repo, issueNumber,
+                        "⚠️ **AI Technical Writer**: I need more context before I can continue. "
+                                + "Please add more details and mention me again.");
+                return;
+            }
+
             if (plan.hasContextRequests() && round < MAX_TOOL_ROUNDS) {
                 List<ImplementationPlan.ToolRequest> contextRequests = buildContextRequests(plan);
                 BranchSwitchResult branchSwitch = applyRequestedBranchSwitch(
@@ -241,10 +249,6 @@ public class WriterAgentService {
                             + " from this discussion.");
             return;
         }
-        sessionService.setStatus(session, AgentSession.AgentSessionStatus.IN_PROGRESS);
-        repositoryClient.postComment(owner, repo, issueNumber,
-                "⚠️ **AI Technical Writer**: I need more context before I can continue. "
-                        + "Please add more details and mention me again.");
     }
 
     private List<ImplementationPlan.ToolRequest> buildContextRequests(WriterPlan plan) {
