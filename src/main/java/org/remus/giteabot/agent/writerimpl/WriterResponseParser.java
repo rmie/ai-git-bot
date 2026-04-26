@@ -16,6 +16,8 @@ import java.util.regex.Pattern;
 public class WriterResponseParser {
 
     private static final Pattern JSON_BLOCK_PATTERN = Pattern.compile("```json\\s*\\n(.*?)\\n\\s*```", Pattern.DOTALL);
+    private static final Pattern JSON_BLOCK_UNCLOSED_PATTERN = Pattern.compile("```json\\s*\\n(\\{.*)", Pattern.DOTALL);
+    private static final Pattern GENERIC_JSON_BLOCK_PATTERN = Pattern.compile("```\\s*\\n(\\{.*?})\\n\\s*```", Pattern.DOTALL);
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public WriterPlan parse(String aiResponse) {
@@ -58,6 +60,18 @@ public class WriterResponseParser {
         var matcher = JSON_BLOCK_PATTERN.matcher(response);
         if (matcher.find()) {
             return truncateToFirstJsonObject(matcher.group(1).strip());
+        }
+        matcher = JSON_BLOCK_UNCLOSED_PATTERN.matcher(response);
+        if (matcher.find()) {
+            return truncateToFirstJsonObject(matcher.group(1).strip());
+        }
+        matcher = GENERIC_JSON_BLOCK_PATTERN.matcher(response);
+        if (matcher.find()) {
+            return truncateToFirstJsonObject(matcher.group(1).strip());
+        }
+        int jsonStart = response.indexOf('{');
+        if (jsonStart >= 0) {
+            return truncateToFirstJsonObject(response.substring(jsonStart).strip());
         }
         return null;
     }

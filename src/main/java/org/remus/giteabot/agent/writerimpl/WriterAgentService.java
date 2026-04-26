@@ -1,6 +1,7 @@
 package org.remus.giteabot.agent.writerimpl;
 
 import lombok.extern.slf4j.Slf4j;
+import org.remus.giteabot.agent.AgentErrorNotificationService;
 import org.remus.giteabot.agent.model.ImplementationPlan;
 import org.remus.giteabot.agent.session.AgentSession;
 import org.remus.giteabot.agent.session.AgentSessionService;
@@ -28,7 +29,7 @@ import java.util.Optional;
 public class WriterAgentService {
 
     private static final String WRITER_PROMPT_NAME = "writer";
-    private static final int MAX_TOOL_ROUNDS = 3;
+    private static final int MAX_TOOL_ROUNDS = 5;
     private static final int MAX_INITIAL_TREE_FILES = 100;
 
     private final RepositoryApiClient repositoryClient;
@@ -40,6 +41,7 @@ public class WriterAgentService {
     private final WorkspaceService workspaceService;
     private final String writerAgentSystemPrompt;
     private final String botUsername;
+    private final AgentErrorNotificationService errorNotificationService;
     private final WriterPromptBuilder promptBuilder = new WriterPromptBuilder();
     private final WriterResponseParser responseParser = new WriterResponseParser();
     private final ObjectMapper objectMapper = new ObjectMapper();
@@ -62,6 +64,7 @@ public class WriterAgentService {
         this.workspaceService = workspaceService;
         this.writerAgentSystemPrompt = writerAgentSystemPrompt;
         this.botUsername = botUsername;
+        this.errorNotificationService = new AgentErrorNotificationService(repositoryClient);
     }
 
     public void handleIssueAssigned(WebhookPayload payload) {
@@ -120,6 +123,11 @@ public class WriterAgentService {
                     repositoryClient.getRepositoryTree(owner, repo, baseBranch), MAX_INITIAL_TREE_FILES);
             runWriterLoop(session, owner, repo, issueNumber, workspaceDir,
                     promptBuilder.buildInitialPrompt(issueNumber, issueTitle, issueBody, treeContext));
+        } catch (Exception e) {
+            log.error("Writer failed while handling assignment for issue #{} in {}/{}: {}",
+                    issueNumber, owner, repo, e.getMessage(), e);
+            handleWriterFailure(session, owner, repo, issueNumber,
+                    AgentSession.AgentSessionStatus.FAILED, e);
         } finally {
             if (workspaceDir != null) {
                 workspaceService.cleanupWorkspace(workspaceDir);
@@ -182,6 +190,11 @@ public class WriterAgentService {
             workspaceDir = wsResult.workspacePath();
             runWriterLoop(session, owner, repo, issueNumber, workspaceDir,
                     promptBuilder.buildContinuationPrompt(payload.getComment().getBody()));
+        } catch (Exception e) {
+            log.error("Writer failed while handling follow-up for issue #{} in {}/{}: {}",
+                    issueNumber, owner, repo, e.getMessage(), e);
+            handleWriterFailure(session, owner, repo, issueNumber,
+                    AgentSession.AgentSessionStatus.IN_PROGRESS, e);
         } finally {
             if (workspaceDir != null) {
                 workspaceService.cleanupWorkspace(workspaceDir);
@@ -475,6 +488,9 @@ public class WriterAgentService {
                   "readyToCreate": true
                 }
                 Available writer tools: get-issue, search-issues, branch-switcher, rg, ripgrep, grep, find, cat, git-log, git-blame, tree.
+                Search-tool args use the shape [pattern, path?, flags?]. Common flags like -i, -n, -l and --include=*.java are supported.
+                `find` supports both [glob, path?] and shell-like forms such as ["src/main/java", "-name", "*.java"].
+                For alternation in rg/ripgrep/grep patterns, use `|` (not `\\|`).
                 You may use requestFiles or read-only repository requestTools when existing issue or repository context is needed before asking or finalizing.
                 If you need another base branch, request `branch-switcher` first and wait for its result before requesting files or search results from that branch.
                 Do not request repository write tools, file mutation tools, or build/validation tools.
@@ -516,6 +532,17 @@ public class WriterAgentService {
             return result.output();
         }
         return "tool returned no details";
+    }
+
+    private void handleWriterFailure(AgentSession session, String owner, String repo,
+                                     Long issueNumber, AgentSession.AgentSessionStatus targetStatus,
+                                     Exception e) {
+        if (session != null) {
+            sessionService.setStatus(session, targetStatus);
+        }
+        errorNotificationService.postInternalErrorComment(owner, repo, issueNumber,
+                "AI Technical Writer",
+                "Please try again or mention me again with any additional context.", e);
     }
 
     private record BranchSwitchResult(String selectedBranch,

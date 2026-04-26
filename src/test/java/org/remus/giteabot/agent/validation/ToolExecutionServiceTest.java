@@ -89,6 +89,55 @@ class ToolExecutionServiceTest {
     }
 
     @Test
+    void executeContextTool_rg_supportsEscapedAlternationFromAiGeneratedPatterns() throws IOException {
+        Path file = tempDir.resolve("src/GiteaWebhookHandler.java");
+        Files.createDirectories(file.getParent());
+        Files.writeString(file, """
+                class GiteaWebhookHandler {
+                    void handleBotCommand() {}
+                    void handleInlineComment() {}
+                }
+                """);
+
+        ToolResult result = service.executeContextTool(tempDir, "rg",
+                List.of("handleBotCommand\\|handleInlineComment", "src", "-n"));
+
+        assertThat(result.success()).isTrue();
+        assertThat(result.output()).contains("src/GiteaWebhookHandler.java:2:     void handleBotCommand() {}");
+        assertThat(result.output()).contains("src/GiteaWebhookHandler.java:3:     void handleInlineComment() {}");
+    }
+
+    @Test
+    void executeContextTool_rg_supportsCombinedCaseInsensitiveFlags() throws IOException {
+        Path file = tempDir.resolve("src/ReviewNotes.java");
+        Files.createDirectories(file.getParent());
+        Files.writeString(file, """
+                class ReviewNotes {
+                    String value = "Clarifying question";
+                }
+                """);
+
+        ToolResult result = service.executeContextTool(tempDir, "rg",
+                List.of("clarifying", "src", "-in"));
+
+        assertThat(result.success()).isTrue();
+        assertThat(result.output()).contains("src/ReviewNotes.java:2:     String value = \"Clarifying question\";");
+    }
+
+    @Test
+    void executeContextTool_rg_supportsIncludeGlobAndListFilesMode() throws IOException {
+        Files.createDirectories(tempDir.resolve("src"));
+        Files.writeString(tempDir.resolve("src/BotWebhookService.java"), "class BotWebhookService { String author = \"tom\"; }");
+        Files.writeString(tempDir.resolve("src/notes.txt"), "author mention in text file");
+
+        ToolResult result = service.executeContextTool(tempDir, "rg",
+                List.of("author", "src", "--include=*.java", "-l"));
+
+        assertThat(result.success()).isTrue();
+        assertThat(result.output()).isEqualTo("src/BotWebhookService.java");
+    }
+
+    @Test
     void executeContextTool_find_matchesGlobPattern() throws IOException {
         Files.createDirectories(tempDir.resolve("src"));
         Files.writeString(tempDir.resolve("src/app.yml"), "name: app");
@@ -98,6 +147,32 @@ class ToolExecutionServiceTest {
 
         assertThat(result.success()).isTrue();
         assertThat(result.output()).contains("src/app.yml");
+    }
+
+    @Test
+    void executeContextTool_find_supportsShellStyleNameSyntax() throws IOException {
+        Files.createDirectories(tempDir.resolve("src/main/java/org/example"));
+        Files.writeString(tempDir.resolve("src/main/java/org/example/BotWebhookService.java"), "class BotWebhookService {}");
+        Files.writeString(tempDir.resolve("src/main/java/org/example/BotWebhookService.txt"), "text");
+
+        ToolResult result = service.executeContextTool(tempDir, "find",
+                List.of("src/main/java", "-name", "BotWebhookService.java"));
+
+        assertThat(result.success()).isTrue();
+        assertThat(result.output()).isEqualTo("src/main/java/org/example/BotWebhookService.java");
+    }
+
+    @Test
+    void executeContextTool_find_supportsIncludeGlobAlongsideNameSyntax() throws IOException {
+        Files.createDirectories(tempDir.resolve("src/main/java/org/example"));
+        Files.writeString(tempDir.resolve("src/main/java/org/example/BotWebhookService.java"), "class BotWebhookService {}");
+        Files.writeString(tempDir.resolve("src/main/java/org/example/BotWebhookService.kt"), "class BotWebhookService");
+
+        ToolResult result = service.executeContextTool(tempDir, "find",
+                List.of("src/main/java/org/example", "--include=*.java", "-name", "BotWebhookService.*"));
+
+        assertThat(result.success()).isTrue();
+        assertThat(result.output()).isEqualTo("src/main/java/org/example/BotWebhookService.java");
     }
 
     // ---- File tool tests ----

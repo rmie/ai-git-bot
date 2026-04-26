@@ -12,10 +12,10 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
 import java.util.stream.Stream;
@@ -154,7 +154,7 @@ public class ToolExecutionService {
 
         return switch (normalizedTool) {
             // Support both names because models often ask for either `rg` or `ripgrep`.
-            case "rg", "ripgrep", "grep" -> executeSearchTool(workspaceDir, arguments);
+            case "rg", "ripgrep", "grep" -> executeSearchTool(workspaceDir, normalizedTool, arguments);
             case "find" -> executeFindTool(workspaceDir, arguments);
             case "cat" -> executeCatTool(workspaceDir, arguments);
             case "git-log" -> executeGitLogTool(workspaceDir, arguments);
@@ -387,13 +387,14 @@ public class ToolExecutionService {
         }
     }
 
-    private ToolResult executeSearchTool(Path workspaceDir, List<String> arguments) {
+    private ToolResult executeSearchTool(Path workspaceDir, String tool, List<String> arguments) {
         if (arguments == null || arguments.isEmpty()) {
             return new ToolResult(false, -1, "", "Search tool requires at least a pattern argument");
         }
 
-        String patternText = arguments.getFirst();
-        String relativePath = arguments.size() > 1 ? arguments.get(1) : ".";
+        SearchRequest searchRequest = parseSearchRequest(arguments);
+        String patternText = searchRequest.patternText();
+        String relativePath = searchRequest.relativePath();
         Path basePath;
         try {
             basePath = resolveWorkspacePath(workspaceDir, relativePath);
@@ -407,36 +408,20 @@ public class ToolExecutionService {
 
         Pattern compiledPattern;
         try {
-            compiledPattern = Pattern.compile(patternText);
+            compiledPattern = compileSearchPattern(patternText, searchRequest);
         } catch (PatternSyntaxException e) {
-            compiledPattern = Pattern.compile(Pattern.quote(patternText));
+            compiledPattern = Pattern.compile(Pattern.quote(patternText), searchRequest.regexFlags());
         }
-        final Pattern pattern = compiledPattern;
 
-        List<String> matches = new ArrayList<>();
-        try (Stream<Path> stream = Files.walk(basePath, MAX_SEARCH_DEPTH)) {
-            List<Path> files = stream
-                    .filter(Files::isRegularFile)
-                    .filter(this::isReasonableTextFile)
-                    .sorted()
-                    .toList();
-
-            AtomicBoolean limitReached = new AtomicBoolean(false);
-            for (Path file : files) {
-                AtomicInteger lineNumber = new AtomicInteger(0);
-                try (Stream<String> lines = Files.lines(file, StandardCharsets.UTF_8)) {
-                    lines.forEachOrdered(line -> {
-                        int currentLine = lineNumber.incrementAndGet();
-                        if (!limitReached.get() && pattern.matcher(line).find()) {
-                            matches.add(workspaceDir.relativize(file) + ":" + currentLine + ": " + line);
-                            if (matches.size() >= MAX_SEARCH_MATCHES) {
-                                limitReached.set(true);
-                            }
-                        }
-                    });
-                }
-                if (limitReached.get()) {
-                    return new ToolResult(true, 0, truncateOutput(String.join("\n", matches)), "");
+        List<String> matches;
+        try {
+            matches = findMatches(workspaceDir, basePath, compiledPattern, searchRequest);
+            if (matches.isEmpty() && shouldRetryWithUnescapedAlternation(tool, patternText, searchRequest)) {
+                String normalizedPatternText = patternText.replace("\\|", "|");
+                Pattern normalizedPattern = compileSearchPattern(normalizedPatternText, searchRequest);
+                matches = findMatches(workspaceDir, basePath, normalizedPattern, searchRequest);
+                if (!matches.isEmpty()) {
+                    patternText = normalizedPatternText;
                 }
             }
         } catch (IOException e) {
@@ -449,13 +434,123 @@ public class ToolExecutionService {
         return new ToolResult(true, 0, truncateOutput(output), "");
     }
 
+    private Pattern compileSearchPattern(String patternText, SearchRequest searchRequest) {
+        if (searchRequest.fixedString()) {
+            return Pattern.compile(Pattern.quote(patternText), searchRequest.regexFlags());
+        }
+        return Pattern.compile(patternText, searchRequest.regexFlags());
+    }
+
+    private List<String> findMatches(Path workspaceDir, Path basePath,
+                                     Pattern pattern, SearchRequest searchRequest) throws IOException {
+        List<String> matches = new ArrayList<>();
+        try (Stream<Path> stream = Files.walk(basePath, MAX_SEARCH_DEPTH)) {
+            List<Path> files = stream
+                    .filter(Files::isRegularFile)
+                    .filter(this::isReasonableTextFile)
+                    .sorted()
+                    .toList();
+
+            for (Path file : files) {
+                String relativeFilePath = workspaceDir.relativize(file).toString();
+                if (!matchesAnyGlob(relativeFilePath, searchRequest.includeGlobs(), searchRequest.caseInsensitive())) {
+                    continue;
+                }
+
+                List<String> lines = Files.readAllLines(file, StandardCharsets.UTF_8);
+                for (int i = 0; i < lines.size(); i++) {
+                    String line = lines.get(i);
+                    if (!pattern.matcher(line).find()) {
+                        continue;
+                    }
+                    if (searchRequest.filesOnly()) {
+                        matches.add(relativeFilePath);
+                        break;
+                    }
+                    matches.add(relativeFilePath + ":" + (i + 1) + ": " + line);
+                    if (matches.size() >= MAX_SEARCH_MATCHES) {
+                        return matches;
+                    }
+                }
+                if (searchRequest.filesOnly() && matches.size() >= MAX_SEARCH_MATCHES) {
+                    return matches;
+                }
+            }
+        }
+        return matches;
+    }
+
+    private boolean shouldRetryWithUnescapedAlternation(String tool, String patternText, SearchRequest searchRequest) {
+        if (searchRequest.fixedString()) {
+            return false;
+        }
+        if (!("rg".equals(tool) || "ripgrep".equals(tool) || "grep".equals(tool))) {
+            return false;
+        }
+        return patternText.contains("\\|");
+    }
+
+    private SearchRequest parseSearchRequest(List<String> arguments) {
+        String patternText = arguments.getFirst();
+        String relativePath = ".";
+        Set<Character> flags = new LinkedHashSet<>();
+        List<String> includeGlobs = new ArrayList<>();
+
+        for (int i = 1; i < arguments.size(); i++) {
+            String argument = arguments.get(i);
+            if (argument == null || argument.isBlank()) {
+                continue;
+            }
+            if (argument.startsWith("--include=")) {
+                includeGlobs.add(argument.substring("--include=".length()));
+                continue;
+            }
+            if (argument.startsWith("--glob=")) {
+                includeGlobs.add(argument.substring("--glob=".length()));
+                continue;
+            }
+            if ("--glob".equals(argument) || "-g".equals(argument)) {
+                if (i + 1 < arguments.size()) {
+                    includeGlobs.add(arguments.get(++i));
+                }
+                continue;
+            }
+            if (argument.startsWith("-") && argument.length() > 1) {
+                for (int j = 1; j < argument.length(); j++) {
+                    flags.add(argument.charAt(j));
+                }
+                continue;
+            }
+            if (".".equals(relativePath)) {
+                relativePath = argument;
+            }
+        }
+
+        int regexFlags = flags.contains('i') ? Pattern.CASE_INSENSITIVE : 0;
+        boolean fixedString = flags.contains('F');
+        boolean filesOnly = flags.contains('l');
+        boolean caseInsensitive = flags.contains('i');
+        return new SearchRequest(patternText, relativePath, regexFlags, fixedString, filesOnly,
+                caseInsensitive, includeGlobs);
+    }
+
+    private record SearchRequest(String patternText, String relativePath, int regexFlags,
+                                 boolean fixedString, boolean filesOnly,
+                                 boolean caseInsensitive, List<String> includeGlobs) {
+    }
+
     private ToolResult executeFindTool(Path workspaceDir, List<String> arguments) {
         if (arguments == null || arguments.isEmpty()) {
             return new ToolResult(false, -1, "", "find requires a glob pattern");
         }
 
-        String globPattern = arguments.getFirst();
-        String relativePath = arguments.size() > 1 ? arguments.get(1) : ".";
+        FindRequest request = parseFindRequest(arguments);
+        if (request.globPattern() == null || request.globPattern().isBlank()) {
+            return new ToolResult(false, -1, "", "find requires a glob pattern");
+        }
+
+        String globPattern = request.globPattern();
+        String relativePath = request.relativePath();
         Path basePath;
         try {
             basePath = resolveWorkspacePath(workspaceDir, relativePath);
@@ -470,10 +565,12 @@ public class ToolExecutionService {
         try (Stream<Path> stream = Files.walk(basePath)) {
             List<String> matches = stream
                     .filter(path -> !path.equals(basePath))
+                    .filter(Files::isRegularFile)
                     .sorted()
                     .map(workspaceDir::relativize)
                     .map(Path::toString)
-                    .filter(path -> matchesGlob(path, globPattern))
+                    .filter(path -> matchesGlob(path, globPattern, request.caseInsensitive()))
+                    .filter(path -> matchesAnyGlob(path, request.includeGlobs(), request.caseInsensitive()))
                     .toList();
 
             String output = matches.isEmpty()
@@ -483,6 +580,69 @@ public class ToolExecutionService {
         } catch (IOException e) {
             return new ToolResult(false, -1, "", "find failed: " + e.getMessage());
         }
+    }
+
+    private FindRequest parseFindRequest(List<String> arguments) {
+        String relativePath = ".";
+        String globPattern = null;
+        boolean caseInsensitive = false;
+        List<String> includeGlobs = new ArrayList<>();
+        List<String> positionalArgs = new ArrayList<>();
+
+        for (int i = 0; i < arguments.size(); i++) {
+            String argument = arguments.get(i);
+            if (argument == null || argument.isBlank()) {
+                continue;
+            }
+            if (argument.startsWith("--include=")) {
+                includeGlobs.add(argument.substring("--include=".length()));
+                continue;
+            }
+            if (argument.startsWith("--glob=")) {
+                includeGlobs.add(argument.substring("--glob=".length()));
+                continue;
+            }
+            if ("--glob".equals(argument) || "-g".equals(argument)) {
+                if (i + 1 < arguments.size()) {
+                    includeGlobs.add(arguments.get(++i));
+                }
+                continue;
+            }
+            if ("-name".equals(argument) || "-iname".equals(argument)) {
+                caseInsensitive = "-iname".equals(argument);
+                if (i + 1 < arguments.size()) {
+                    globPattern = arguments.get(++i);
+                }
+                continue;
+            }
+            if ("-type".equals(argument)) {
+                if (i + 1 < arguments.size()) {
+                    i++;
+                }
+                continue;
+            }
+            if (argument.startsWith("-")) {
+                continue;
+            }
+            positionalArgs.add(argument);
+        }
+
+        if (globPattern != null) {
+            if (!positionalArgs.isEmpty()) {
+                relativePath = positionalArgs.getFirst();
+            }
+        } else if (positionalArgs.size() >= 2) {
+            globPattern = positionalArgs.getFirst();
+            relativePath = positionalArgs.get(1);
+        } else if (positionalArgs.size() == 1) {
+            globPattern = positionalArgs.getFirst();
+        }
+
+        return new FindRequest(relativePath, globPattern, caseInsensitive, includeGlobs);
+    }
+
+    private record FindRequest(String relativePath, String globPattern,
+                               boolean caseInsensitive, List<String> includeGlobs) {
     }
 
     private ToolResult executeCatTool(Path workspaceDir, List<String> arguments) {
@@ -633,9 +793,24 @@ public class ToolExecutionService {
         return indent + name;
     }
 
+    private boolean matchesAnyGlob(String path, List<String> globPatterns, boolean caseInsensitive) {
+        if (globPatterns == null || globPatterns.isEmpty()) {
+            return true;
+        }
+        return globPatterns.stream().anyMatch(glob -> matchesGlob(path, glob, caseInsensitive));
+    }
+
     private boolean matchesGlob(String path, String globPattern) {
+        return matchesGlob(path, globPattern, false);
+    }
+
+    private boolean matchesGlob(String path, String globPattern, boolean caseInsensitive) {
         String normalizedPath = path.replace('\\', '/');
         String normalizedPattern = globPattern.replace('\\', '/');
+        if (caseInsensitive) {
+            normalizedPath = normalizedPath.toLowerCase();
+            normalizedPattern = normalizedPattern.toLowerCase();
+        }
         if (!normalizedPattern.contains("/")) {
             return Path.of(normalizedPath).getFileName().toString().matches(globToRegex(normalizedPattern));
         }

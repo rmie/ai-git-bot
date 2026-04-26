@@ -153,6 +153,26 @@ class IssueImplementationServiceTest {
     }
 
     @Test
+    void handleIssueAssigned_unhandledFailure_postsUnifiedInternalErrorComment() {
+        WebhookPayload payload = createIssuePayload();
+
+        when(repositoryClient.getDefaultBranch("testowner", "testrepo")).thenReturn("main");
+        when(repositoryClient.getRepositoryTree("testowner", "testrepo", "main"))
+                .thenReturn(List.of(Map.of("type", "blob", "path", "README.md")));
+        when(promptService.getSystemPrompt("agent")).thenReturn("You are an agent");
+        when(workspaceService.prepareWorkspace(eq("testowner"), eq("testrepo"), eq("main"),
+                isNull(), isNull()))
+                .thenReturn(WorkspaceResult.success(FAKE_WORKSPACE));
+        when(aiClient.chat(anyList(), anyString(), anyString(), isNull(), anyInt()))
+                .thenThrow(new RuntimeException("simulated coding failure"));
+
+        service.handleIssueAssigned(payload);
+
+        verify(repositoryClient, atLeastOnce()).postComment(eq("testowner"), eq("testrepo"), eq(42L),
+                contains("I hit an internal error while processing this request: `simulated coding failure`"));
+    }
+
+    @Test
     void handleIssueAssigned_contextRequestsBranchSwitcher_usesSwitchedBaseBranch() {
         WebhookPayload payload = createIssuePayload();
 
@@ -551,6 +571,31 @@ class IssueImplementationServiceTest {
 
         verify(repositoryClient).getFileContent("testowner", "testrepo", "README.md", "ai-agent/issue-42");
         verify(repositoryClient, never()).getFileContent("testowner", "testrepo", "README.md", "main");
+    }
+
+    @Test
+    void handleIssueComment_unhandledFailure_postsUnifiedInternalErrorComment() {
+        WebhookPayload payload = createCommentPayload("Please continue");
+
+        AgentSession session = new AgentSession("testowner", "testrepo", 42L, "Add new feature X");
+        session.setBranchName("ai-agent/issue-42");
+        session.setPrNumber(1L);
+        session.setStatus(AgentSession.AgentSessionStatus.PR_CREATED);
+
+        when(sessionService.getSessionByIssue("testowner", "testrepo", 42L))
+                .thenReturn(Optional.of(session));
+        when(repositoryClient.getDefaultBranch("testowner", "testrepo")).thenReturn("main");
+        when(promptService.getSystemPrompt("agent")).thenReturn("You are an agent");
+        when(workspaceService.prepareWorkspace(eq("testowner"), eq("testrepo"), eq("ai-agent/issue-42"),
+                isNull(), isNull()))
+                .thenReturn(WorkspaceResult.success(FAKE_WORKSPACE));
+        when(aiClient.chat(anyList(), anyString(), anyString(), isNull(), anyInt()))
+                .thenThrow(new RuntimeException("follow-up coding failure"));
+
+        service.handleIssueComment(payload);
+
+        verify(repositoryClient).postComment(eq("testowner"), eq("testrepo"), eq(42L),
+                contains("I hit an internal error while processing this request: `follow-up coding failure`"));
     }
 
     // ---- helpers ----

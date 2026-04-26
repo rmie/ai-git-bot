@@ -170,6 +170,43 @@ class BotWebhookServiceTest {
     }
 
     @Test
+    void writerBot_assignedToIssueCreatesImprovedIssueWhenAiAddsIntroTextBeforeJson() {
+        Bot bot = createBot("writer", "writer_bot", false);
+        bot.setBotType(BotType.WRITER);
+        WebhookPayload payload = buildIssuePayload("Test", "my-repo", 12L, "Vague issue", "Do something");
+        AgentSession session = new AgentSession("Test", "my-repo", 12L, "Vague issue");
+
+        when(giteaClientFactory.getApiClient(any())).thenReturn(repositoryApiClient);
+        when(aiClientFactory.getClient(any())).thenReturn(aiClient);
+        when(agentSessionService.getSessionByIssue("Test", "my-repo", 12L)).thenReturn(Optional.empty());
+        when(repositoryApiClient.getIssueDetails("Test", "my-repo", 12L))
+                .thenReturn(java.util.Map.of("user", java.util.Map.of("login", "tom")));
+        when(agentSessionService.createSession("Test", "my-repo", 12L, "Vague issue",
+                AgentSession.AgentSessionType.WRITER, "tom")).thenReturn(session);
+        when(repositoryApiClient.getDefaultBranch("Test", "my-repo")).thenReturn("main");
+        when(workspaceService.prepareWorkspace(eq("Test"), eq("my-repo"), eq("main"), any(), any()))
+                .thenReturn(WorkspaceResult.success(Path.of("/tmp/writer-test-workspace")));
+        when(repositoryApiClient.getRepositoryTree("Test", "my-repo", "main")).thenReturn(java.util.List.of());
+        when(agentSessionService.toAiMessages(session)).thenReturn(java.util.List.of());
+        when(agentConfig.getMaxTokens()).thenReturn(4096);
+        when(aiClient.chat(any(), any(), eq("Writer prompt"), any(), eq(4096))).thenReturn("""
+                Now I have enough context. Let me look at the exact filtering logic in the webhook handlers.
+
+                {"qualityAssessment":"Missing acceptance criteria","revisedIssueDraft":"## Goal\\nDo something testable","assumptions":[],"openQuestions":[],"readyToCreate":true}
+                """);
+        when(repositoryApiClient.createIssue(eq("Test"), eq("my-repo"), eq("AI Created Issue: Vague issue"), any()))
+                .thenReturn(99L);
+
+        botWebhookService.handleIssueAssigned(bot, payload);
+
+        verify(repositoryApiClient).createIssue(eq("Test"), eq("my-repo"),
+                eq("AI Created Issue: Vague issue"), org.mockito.ArgumentMatchers.contains("Originates from #12"));
+        verify(repositoryApiClient, never()).postComment(eq("Test"), eq("my-repo"), eq(12L),
+                org.mockito.ArgumentMatchers.contains("I need the issue author to answer these questions"));
+        verify(agentSessionService).setGeneratedIssueNumber(session, 99L);
+    }
+
+    @Test
     void writerBot_concurrentAssignmentDuplicateSessionDoesNotStartSecondAgent() {
         Bot bot = createBot("writer", "writer_bot", false);
         bot.setBotType(BotType.WRITER);
@@ -312,6 +349,36 @@ class BotWebhookServiceTest {
     }
 
     @Test
+    void writerBot_assignmentFailurePostsVisibleErrorComment() {
+        Bot bot = createBot("writer", "writer_bot", false);
+        bot.setBotType(BotType.WRITER);
+        WebhookPayload payload = buildIssuePayload("Test", "my-repo", 12L, "Vague issue", "Do something");
+        AgentSession session = new AgentSession("Test", "my-repo", 12L, "Vague issue");
+
+        when(giteaClientFactory.getApiClient(any())).thenReturn(repositoryApiClient);
+        when(aiClientFactory.getClient(any())).thenReturn(aiClient);
+        when(agentSessionService.getSessionByIssue("Test", "my-repo", 12L)).thenReturn(Optional.empty());
+        when(repositoryApiClient.getIssueDetails("Test", "my-repo", 12L))
+                .thenReturn(java.util.Map.of("user", java.util.Map.of("login", "tom")));
+        when(agentSessionService.createSession("Test", "my-repo", 12L, "Vague issue",
+                AgentSession.AgentSessionType.WRITER, "tom")).thenReturn(session);
+        when(repositoryApiClient.getDefaultBranch("Test", "my-repo")).thenReturn("main");
+        when(workspaceService.prepareWorkspace(eq("Test"), eq("my-repo"), eq("main"), any(), any()))
+                .thenReturn(WorkspaceResult.success(Path.of("/tmp/writer-test-workspace")));
+        when(repositoryApiClient.getRepositoryTree("Test", "my-repo", "main")).thenReturn(java.util.List.of());
+        when(agentSessionService.toAiMessages(session)).thenReturn(java.util.List.of());
+        when(agentConfig.getMaxTokens()).thenReturn(4096);
+        when(aiClient.chat(any(), any(), eq("Writer prompt"), any(), eq(4096)))
+                .thenThrow(new RuntimeException("simulated loop failure"));
+
+        botWebhookService.handleIssueAssigned(bot, payload);
+
+        verify(agentSessionService).setStatus(session, AgentSession.AgentSessionStatus.FAILED);
+        verify(repositoryApiClient).postComment(eq("Test"), eq("my-repo"), eq(12L),
+                org.mockito.ArgumentMatchers.contains("simulated loop failure"));
+    }
+
+    @Test
     void writerBot_clarifyingQuestionsResetSessionToWaiting() {
         Bot bot = createBot("writer", "writer_bot", false);
         bot.setBotType(BotType.WRITER);
@@ -368,7 +435,8 @@ class BotWebhookServiceTest {
         when(agentSessionService.toAiMessages(session)).thenReturn(java.util.List.of());
         when(agentConfig.getMaxTokens()).thenReturn(4096);
         when(aiClient.chat(any(), any(), eq("Writer prompt"), any(), eq(4096)))
-                .thenReturn(contextRequest, contextRequest, contextRequest, contextRequest);
+                .thenReturn(contextRequest, contextRequest, contextRequest,
+                        contextRequest, contextRequest, contextRequest);
         when(toolExecutionService.isContextTool("cat")).thenReturn(true);
         when(toolExecutionService.executeContextTool(workspace, "cat", java.util.List.of("README.md")))
                 .thenReturn(new ToolResult(true, 0, "README contents", ""));
@@ -379,6 +447,79 @@ class BotWebhookServiceTest {
         verify(repositoryApiClient).postComment(eq("Test"), eq("my-repo"), eq(12L),
                 org.mockito.ArgumentMatchers.contains("I need more context"));
         verify(repositoryApiClient, never()).createIssue(any(), any(), any(), any());
+    }
+
+    @Test
+    void writerBot_canContinueThroughFourContextRoundsBeforeCreatingIssue() {
+        Bot bot = createBot("writer", "writer_bot", false);
+        bot.setBotType(BotType.WRITER);
+        WebhookPayload payload = buildIssuePayload("Test", "my-repo", 12L, "Vague issue", "Do something");
+        AgentSession session = new AgentSession("Test", "my-repo", 12L, "Vague issue");
+        Path workspace = Path.of("/tmp/writer-test-workspace");
+        String contextRequest = """
+                {"qualityAssessment":"Needs context","requestTools":[{"id":"1","tool":"cat","args":["README.md"]}],"readyToCreate":false}
+                """;
+        String finalResponse = """
+                {"qualityAssessment":"Ready","revisedIssueDraft":"## Goal\\nDo something testable","assumptions":[],"openQuestions":[],"readyToCreate":true}
+                """;
+
+        when(giteaClientFactory.getApiClient(any())).thenReturn(repositoryApiClient);
+        when(aiClientFactory.getClient(any())).thenReturn(aiClient);
+        when(agentSessionService.getSessionByIssue("Test", "my-repo", 12L)).thenReturn(Optional.empty());
+        when(repositoryApiClient.getIssueDetails("Test", "my-repo", 12L))
+                .thenReturn(java.util.Map.of("user", java.util.Map.of("login", "tom")));
+        when(agentSessionService.createSession("Test", "my-repo", 12L, "Vague issue",
+                AgentSession.AgentSessionType.WRITER, "tom")).thenReturn(session);
+        when(repositoryApiClient.getDefaultBranch("Test", "my-repo")).thenReturn("main");
+        when(workspaceService.prepareWorkspace(eq("Test"), eq("my-repo"), eq("main"), any(), any()))
+                .thenReturn(WorkspaceResult.success(workspace));
+        when(repositoryApiClient.getRepositoryTree("Test", "my-repo", "main")).thenReturn(java.util.List.of());
+        when(agentSessionService.toAiMessages(session)).thenReturn(java.util.List.of());
+        when(agentConfig.getMaxTokens()).thenReturn(4096);
+        when(aiClient.chat(any(), any(), eq("Writer prompt"), any(), eq(4096)))
+                .thenReturn(contextRequest, contextRequest, contextRequest, contextRequest, finalResponse);
+        when(toolExecutionService.isContextTool("cat")).thenReturn(true);
+        when(toolExecutionService.executeContextTool(workspace, "cat", java.util.List.of("README.md")))
+                .thenReturn(new ToolResult(true, 0, "README contents", ""));
+        when(repositoryApiClient.createIssue(eq("Test"), eq("my-repo"), eq("AI Created Issue: Vague issue"), any()))
+                .thenReturn(99L);
+
+        botWebhookService.handleIssueAssigned(bot, payload);
+
+        verify(repositoryApiClient).createIssue(eq("Test"), eq("my-repo"),
+                eq("AI Created Issue: Vague issue"), org.mockito.ArgumentMatchers.contains("Originates from #12"));
+        verify(repositoryApiClient, never()).postComment(eq("Test"), eq("my-repo"), eq(12L),
+                org.mockito.ArgumentMatchers.contains("I need more context"));
+    }
+
+    @Test
+    void writerBot_followUpFailurePostsVisibleErrorCommentAndResetsSession() {
+        Bot bot = createBot("writer", "writer_bot", false);
+        bot.setBotType(BotType.WRITER);
+        WebhookPayload payload = buildIssueCommentPayload("Test", "my-repo", 12L,
+                "Vague issue", "Do something", "tom", "More details");
+        AgentSession session = new AgentSession("Test", "my-repo", 12L, "Vague issue");
+        session.setSessionType(AgentSession.AgentSessionType.WRITER);
+        session.setIssueAuthorUsername("tom");
+
+        when(giteaClientFactory.getApiClient(any())).thenReturn(repositoryApiClient);
+        when(aiClientFactory.getClient(any())).thenReturn(aiClient);
+        when(agentSessionService.getSessionByIssue("Test", "my-repo", 12L)).thenReturn(Optional.of(session));
+        when(agentSessionService.claimSessionForUpdate("Test", "my-repo", 12L,
+                AgentSession.AgentSessionType.WRITER)).thenReturn(Optional.of(session));
+        when(repositoryApiClient.getDefaultBranch("Test", "my-repo")).thenReturn("main");
+        when(workspaceService.prepareWorkspace(eq("Test"), eq("my-repo"), eq("main"), any(), any()))
+                .thenReturn(WorkspaceResult.success(Path.of("/tmp/writer-test-workspace")));
+        when(agentSessionService.toAiMessages(session)).thenReturn(java.util.List.of());
+        when(agentConfig.getMaxTokens()).thenReturn(4096);
+        when(aiClient.chat(any(), any(), eq("Writer prompt"), any(), eq(4096)))
+                .thenThrow(new RuntimeException("follow-up failure"));
+
+        botWebhookService.handleIssueComment(bot, payload);
+
+        verify(agentSessionService).setStatus(session, AgentSession.AgentSessionStatus.IN_PROGRESS);
+        verify(repositoryApiClient).postComment(eq("Test"), eq("my-repo"), eq(12L),
+                org.mockito.ArgumentMatchers.contains("follow-up failure"));
     }
 
     @Nested
