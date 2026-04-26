@@ -1,6 +1,7 @@
 package org.remus.giteabot.systemsettings;
 
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.*;
@@ -87,13 +88,13 @@ public class SystemSettingsController {
 
     @GetMapping("/system-prompts/{id}/preview")
     @ResponseBody
-    public Map<String, String> preview(@PathVariable Long id) {
-        SystemPrompt systemPrompt = systemPromptService.findById(id)
-                .orElseThrow(() -> new IllegalArgumentException("System prompt not found"));
-        return Map.of(
-                "name", systemPrompt.getName(),
-                "reviewSystemPrompt", systemPrompt.getReviewSystemPrompt(),
-                "issueAgentSystemPrompt", systemPrompt.getIssueAgentSystemPrompt());
+    public ResponseEntity<Map<String, String>> preview(@PathVariable Long id) {
+        return systemPromptService.findById(id)
+                .map(systemPrompt -> ResponseEntity.ok(Map.of(
+                        "name", systemPrompt.getName(),
+                        "reviewSystemPrompt", systemPrompt.getReviewSystemPrompt(),
+                        "issueAgentSystemPrompt", systemPrompt.getIssueAgentSystemPrompt())))
+                .orElseGet(() -> ResponseEntity.notFound().build());
     }
 
     @PostMapping("/system-prompts/{id}/delete")

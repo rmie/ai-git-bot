@@ -241,8 +241,12 @@ public class BotWebhookService {
         if (bot.getSystemPrompt() == null) {
             throw new IllegalStateException("Bot must have a system prompt assigned");
         }
+        if (bot.getSystemPrompt().getId() == null) {
+            throw new IllegalStateException("Bot system prompt must be persisted");
+        }
+        String systemPromptKey = "system-prompt:" + bot.getSystemPrompt().getId();
         return new CodeReviewService(repoClient, aiClient, sessionService, bot.getUsername(),
-                reviewConfig, bot.getSystemPrompt().getReviewSystemPrompt());
+                reviewConfig, systemPromptKey, bot.getSystemPrompt().getReviewSystemPrompt());
     }
 
     /**

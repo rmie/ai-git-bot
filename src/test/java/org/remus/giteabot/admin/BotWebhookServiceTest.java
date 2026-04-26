@@ -189,7 +189,7 @@ class BotWebhookServiceTest {
             botWebhookService.handlePrComment(createBot("bot", "claude_bot", true), prCommentPayload);
 
             // Review path: SessionService.getOrCreateSession must be called
-            verify(sessionService).getOrCreateSession(OWNER, REPO, PR_NUMBER, null);
+            verify(sessionService).getOrCreateSession(OWNER, REPO, PR_NUMBER, "system-prompt:1");
             // Agent path's setStatus must NOT be called
             verify(agentSessionService, never()).setStatus(any(), any());
         }
@@ -203,7 +203,7 @@ class BotWebhookServiceTest {
             // bot.isAgentEnabled() = false
             botWebhookService.handlePrComment(createBot("bot", "claude_bot", false), prCommentPayload);
 
-            verify(sessionService).getOrCreateSession(OWNER, REPO, PR_NUMBER, null);
+            verify(sessionService).getOrCreateSession(OWNER, REPO, PR_NUMBER, "system-prompt:1");
             verify(agentSessionService, never()).setStatus(any(), any());
         }
 
@@ -244,6 +244,7 @@ class BotWebhookServiceTest {
         bot.setUsername(username);
         bot.setAgentEnabled(agentEnabled);
         SystemPrompt systemPrompt = new SystemPrompt();
+        systemPrompt.setId(1L);
         systemPrompt.setReviewSystemPrompt("Review prompt");
         systemPrompt.setIssueAgentSystemPrompt("Agent prompt");
         bot.setSystemPrompt(systemPrompt);
@@ -320,4 +321,3 @@ class BotWebhookServiceTest {
         return payload;
     }
 }
-

@@ -46,13 +46,14 @@ class CodeReviewServiceTest {
     private SessionService sessionService;
 
     private static final String TEST_PROMPT = "test prompt";
+    private static final String SESSION_PROMPT_KEY = "system-prompt:1";
 
     private CodeReviewService codeReviewService;
 
     @BeforeEach
     void setUp() {
         codeReviewService = new CodeReviewService(repositoryClient, aiClient,
-                sessionService, "ai_bot", new ReviewConfigProperties(), TEST_PROMPT);
+                sessionService, "ai_bot", new ReviewConfigProperties(), SESSION_PROMPT_KEY, TEST_PROMPT);
     }
 
     @Test
@@ -60,7 +61,7 @@ class CodeReviewServiceTest {
         WebhookPayload payload = createTestPayload();
         ReviewSession session = new ReviewSession("testowner", "testrepo", 1L, null);
 
-        when(sessionService.getOrCreateSession("testowner", "testrepo", 1L, null)).thenReturn(session);
+        when(sessionService.getOrCreateSession("testowner", "testrepo", 1L, SESSION_PROMPT_KEY)).thenReturn(session);
         when(sessionService.addMessage(any(), anyString(), anyString())).thenReturn(session);
         when(repositoryClient.getPullRequestDiff("testowner", "testrepo", 1L))
                 .thenReturn("diff --git a/file.txt b/file.txt\n+new line");
@@ -72,7 +73,7 @@ class CodeReviewServiceTest {
 
         verify(repositoryClient).postReviewComment(
                 eq("testowner"), eq("testrepo"), eq(1L), contains("Looks good!"));
-        verify(sessionService).getOrCreateSession("testowner", "testrepo", 1L, null);
+        verify(sessionService).getOrCreateSession("testowner", "testrepo", 1L, SESSION_PROMPT_KEY);
         verify(sessionService, times(2)).addMessage(any(), anyString(), anyString());
     }
 
@@ -95,7 +96,7 @@ class CodeReviewServiceTest {
         WebhookPayload payload = createTestPayload();
         ReviewSession session = new ReviewSession("testowner", "testrepo", 1L, "security");
 
-        when(sessionService.getOrCreateSession("testowner", "testrepo", 1L, "security")).thenReturn(session);
+        when(sessionService.getOrCreateSession("testowner", "testrepo", 1L, SESSION_PROMPT_KEY)).thenReturn(session);
         when(sessionService.addMessage(any(), anyString(), anyString())).thenReturn(session);
         when(repositoryClient.getPullRequestDiff("testowner", "testrepo", 1L))
                 .thenReturn("diff --git a/file.txt b/file.txt\n+new line");
@@ -112,11 +113,11 @@ class CodeReviewServiceTest {
     @Test
     void reviewPullRequest_withConfiguredSystemPrompt_usesBotPrompt() {
         codeReviewService = new CodeReviewService(repositoryClient, aiClient,
-                sessionService, "ai_bot", new ReviewConfigProperties(), "Configured review prompt");
+                sessionService, "ai_bot", new ReviewConfigProperties(), SESSION_PROMPT_KEY, "Configured review prompt");
         WebhookPayload payload = createTestPayload();
         ReviewSession session = new ReviewSession("testowner", "testrepo", 1L, null);
 
-        when(sessionService.getOrCreateSession("testowner", "testrepo", 1L, null)).thenReturn(session);
+        when(sessionService.getOrCreateSession("testowner", "testrepo", 1L, SESSION_PROMPT_KEY)).thenReturn(session);
         when(sessionService.addMessage(any(), anyString(), anyString())).thenReturn(session);
         when(repositoryClient.getPullRequestDiff("testowner", "testrepo", 1L))
                 .thenReturn("diff --git a/file.txt b/file.txt\n+new line");
@@ -137,7 +138,7 @@ class CodeReviewServiceTest {
         session.addMessage("user", "Previous question");
         session.addMessage("assistant", "Previous answer");
 
-        when(sessionService.getOrCreateSession("testowner", "testrepo", 1L, null)).thenReturn(session);
+        when(sessionService.getOrCreateSession("testowner", "testrepo", 1L, SESSION_PROMPT_KEY)).thenReturn(session);
         when(sessionService.addMessage(any(), anyString(), anyString())).thenReturn(session);
         when(sessionService.toAiMessages(session)).thenReturn(List.of(
                 AiMessage.builder().role("user").content("Previous question").build(),
@@ -162,7 +163,7 @@ class CodeReviewServiceTest {
         session.addMessage("user", "Initial context");
         session.addMessage("assistant", "Initial review");
 
-        when(sessionService.getOrCreateSession("testowner", "testrepo", 1L, null)).thenReturn(session);
+        when(sessionService.getOrCreateSession("testowner", "testrepo", 1L, SESSION_PROMPT_KEY)).thenReturn(session);
         when(sessionService.addMessage(any(), anyString(), anyString())).thenReturn(session);
         when(sessionService.toAiMessages(session)).thenReturn(List.of(
                 AiMessage.builder().role("user").content("Initial context").build(),
@@ -211,7 +212,7 @@ class CodeReviewServiceTest {
         session.addMessage("user", "Initial context");
         session.addMessage("assistant", "Initial review");
 
-        when(sessionService.getOrCreateSession("testowner", "testrepo", 1L, null)).thenReturn(session);
+        when(sessionService.getOrCreateSession("testowner", "testrepo", 1L, SESSION_PROMPT_KEY)).thenReturn(session);
         when(sessionService.addMessage(any(), anyString(), anyString())).thenReturn(session);
         when(sessionService.toAiMessages(session)).thenReturn(List.of(
                 AiMessage.builder().role("user").content("Initial context").build(),
@@ -238,7 +239,7 @@ class CodeReviewServiceTest {
         session.addMessage("user", "Initial context");
         session.addMessage("assistant", "Initial review");
 
-        when(sessionService.getOrCreateSession("testowner", "testrepo", 1L, null)).thenReturn(session);
+        when(sessionService.getOrCreateSession("testowner", "testrepo", 1L, SESSION_PROMPT_KEY)).thenReturn(session);
         when(sessionService.addMessage(any(), anyString(), anyString())).thenReturn(session);
         when(sessionService.toAiMessages(session)).thenReturn(List.of(
                 AiMessage.builder().role("user").content("Initial context").build(),
@@ -297,7 +298,7 @@ class CodeReviewServiceTest {
         session.addMessage("user", "Initial context");
         session.addMessage("assistant", "Initial review");
 
-        when(sessionService.getOrCreateSession("testowner", "testrepo", 2L, null)).thenReturn(session);
+        when(sessionService.getOrCreateSession("testowner", "testrepo", 2L, SESSION_PROMPT_KEY)).thenReturn(session);
         when(sessionService.addMessage(any(), anyString(), anyString())).thenReturn(session);
         when(sessionService.toAiMessages(session)).thenReturn(List.of(
                 AiMessage.builder().role("user").content("Initial context").build(),

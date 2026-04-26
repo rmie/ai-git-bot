@@ -122,7 +122,7 @@ All AI provider and Git configuration is managed through the web interface:
 
 ## System Prompts
 
-System prompts are stored in the database and managed in **System settings → System prompts**. On migration, Flyway creates a default prompt entry from the bundled prompt files and assigns it to all existing bots.
+System prompts are stored in the database and managed in **System settings → System prompts**. On migration, Flyway creates a default prompt entry from the bundled prompt files and assigns it to all existing bots. The migration removes the legacy per-bot prompt column; copy any custom per-bot prompt text before upgrading if you need to recreate it as a reusable system prompt entry.
 
 The `prompts/` directory is still copied into the image as the source for default prompt content:
 

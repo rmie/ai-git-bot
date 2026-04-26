@@ -29,12 +29,16 @@ public class CodeReviewService {
     private final AiClient aiClient;
     private final SessionService sessionService;
     private final String botUsername;
+    private final String sessionPromptKey;
     private final String reviewSystemPrompt;
     private final PrContextEnricher contextEnricher;
 
     public CodeReviewService(RepositoryApiClient repositoryClient, AiClient aiClient,
                              SessionService sessionService, String botUsername, ReviewConfigProperties reviewConfig,
-                             String reviewSystemPrompt) {
+                             String sessionPromptKey, String reviewSystemPrompt) {
+        if (sessionPromptKey == null || sessionPromptKey.isBlank()) {
+            throw new IllegalArgumentException("Session prompt key is required");
+        }
         if (reviewSystemPrompt == null || reviewSystemPrompt.isBlank()) {
             throw new IllegalArgumentException("Review system prompt is required");
         }
@@ -42,6 +46,7 @@ public class CodeReviewService {
         this.aiClient = aiClient;
         this.sessionService = sessionService;
         this.botUsername = botUsername;
+        this.sessionPromptKey = sessionPromptKey;
         this.reviewSystemPrompt = reviewSystemPrompt;
         this.contextEnricher = new PrContextEnricher(repositoryClient, reviewConfig);
     }
@@ -68,7 +73,7 @@ public class CodeReviewService {
             String headRef = resolveHeadRef(payload);
             String additionalContext = gatherAdditionalContext(owner, repo, prNumber, diff, headRef, prBody);
 
-            ReviewSession session = sessionService.getOrCreateSession(owner, repo, prNumber, promptName);
+            ReviewSession session = sessionService.getOrCreateSession(owner, repo, prNumber, sessionPromptKey);
 
             String review;
             if (session.getMessages().isEmpty()) {
@@ -135,7 +140,7 @@ public class CodeReviewService {
             String systemPrompt = reviewSystemPrompt;
 
             // Get or create session
-            ReviewSession session = sessionService.getOrCreateSession(owner, repo, prNumber, promptName);
+            ReviewSession session = sessionService.getOrCreateSession(owner, repo, prNumber, sessionPromptKey);
 
             // If session is empty, add context from the PR
             if (session.getMessages().isEmpty()) {
@@ -223,7 +228,7 @@ public class CodeReviewService {
             String systemPrompt = reviewSystemPrompt;
 
             // Get or create session for conversation context
-            ReviewSession session = sessionService.getOrCreateSession(owner, repo, prNumber, promptName);
+            ReviewSession session = sessionService.getOrCreateSession(owner, repo, prNumber, sessionPromptKey);
 
             // If session is empty, add PR context
             if (session.getMessages().isEmpty()) {
@@ -358,7 +363,7 @@ public class CodeReviewService {
                     botMentionComments.size(), latestReview.getId(), prNumber);
 
             // Get or create session
-            ReviewSession session = sessionService.getOrCreateSession(owner, repo, prNumber, promptName);
+            ReviewSession session = sessionService.getOrCreateSession(owner, repo, prNumber, sessionPromptKey);
 
             // If session is empty, add PR context
             if (session.getMessages().isEmpty()) {
