@@ -1,6 +1,9 @@
 -- Add technical-writer bot configuration and session state.
 
-ALTER TABLE bots ADD COLUMN IF NOT EXISTS bot_type VARCHAR(32) NOT NULL DEFAULT 'CODING';
+ALTER TABLE bots ADD COLUMN IF NOT EXISTS bot_type VARCHAR(32);
+UPDATE bots SET bot_type = 'CODING' WHERE bot_type IS NULL;
+ALTER TABLE bots ALTER COLUMN bot_type SET DEFAULT 'CODING';
+ALTER TABLE bots ALTER COLUMN bot_type SET NOT NULL;
 ALTER TABLE agent_sessions ADD COLUMN IF NOT EXISTS generated_issue_number BIGINT;
 ALTER TABLE agent_sessions ADD COLUMN IF NOT EXISTS issue_author_username VARCHAR(255);
 ALTER TABLE agent_sessions ADD COLUMN IF NOT EXISTS session_type VARCHAR(32) NOT NULL DEFAULT 'CODING';

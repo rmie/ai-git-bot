@@ -138,6 +138,17 @@ class BotWebhookServiceTest {
     }
 
     @Test
+    void writerBot_ignoresPullRequestClosedEvent() {
+        Bot bot = createBot("writer", "writer_bot", false);
+        bot.setBotType(BotType.WRITER);
+
+        botWebhookService.handlePrClosed(bot, new WebhookPayload());
+
+        verify(aiClientFactory, never()).getClient(any());
+        verify(giteaClientFactory, never()).getApiClient(any());
+    }
+
+    @Test
     void writerBot_assignedToIssueCreatesImprovedIssueWhenReady() {
         Bot bot = createBot("writer", "writer_bot", false);
         bot.setBotType(BotType.WRITER);

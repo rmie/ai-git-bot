@@ -185,6 +185,7 @@ public class BotWebhookService {
      */
     public void handlePrClosed(Bot bot, WebhookPayload payload) {
         if (bot.getBotType() == BotType.WRITER) {
+            log.debug("[Bot '{}'] Writer bot ignores pull request closed event", bot.getName());
             return;
         }
         createCodeReviewService(bot).handlePrClosed(payload);
