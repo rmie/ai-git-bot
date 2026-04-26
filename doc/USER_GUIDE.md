@@ -4,6 +4,11 @@
 
 AI-Git-Bot is a **Gateway application** that provides a web-based management interface for creating and managing AI-powered code review bots. Each bot connects an AI provider (Anthropic, OpenAI, Ollama, or llama.cpp) with a Git provider (Gitea, GitHub, GitHub Enterprise, GitLab, or Bitbucket Cloud) and has its own unique webhook URL. The Gateway architecture allows you to manage multiple bots with different configurations across different Git platforms — all from a single dashboard.
 
+Besides classic pull-request review bots, AI-Git-Bot also supports **issue-based agent workflows**:
+
+- **Coding bots** can implement assigned issues and open pull requests.
+- **Writer bots** can improve vague issues into structured, implementation-ready follow-up issues.
+
 All AI and Git configuration is managed exclusively through the web UI and stored in the database. There are no environment variables for AI providers, Git connections, or bot usernames.
 
 ## Getting Started
@@ -157,7 +162,7 @@ Git Integrations define connections to Git providers. Navigate to **Git Integrat
 
 - Uses Basic authentication (`username:token`)
 - API endpoint is at `api.bitbucket.org/2.0`
-- Agent feature (issue implementation) is not available
+- Issue-based agent workflows (coding and writer) are not available
 - See [Bitbucket Setup](BITBUCKET_SETUP.md) for token creation instructions
 
 ### Managing Git Integrations
@@ -238,6 +243,20 @@ Writer bots are for creating first-class issue drafts:
 - If a coding-agent session already exists for the issue, the writer bot posts a notice asking users to clone the issue for a separate writer workflow.
 - When no critical questions remain, create a new issue titled with the `AI Created Issue:` prefix and link it back to the originating issue.
 
+### Using a Writer Bot End-to-End
+
+1. Create or select a **System Prompt** entry that contains a suitable **Writer-Agent System-Prompt**.
+2. Create a bot with **Bot Type = Writer bot**.
+3. Connect the bot to an AI integration and a Git integration that supports issue webhooks (**Gitea, GitHub, or GitLab**).
+4. Configure issue webhooks in the Git provider.
+5. Assign the writer bot to an issue you want to improve.
+6. Wait for one of two outcomes:
+   - the bot asks clarifying questions in the original issue, or
+   - the bot creates a new linked issue with the `AI Created Issue:` prefix.
+7. If clarifying questions are posted, answer them from the **original issue author account** so the writer session can continue.
+
+Writer bots use repository context in a read-only workspace. They do not modify repository files, do not run build tools, and do not open pull requests.
+
 ## System Prompt Entries
 
 System prompts are managed in **System settings → System prompts**. A prompt entry contains:
@@ -248,6 +267,42 @@ System prompts are managed in **System settings → System prompts**. A prompt e
 - **Writer-Agent System-Prompt**: Used when a writer bot improves assigned issues
 
 You can add, clone, edit, and delete prompt entries. The built-in **Default** entry is always present and cannot be deleted. It is initialized from `prompts/default.md` for reviews and `prompts/agent.md` for issue-agent work. A prompt entry cannot be deleted while one or more bots still use it; reassign those bots first.
+
+### Creating a Writer Prompt for Better Issue Drafts
+
+Use this when you want a prompt entry optimized for documentation-quality issue rewriting instead of code implementation:
+
+1. Open **System settings → System prompts**.
+2. Clone an existing prompt entry or create a new one.
+3. Give it a descriptive name such as `Technical Writer`, `Bug Triage Writer`, or `Product Requirements Writer`.
+4. Edit the **Writer-Agent System-Prompt** so it matches your desired writing style and review criteria.
+5. Keep the **Review System-Prompt** and **Issue-Agent System-Prompt** aligned with your coding-bot needs if the same prompt entry will be reused there.
+6. Save the prompt entry.
+7. Assign that prompt entry to a **Writer bot** under **Bots → New Bot** or **Bots → Edit**.
+
+Typical things to encode in a writer prompt:
+
+- your preferred issue template structure (`Summary`, `Current behavior`, `Expected behavior`, `Acceptance criteria`, `Open questions`)
+- whether the bot should optimize for bug reports, feature requests, or internal engineering tasks
+- naming conventions, product terminology, and domain vocabulary
+- how explicitly the bot should call out assumptions, contradictions, risks, and non-goals
+- how strict the bot should be about testability and acceptance criteria
+
+### Using a Writer Prompt in the System
+
+After saving the prompt entry:
+
+1. Create or edit a bot and choose **Bot Type = Writer bot**.
+2. Select the prompt entry in the **System Prompt** dropdown.
+3. Use **Preview** in the bot form to inspect the review, coding-agent, and writer-agent prompt texts before saving.
+4. Save the bot and configure its webhook URL in your Git provider.
+5. Assign the bot to issues that need rewriting or clarification.
+
+If you maintain separate personas, a common setup is:
+
+- one prompt entry for **code review + coding agent**
+- one prompt entry for **technical writing / issue drafting**
+- separate bots for each persona, even when they share the same AI or Git integration
 
 ### Default review prompt
 

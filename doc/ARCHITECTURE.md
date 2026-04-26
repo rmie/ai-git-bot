@@ -32,7 +32,7 @@ graph LR
 
 The gateway sits between Git hosting platforms (Gitea, GitHub, GitLab, or Bitbucket) and configurable AI providers. When a pull request is opened or updated, the Git provider sends a webhook to the gateway. The gateway fetches the diff, sends it to the configured AI provider for review, and posts the review back as a PR comment. All configuration (AI integrations, Git integrations, bots) and conversation sessions are persisted in a database.
 
-The gateway also responds to inline review comments and submitted reviews containing bot mentions by fetching the relevant review data from the Git API and posting context-aware replies. In **agent mode**, it can autonomously implement issues by reading source code, generating changes, validating them with build tools, and creating pull requests.
+The gateway also responds to inline review comments and submitted reviews containing bot mentions by fetching the relevant review data from the Git API and posting context-aware replies. In **agent mode**, it supports two issue-based workflows: a **coding agent** that implements issues and opens pull requests, and a **technical writer agent** that improves vague issues into structured, implementation-ready follow-up issues.
 
 ## Component Diagram
 
@@ -288,7 +288,10 @@ Methods include:
 - `postReviewComment()` — Post review with body
 - `addReaction()` — Add emoji reaction
 - `getFileContent()` — Get file content for context
-- `createBranch()` / `commitFile()` / `createPullRequest()` — Agent operations
+- `getIssueDetails()` / `searchIssues()` — Issue context for coding and writer agents
+- `getRepositoryTree()` / `getDefaultBranch()` — Repository context bootstrap
+- `createBranch()` / `commitFile()` / `createPullRequest()` — Coding-agent operations
+- `createIssue()` — Writer-agent output creation
 
 ### Provider Differences
 
@@ -341,6 +344,7 @@ erDiagram
         Long id PK
         String name UK
         String username
+        BotType botType
         String prompt
         String webhookSecret UK
         boolean enabled
@@ -401,12 +405,32 @@ erDiagram
 - Processes webhook events for a specific bot
 - Gets AI client from `AiClientFactory` using bot's `AiIntegration`
 - Creates Git client using bot's `GitIntegration`
+- Routes issue workflows by `BotType`:
+  - `CODING` → `IssueImplementationService` (when `agentEnabled` is true)
+  - `WRITER` → `WriterAgentService`
 - Handles:
   - PR reviews (opened, synchronized)
   - Bot commands (PR comments with mention)
   - Inline review comments
   - Review submitted events
-  - Issue assignments (agent feature)
+  - Issue assignments and issue-comment follow-ups for both issue-based agent modes
+
+### IssueImplementationService
+
+- **Package:** `org.remus.giteabot.agent`
+- Runs the coding-agent workflow for assigned issues
+- Prepares a writable workspace and executes file + validation tools
+- Creates feature branches, commits changes, and opens pull requests
+- Stores lifecycle state such as `PR_CREATED`, `UPDATING`, and `FAILED` in `AgentSession`
+
+### WriterAgentService
+
+- **Package:** `org.remus.giteabot.agent.writerimpl`
+- Runs the technical-writer workflow for assigned issues
+- Prepares a **read-only** workspace for repository exploration
+- Uses repository context tools and issue tools (`get-issue`, `search-issues`) to improve issue quality
+- Restricts follow-up continuation to the original issue author when clarifying questions are pending
+- Creates a linked `AI Created Issue: ...` instead of a pull request
 
 ### AiClientFactory
 
@@ -508,6 +532,37 @@ sequenceDiagram
     BotWebhook->>GitAPI: postComment(response)
 ```
 
+### Technical Writer Flow
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant Git as Git Provider
+    participant Controller as WebhookController
+    participant BotWebhook as BotWebhookService
+    participant Writer as WriterAgentService
+    participant Session as AgentSessionService
+    participant AI as AiClient
+    participant GitAPI as Git API
+
+    User->>Git: Assign Writer bot to issue
+    Git->>Controller: Issue webhook
+    Controller->>BotWebhook: handleIssueAssigned(bot, payload)
+    BotWebhook->>Writer: handleIssueAssigned(payload)
+    Writer->>Session: create writer AgentSession
+    Writer->>GitAPI: post "reviewing" comment
+    Writer->>GitAPI: getIssueDetails + getRepositoryTree
+    Writer->>AI: Ask for clarifying questions or revised draft
+    alt Critical details missing
+        AI-->>Writer: clarifyingQuestions
+        Writer->>GitAPI: post questions
+    else Enough information available
+        AI-->>Writer: revisedIssueDraft + readyToCreate=true
+        Writer->>GitAPI: createIssue("AI Created Issue: ...")
+        Writer->>Session: mark ISSUE_CREATED
+    end
+```
+
 ## Webhook Routing Flow
 
 ```mermaid
@@ -525,9 +580,9 @@ flowchart TD
     H -- No --> X
     H -- Yes --> I{Is PR?}
     I -- Yes --> J["handleBotCommand()"]
-    I -- No --> K["handleIssueComment()"]
+    I -- No --> K["handleIssueComment() → writer or coding issue flow"]
     G -- No --> L{Issue assigned to bot?}
-    L -- Yes --> M["handleIssueAssigned()"]
+    L -- Yes --> M["handleIssueAssigned() → writer or coding issue flow"]
     L -- No --> N{pullRequest present?}
     N -- No --> X
     N -- Yes --> O{action = reviewed?}
@@ -538,6 +593,19 @@ flowchart TD
     S -- Yes --> T["reviewPullRequest()"]
     S -- No --> X
 ```
+
+The issue paths above are resolved inside `BotWebhookService` by `botType`. Writer bots ignore PR-review-related handlers and only participate in issue-assignment and issue-comment flows.
+
+## Agent Session Model
+
+Issue-based workflows share the `AgentSession` entity, which stores:
+
+- repository identity (`repoOwner`, `repoName`, `issueNumber`)
+- current base branch (`branchName`)
+- the outcome reference (`prNumber` for coding agent, `generatedIssueNumber` for writer agent)
+- the original issue author (`issueAuthorUsername`) for writer follow-up authorization
+- the workflow discriminator `sessionType` (`CODING` or `WRITER`)
+- the lifecycle status (`IN_PROGRESS`, `UPDATING`, `PR_CREATED`, `ISSUE_CREATED`, `FAILED`, `COMPLETED`)
 
 ## Docker Deployment
 

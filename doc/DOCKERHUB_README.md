@@ -2,7 +2,7 @@
 
 > **Half Bot, half Agent** — The intelligent Gateway between Git platforms and AI providers. 🤖🧠
 
-AI-Git-Bot is a lightweight, self-hostable **Gateway application** for AI-powered code reviews and autonomous issue implementation. Connects **Gitea, GitHub, GitHub Enterprise, GitLab, and Bitbucket Cloud** with **Anthropic Claude, OpenAI, Ollama (local LLMs), and llama.cpp** — all managed through a **web-based UI**.
+AI-Git-Bot is a lightweight, self-hostable **Gateway application** for AI-powered code reviews, issue implementation, and technical-writing issue drafting. Connects **Gitea, GitHub, GitHub Enterprise, GitLab, and Bitbucket Cloud** with **Anthropic Claude, OpenAI, Ollama (local LLMs), and llama.cpp** — all managed through a **web-based UI**.
 
 ## Features
 
@@ -14,8 +14,10 @@ AI-Git-Bot is a lightweight, self-hostable **Gateway application** for AI-powere
 - **Automatic PR Reviews** — Reviews diffs when Pull Requests are opened or updated
 - **Interactive Bot Commands** — Mention the bot in PR comments to ask questions
 - **Inline Review Comments** — Context-aware answers to code-level review comments
-- **Issue Implementation Agent** — Assign the bot to an issue for autonomous code generation
+- **Coding Agent** — Assign a coding bot to an issue for autonomous code generation and PR creation
+- **Technical Writer Agent** — Assign a writer bot to improve vague issues into actionable, testable follow-up issues
 - **AI-Driven Code Validation** — Agent validates generated code with build tools (Maven, Gradle, npm, etc.)
+- **Read-Only Issue Drafting Workflow** — Writer bots can inspect repository context without modifying repository files
 - **Session Management** — Maintains conversation history per PR
 - **Smart Diff Chunking** — Splits large diffs into chunks with retry on token limits
 - **Encrypted Secrets** — API keys and tokens are encrypted at rest (AES-256-GCM)
@@ -31,7 +33,29 @@ Then:
 1. Navigate to `http://localhost:8080`
 2. Create your admin account
 3. Configure AI and Git integrations via the web UI
-4. Create a bot and configure webhooks in your Git provider
+4. Create a **Coding bot** or **Writer bot** and configure webhooks in your Git provider
+
+## Bot Types
+
+### Coding bot
+
+Use coding bots for:
+
+- automatic pull-request reviews
+- PR comment conversations
+- inline review replies
+- autonomous issue implementation with feature branch + pull request output
+
+### Writer bot
+
+Use writer bots when an issue is too vague to implement directly. Writer bots:
+
+- ignore pull-request review events
+- inspect related issues and repository context in a **read-only** workspace
+- ask the original issue author the minimum necessary clarifying questions
+- create a linked `AI Created Issue: ...` when enough context is available
+
+Writer bots do **not** modify repository files, run validation tools, or open pull requests.
 
 ## Docker Compose
 
@@ -92,6 +116,8 @@ All AI configuration (API URLs, keys, models) is managed through the web UI — 
 | **GitLab** | gitlab.com and self-managed GitLab CE/EE |
 | **Bitbucket Cloud** | bitbucket.org |
 
+> Issue-based agent workflows currently require issue assignment and issue webhook support. In practice this means **Gitea, GitHub, and GitLab**. Bitbucket Cloud remains pull-request-review only.
+
 ## Environment Variables
 
 | Variable | Default | Description |
@@ -121,7 +147,7 @@ Each bot gets a unique webhook URL displayed in the web UI. The same URL format 
 |-------|-------|--------|--------|-----------|
 | Pull Request | ✅ | ✅ | ✅ Merge request events | ✅ PR: Created/Updated |
 | Comments | ✅ Issue Comment | ✅ Issue comments | ✅ Comments | ✅ PR: Comment created |
-| Issues (Agent) | ✅ | ✅ | ✅ Issues events | — |
+| Issues (Coding/Writer agents) | ✅ | ✅ | ✅ Issues events | — |
 
 ## Volumes
 
