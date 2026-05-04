@@ -1,6 +1,7 @@
 package org.remus.giteabot.ai.anthropic;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.databind.JsonNode;
 import lombok.Builder;
 import lombok.Data;
 
@@ -18,6 +19,9 @@ public class AnthropicRequest {
     private String system;
 
     private List<Message> messages;
+
+    @JsonProperty("mcp_servers")
+    private List<JsonNode> mcpServers;
 
     @Data
     @Builder

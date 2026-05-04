@@ -15,16 +15,69 @@ import java.util.Map;
 public class SystemSettingsController {
 
     private final SystemPromptService systemPromptService;
+    private final McpConfigurationService mcpConfigurationService;
 
-    public SystemSettingsController(SystemPromptService systemPromptService) {
+    public SystemSettingsController(SystemPromptService systemPromptService,
+                                    McpConfigurationService mcpConfigurationService) {
         this.systemPromptService = systemPromptService;
+        this.mcpConfigurationService = mcpConfigurationService;
     }
 
     @GetMapping
     public String list(Model model) {
         model.addAttribute("systemPrompts", systemPromptService.findAll());
+        model.addAttribute("mcpConfigurations", mcpConfigurationService.findAll());
         model.addAttribute("activeNav", "system-settings");
         return "system-settings/list";
+    }
+
+    @GetMapping("/mcp-configurations/new")
+    public String newMcpForm(Model model) {
+        model.addAttribute("mcpConfiguration", new McpConfiguration());
+        model.addAttribute("activeNav", "system-settings");
+        return "system-settings/mcp-form";
+    }
+
+    @GetMapping("/mcp-configurations/{id}/edit")
+    public String editMcpForm(@PathVariable Long id, Model model, RedirectAttributes redirectAttributes) {
+        return mcpConfigurationService.findById(id)
+                .map(mcpConfiguration -> {
+                    model.addAttribute("mcpConfiguration", mcpConfiguration);
+                    model.addAttribute("activeNav", "system-settings");
+                    return "system-settings/mcp-form";
+                })
+                .orElseGet(() -> {
+                    redirectAttributes.addFlashAttribute("error", "MCP configuration not found");
+                    return "redirect:/system-settings";
+                });
+    }
+
+    @PostMapping("/mcp-configurations/save")
+    public String saveMcp(@ModelAttribute McpConfiguration mcpConfiguration, Model model,
+                          RedirectAttributes redirectAttributes) {
+        try {
+            mcpConfigurationService.save(mcpConfiguration);
+            redirectAttributes.addFlashAttribute("success", "MCP configuration saved successfully");
+        } catch (Exception e) {
+            log.error("Failed to save MCP configuration", e);
+            model.addAttribute("error", "Failed to save: " + e.getMessage());
+            model.addAttribute("mcpConfiguration", mcpConfiguration);
+            model.addAttribute("activeNav", "system-settings");
+            return "system-settings/mcp-form";
+        }
+        return "redirect:/system-settings";
+    }
+
+    @PostMapping("/mcp-configurations/{id}/delete")
+    public String deleteMcp(@PathVariable Long id, RedirectAttributes redirectAttributes) {
+        try {
+            mcpConfigurationService.deleteById(id);
+            redirectAttributes.addFlashAttribute("success", "MCP configuration deleted successfully");
+        } catch (Exception e) {
+            log.error("Failed to delete MCP configuration", e);
+            redirectAttributes.addFlashAttribute("error", "Failed to delete: " + e.getMessage());
+        }
+        return "redirect:/system-settings";
     }
 
     @GetMapping("/system-prompts/new")

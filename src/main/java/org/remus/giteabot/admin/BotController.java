@@ -1,6 +1,8 @@
 package org.remus.giteabot.admin;
 
 import lombok.extern.slf4j.Slf4j;
+import org.remus.giteabot.systemsettings.McpConfiguration;
+import org.remus.giteabot.systemsettings.McpConfigurationService;
 import org.remus.giteabot.systemsettings.SystemPrompt;
 import org.remus.giteabot.systemsettings.SystemPromptService;
 import org.springframework.stereotype.Controller;
@@ -19,15 +21,18 @@ public class BotController {
     private final AiIntegrationService aiIntegrationService;
     private final GitIntegrationService gitIntegrationService;
     private final SystemPromptService systemPromptService;
+    private final McpConfigurationService mcpConfigurationService;
 
     public BotController(BotService botService,
                          AiIntegrationService aiIntegrationService,
                          GitIntegrationService gitIntegrationService,
-                         SystemPromptService systemPromptService) {
+                         SystemPromptService systemPromptService,
+                         McpConfigurationService mcpConfigurationService) {
         this.botService = botService;
         this.aiIntegrationService = aiIntegrationService;
         this.gitIntegrationService = gitIntegrationService;
         this.systemPromptService = systemPromptService;
+        this.mcpConfigurationService = mcpConfigurationService;
     }
 
     @GetMapping
@@ -63,11 +68,12 @@ public class BotController {
 
     @PostMapping("/save")
     public String save(@ModelAttribute Bot bot,
-                       @RequestParam Long aiIntegrationId,
-                       @RequestParam Long gitIntegrationId,
-                       @RequestParam Long systemPromptId,
-                       Model model,
-                       RedirectAttributes redirectAttributes) {
+                        @RequestParam Long aiIntegrationId,
+                        @RequestParam Long gitIntegrationId,
+                        @RequestParam Long systemPromptId,
+                        @RequestParam(required = false) Long mcpConfigurationId,
+                        Model model,
+                        RedirectAttributes redirectAttributes) {
         try {
             AiIntegration aiIntegration = aiIntegrationService.findById(aiIntegrationId)
                     .orElseThrow(() -> new IllegalArgumentException("AI Integration not found"));
@@ -75,10 +81,16 @@ public class BotController {
                     .orElseThrow(() -> new IllegalArgumentException("Git Integration not found"));
             SystemPrompt systemPrompt = systemPromptService.findById(systemPromptId)
                     .orElseThrow(() -> new IllegalArgumentException("System prompt not found"));
+            McpConfiguration mcpConfiguration = null;
+            if (mcpConfigurationId != null) {
+                mcpConfiguration = mcpConfigurationService.findById(mcpConfigurationId)
+                        .orElseThrow(() -> new IllegalArgumentException("MCP configuration not found"));
+            }
 
             bot.setAiIntegration(aiIntegration);
             bot.setGitIntegration(gitIntegration);
             bot.setSystemPrompt(systemPrompt);
+            bot.setMcpConfiguration(mcpConfiguration);
             botService.save(bot);
             redirectAttributes.addFlashAttribute("success", "Bot saved successfully");
         } catch (Exception e) {
@@ -95,6 +107,7 @@ public class BotController {
         model.addAttribute("aiIntegrations", aiIntegrationService.findAll());
         model.addAttribute("gitIntegrations", gitIntegrationService.findAll());
         model.addAttribute("systemPrompts", systemPrompts);
+        model.addAttribute("mcpConfigurations", mcpConfigurationService.findAll());
         model.addAttribute("botTypes", BotType.values());
         model.addAttribute("activeNav", "bots");
     }

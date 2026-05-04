@@ -7,6 +7,8 @@ import org.remus.giteabot.agent.validation.ToolExecutionService;
 import org.remus.giteabot.agent.validation.WorkspaceService;
 import org.remus.giteabot.agent.writerimpl.WriterAgentService;
 import org.remus.giteabot.ai.AiClient;
+import org.remus.giteabot.ai.McpConfigurationData;
+import org.remus.giteabot.ai.McpConfiguredAiClient;
 import org.remus.giteabot.config.AgentConfigProperties;
 import org.remus.giteabot.config.PromptService;
 import org.remus.giteabot.config.ReviewConfigProperties;
@@ -337,7 +339,7 @@ public class BotWebhookService {
     }
 
     private CodeReviewService createCodeReviewService(Bot bot, RepositoryApiClient repoClient) {
-        AiClient aiClient = aiClientFactory.getClient(bot.getAiIntegration());
+        AiClient aiClient = getAiClient(bot);
         if (bot.getSystemPrompt() == null) {
             throw new IllegalStateException("Bot must have a system prompt assigned");
         }
@@ -353,7 +355,7 @@ public class BotWebhookService {
      * Creates a per-bot {@link IssueImplementationService} using the bot's AI and Git integrations.
      */
     private IssueImplementationService createIssueImplementationService(Bot bot) {
-        AiClient aiClient = aiClientFactory.getClient(bot.getAiIntegration());
+        AiClient aiClient = getAiClient(bot);
         RepositoryApiClient repoClient = giteaClientFactory.getApiClient(bot.getGitIntegration());
         if (bot.getSystemPrompt() == null) {
             throw new IllegalStateException("Bot must have a system prompt assigned");
@@ -364,7 +366,7 @@ public class BotWebhookService {
     }
 
     private WriterAgentService createWriterAgentService(Bot bot) {
-        AiClient aiClient = aiClientFactory.getClient(bot.getAiIntegration());
+        AiClient aiClient = getAiClient(bot);
         RepositoryApiClient repoClient = giteaClientFactory.getApiClient(bot.getGitIntegration());
         if (bot.getSystemPrompt() == null) {
             throw new IllegalStateException("Bot must have a system prompt assigned");
@@ -372,5 +374,16 @@ public class BotWebhookService {
         return new WriterAgentService(repoClient, aiClient, promptService, agentConfig,
                 agentSessionService, toolExecutionService, workspaceService,
                 bot.getSystemPrompt().getWriterAgentSystemPrompt(), bot.getUsername());
+    }
+
+    private AiClient getAiClient(Bot bot) {
+        AiClient aiClient = aiClientFactory.getClient(bot.getAiIntegration());
+        if (bot.getMcpConfiguration() == null) {
+            return aiClient;
+        }
+        McpConfigurationData mcpConfiguration = new McpConfigurationData(
+                bot.getMcpConfiguration().getName(),
+                bot.getMcpConfiguration().getJsonContent());
+        return new McpConfiguredAiClient(aiClient, mcpConfiguration);
     }
 }

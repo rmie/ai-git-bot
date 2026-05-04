@@ -13,8 +13,9 @@ class SystemSettingsControllerTest {
     @Test
     void preview_missingPrompt_returnsNotFound() {
         SystemPromptService systemPromptService = mock(SystemPromptService.class);
+        McpConfigurationService mcpConfigurationService = mock(McpConfigurationService.class);
         when(systemPromptService.findById(99L)).thenReturn(Optional.empty());
-        SystemSettingsController controller = new SystemSettingsController(systemPromptService);
+        SystemSettingsController controller = new SystemSettingsController(systemPromptService, mcpConfigurationService);
 
         assertEquals(404, controller.preview(99L).getStatusCode().value());
     }

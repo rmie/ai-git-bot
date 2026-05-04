@@ -93,6 +93,20 @@
                             </select>
                         </div>
 
+                        <div class="col-12">
+                            <label for="mcpConfigurationId" class="form-label">MCP Configuration</label>
+                            <select class="form-select" id="mcpConfigurationId" name="mcpConfigurationId">
+                                <option value="">No MCP configuration</option>
+                                <option th:each="mcpConfiguration : ${mcpConfigurations}"
+                                        th:value="${mcpConfiguration.id}" th:text="${mcpConfiguration.name}"
+                                        th:selected="${bot.mcpConfiguration != null and bot.mcpConfiguration.id == mcpConfiguration.id}">
+                                </option>
+                            </select>
+                            <div class="form-text">
+                                Optional remote MCP server capabilities to make available to supported AI providers.
+                            </div>
+                        </div>
+
                         <div class="col-md-6">
                             <div class="form-check form-switch mt-3">
                                 <input class="form-check-input" type="checkbox" id="enabled"
