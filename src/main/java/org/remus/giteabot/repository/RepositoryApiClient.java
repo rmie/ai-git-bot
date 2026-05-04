@@ -54,6 +54,10 @@ public interface RepositoryApiClient {
 
     void postReviewComment(String owner, String repo, Long pullNumber, String body);
 
+    default void postReviewAction(String owner, String repo, Long pullNumber, PostReviewAction action) {
+        // Most providers do not support post-review state changes.
+    }
+
     /**
      * Posts a regular top-level comment on a pull/merge request conversation.
      * <p>

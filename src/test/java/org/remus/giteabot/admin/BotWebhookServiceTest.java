@@ -124,6 +124,47 @@ class BotWebhookServiceTest {
         assertEquals("", botWebhookService.getBotAlias(bot));
     }
 
+    @Test
+    void isPullRequestAuthor_commentUserMatchesPrAuthor_returnsTrue() {
+        WebhookPayload payload = new WebhookPayload();
+        WebhookPayload.PullRequest pr = new WebhookPayload.PullRequest();
+        pr.setUser(owner("tom"));
+        payload.setPullRequest(pr);
+        WebhookPayload.Comment comment = new WebhookPayload.Comment();
+        comment.setUser(owner("tom"));
+        payload.setComment(comment);
+
+        assertTrue(botWebhookService.isPullRequestAuthor(payload));
+    }
+
+    @Test
+    void isPullRequestAuthor_commentUserDiffersFromPrAuthor_returnsFalse() {
+        WebhookPayload payload = new WebhookPayload();
+        WebhookPayload.PullRequest pr = new WebhookPayload.PullRequest();
+        pr.setUser(owner("tom"));
+        payload.setPullRequest(pr);
+        WebhookPayload.Comment comment = new WebhookPayload.Comment();
+        comment.setUser(owner("sara"));
+        payload.setComment(comment);
+
+        assertFalse(botWebhookService.isPullRequestAuthor(payload));
+    }
+
+    @Test
+    void isReviewAgainRequest_acceptsRepeatCodeReviewIntentFromAuthor() {
+        WebhookPayload payload = new WebhookPayload();
+        WebhookPayload.PullRequest pr = new WebhookPayload.PullRequest();
+        pr.setUser(owner("tom"));
+        payload.setPullRequest(pr);
+        WebhookPayload.Comment comment = new WebhookPayload.Comment();
+        comment.setUser(owner("tom"));
+        comment.setBody("@ai_bot repeat the code-review");
+        payload.setComment(comment);
+
+        assertTrue(botWebhookService.isReviewAgainRequest(payload, "@ai_bot"));
+        assertTrue(botWebhookService.isReviewAgainRequestFromPullRequestAuthor(payload, "@ai_bot"));
+    }
+
     // ---- handlePrComment routing tests ----
 
     @Test
@@ -693,6 +734,12 @@ class BotWebhookServiceTest {
         return bot;
     }
 
+    private WebhookPayload.Owner owner(String login) {
+        WebhookPayload.Owner owner = new WebhookPayload.Owner();
+        owner.setLogin(login);
+        return owner;
+    }
+
     /** Overload kept for backward-compat with the existing tests above. */
     private Bot createBot(String name, String username) {
         return createBot(name, username, false);
@@ -743,6 +790,7 @@ class BotWebhookServiceTest {
         pr.setNumber(prNumber);
         pr.setId(80L);
         pr.setState("open");
+        pr.setUser(owner("tom"));
         WebhookPayload.Head head = new WebhookPayload.Head();
         head.setRef("feature/branch");
         pr.setHead(head);

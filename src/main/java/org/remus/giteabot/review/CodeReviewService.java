@@ -51,7 +51,7 @@ public class CodeReviewService {
         this.contextEnricher = new PrContextEnricher(repositoryClient, reviewConfig);
     }
 
-    public void reviewPullRequest(WebhookPayload payload, String promptName) {
+    public boolean reviewPullRequest(WebhookPayload payload, String promptName) {
         String owner = payload.getRepository().getOwner().getLogin();
         String repo = payload.getRepository().getName();
         Long prNumber = payload.getPullRequest().getNumber();
@@ -64,7 +64,7 @@ public class CodeReviewService {
             String diff = repositoryClient.getPullRequestDiff(owner, repo, prNumber);
             if (diff == null || diff.isBlank()) {
                 log.warn("No diff found for PR #{} in {}/{}", prNumber, owner, repo);
-                return;
+                return false;
             }
 
             String systemPrompt = reviewSystemPrompt;
@@ -115,8 +115,10 @@ public class CodeReviewService {
             sessionService.compactContextWindow(session);
 
             log.info("Code review completed for PR #{} in {}/{}", prNumber, owner, repo);
+            return true;
         } catch (Exception e) {
             log.error("Code review failed for PR #{} in {}/{}: {}", prNumber, owner, repo, e.getMessage(), e);
+            return false;
         }
     }
 
