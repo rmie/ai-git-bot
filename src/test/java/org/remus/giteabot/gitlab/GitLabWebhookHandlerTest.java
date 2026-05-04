@@ -7,7 +7,9 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.remus.giteabot.admin.Bot;
 import org.remus.giteabot.admin.BotWebhookService;
+import org.remus.giteabot.admin.GitIntegration;
 import org.remus.giteabot.gitea.model.WebhookPayload;
+import org.remus.giteabot.repository.PostReviewAction;
 import org.springframework.http.ResponseEntity;
 
 import java.util.HashMap;
@@ -74,6 +76,31 @@ class GitLabWebhookHandlerTest {
     }
 
     @Test
+    void mergeRequestApprovedFromBotReviewer_triggersReviewRequest() {
+        lenient().when(botWebhookService.isBotUser(eq(bot), any(WebhookPayload.class))).thenReturn(true);
+
+        ResponseEntity<String> response = handler.handleWebhook(bot, "Merge Request Hook",
+                mergeRequestPayload("approved", List.of(user("ai_bot")), null));
+
+        assertEquals("review triggered", response.getBody());
+        verify(botWebhookService).reviewPullRequest(eq(bot), any(WebhookPayload.class));
+    }
+
+    @Test
+    void mergeRequestApprovedFromBotReviewerAfterConfiguredApprove_isIgnored() {
+        GitIntegration gitIntegration = new GitIntegration();
+        gitIntegration.setPostReviewAction(PostReviewAction.APPROVE);
+        bot.setGitIntegration(gitIntegration);
+        lenient().when(botWebhookService.isBotUser(eq(bot), any(WebhookPayload.class))).thenReturn(true);
+
+        ResponseEntity<String> response = handler.handleWebhook(bot, "Merge Request Hook",
+                mergeRequestPayload("approved", List.of(user("ai_bot")), null));
+
+        assertEquals("ignored", response.getBody());
+        verify(botWebhookService, never()).reviewPullRequest(any(), any());
+    }
+
+    @Test
     void ownerReviewAgainNote_triggersFallbackReview() {
         lenient().when(botWebhookService.isReviewAgainRequest(any(WebhookPayload.class), eq("@ai_bot"))).thenReturn(true);
         lenient().when(botWebhookService.isReviewAgainRequestFromPullRequestAuthor(any(WebhookPayload.class), eq("@ai_bot")))
@@ -85,6 +112,29 @@ class GitLabWebhookHandlerTest {
         assertEquals("review triggered", response.getBody());
         verify(botWebhookService).reviewPullRequest(eq(bot), any(WebhookPayload.class));
         verify(botWebhookService, never()).handleBotCommand(any(), any());
+    }
+
+    @Test
+    void translateNotePayloadUsesTopLevelUserWhenGitLabOmitsNestedAuthorInfo() {
+        Map<String, Object> attrs = new HashMap<>();
+        attrs.put("id", 55);
+        attrs.put("note", "@ai_bot repeat the code-review");
+        attrs.put("noteable_type", "MergeRequest");
+
+        Map<String, Object> payload = basePayload(attrs);
+        payload.put("user", Map.of("id", 1, "username", "root", "name", "Administrator"));
+        payload.put("merge_request", Map.of(
+                "id", 100,
+                "iid", 1,
+                "title", "Test MR",
+                "description", "Some changes",
+                "author_id", 1));
+
+        WebhookPayload translated = handler.translateNotePayload(payload, attrs);
+
+        assertEquals("root", translated.getComment().getUser().getLogin());
+        assertEquals("root", translated.getPullRequest().getUser().getLogin());
+        assertEquals("root", translated.getIssue().getUser().getLogin());
     }
 
     @Test

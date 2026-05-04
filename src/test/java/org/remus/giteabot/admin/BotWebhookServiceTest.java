@@ -150,6 +150,21 @@ class BotWebhookServiceTest {
         assertFalse(botWebhookService.isPullRequestAuthor(payload));
     }
 
+    @Test
+    void isReviewAgainRequest_acceptsRepeatCodeReviewIntentFromAuthor() {
+        WebhookPayload payload = new WebhookPayload();
+        WebhookPayload.PullRequest pr = new WebhookPayload.PullRequest();
+        pr.setUser(owner("tom"));
+        payload.setPullRequest(pr);
+        WebhookPayload.Comment comment = new WebhookPayload.Comment();
+        comment.setUser(owner("tom"));
+        comment.setBody("@ai_bot repeat the code-review");
+        payload.setComment(comment);
+
+        assertTrue(botWebhookService.isReviewAgainRequest(payload, "@ai_bot"));
+        assertTrue(botWebhookService.isReviewAgainRequestFromPullRequestAuthor(payload, "@ai_bot"));
+    }
+
     // ---- handlePrComment routing tests ----
 
     @Test

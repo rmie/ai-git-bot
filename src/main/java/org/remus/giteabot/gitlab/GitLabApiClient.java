@@ -98,7 +98,11 @@ public class GitLabApiClient implements RepositoryApiClient {
                     .toBodilessEntity();
         } else if (action == PostReviewAction.REQUEST_CHANGES) {
             log.info("Requesting changes on MR !{} in {}/{}", pullNumber, owner, repo);
-            postPullRequestComment(owner, repo, pullNumber, "Changes requested after the AI review.");
+            String projectPath = encodeProjectPath(owner, repo);
+            gitlabRestClient.post()
+                    .uri("/api/v4/projects/{projectPath}/merge_requests/{iid}/request_changes", projectPath, pullNumber)
+                    .retrieve()
+                    .toBodilessEntity();
         }
     }
 

@@ -325,7 +325,8 @@ public class BotWebhookService {
             return false;
         }
         String normalized = body.toLowerCase();
-        return normalized.contains("review") && (normalized.contains("again") || normalized.contains("re-review"));
+        return normalized.contains("review")
+                && (normalized.contains("again") || normalized.contains("re-review") || normalized.contains("repeat"));
     }
 
     /**

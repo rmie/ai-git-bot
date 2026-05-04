@@ -4,6 +4,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.remus.giteabot.admin.Bot;
 import org.remus.giteabot.admin.BotWebhookService;
 import org.remus.giteabot.gitea.model.WebhookPayload;
+import org.remus.giteabot.repository.PostReviewAction;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Component;
 
@@ -74,8 +75,11 @@ public class GitLabWebhookHandler {
         String gitlabAction = (String) attrs.get("action");
         WebhookPayload webhookPayload = translateMergeRequestPayload(payload, attrs);
 
-        // Ignore events from the bot itself
-        if (botWebhookService.isBotUser(bot, webhookPayload)) {
+        boolean botUserEvent = botWebhookService.isBotUser(bot, webhookPayload);
+        boolean botReviewerRerequestEvent = isBotReviewerRerequestEvent(bot, payload, gitlabAction);
+
+        // Ignore events from the bot itself, except GitLab reviewer re-request events.
+        if (botUserEvent && !botReviewerRerequestEvent) {
             log.debug("Ignoring GitLab event from bot's own user '{}'", bot.getUsername());
             return ResponseEntity.ok("ignored");
         }
@@ -102,6 +106,14 @@ public class GitLabWebhookHandler {
                 webhookPayload.setAction("closed");
                 botWebhookService.handlePrClosed(bot, webhookPayload);
                 yield ResponseEntity.ok("session closed");
+            }
+            case "approved" -> {
+                if (botUserEvent && botReviewerRerequestEvent) {
+                    webhookPayload.setAction("review_requested");
+                    botWebhookService.reviewPullRequest(bot, webhookPayload);
+                    yield ResponseEntity.ok("review triggered");
+                }
+                yield ResponseEntity.ok("ignored");
             }
             default -> ResponseEntity.ok("ignored");
         };
@@ -387,9 +399,12 @@ public class GitLabWebhookHandler {
         comment.setId(toLong(noteAttrs.get("id")));
         comment.setBody((String) noteAttrs.get("note"));
         Map<String, Object> author = (Map<String, Object>) noteAttrs.get("author");
-        if (author != null) {
-            WebhookPayload.Owner commentUser = new WebhookPayload.Owner();
-            commentUser.setLogin((String) author.get("username"));
+        Map<String, Object> user = (Map<String, Object>) gitlabPayload.get("user");
+        WebhookPayload.Owner commentUser = toGitLabOwner(author);
+        if (commentUser == null) {
+            commentUser = toGitLabOwner(user);
+        }
+        if (commentUser != null) {
             comment.setUser(commentUser);
         }
         payload.setComment(comment);
@@ -401,10 +416,8 @@ public class GitLabWebhookHandler {
         }
 
         // Sender
-        Map<String, Object> user = (Map<String, Object>) gitlabPayload.get("user");
         if (user != null) {
-            WebhookPayload.Owner sender = new WebhookPayload.Owner();
-            sender.setLogin((String) user.get("username"));
+            WebhookPayload.Owner sender = toGitLabOwner(user);
             payload.setSender(sender);
         }
 
@@ -418,7 +431,7 @@ public class GitLabWebhookHandler {
                 issue.setNumber(toLong(mr.get("iid")));
                 issue.setTitle((String) mr.get("title"));
                 issue.setBody((String) mr.get("description"));
-                issue.setUser(extractGitLabOwner(mr, "author"));
+                issue.setUser(extractGitLabAuthor(mr, user));
                 payload.setIssue(issue);
 
                 // Also set pullRequest for context
@@ -427,7 +440,7 @@ public class GitLabWebhookHandler {
                 pr.setNumber(toLong(mr.get("iid")));
                 pr.setTitle((String) mr.get("title"));
                 pr.setBody((String) mr.get("description"));
-                pr.setUser(extractGitLabOwner(mr, "author"));
+                pr.setUser(extractGitLabAuthor(mr, user));
                 payload.setPullRequest(pr);
             }
         } else if ("Issue".equals(noteableType)) {
@@ -510,6 +523,17 @@ public class GitLabWebhookHandler {
         return inCurrent && !inPrevious;
     }
 
+    private boolean isBotReviewerRerequestEvent(Bot bot, Map<String, Object> payload, String gitlabAction) {
+        return "approved".equals(gitlabAction)
+                && hasBotReviewer(bot, payload, null)
+                && !isApprovePostReviewActionConfigured(bot);
+    }
+
+    private boolean isApprovePostReviewActionConfigured(Bot bot) {
+        return bot.getGitIntegration() != null
+                && bot.getGitIntegration().getPostReviewAction() == PostReviewAction.APPROVE;
+    }
+
     private boolean containsGitLabUser(List<Map<String, Object>> users, String username) {
         return users != null && users.stream()
                 .anyMatch(user -> username.equalsIgnoreCase((String) user.get("username")));
@@ -520,8 +544,31 @@ public class GitLabWebhookHandler {
         if (source == null || !(source.get(key) instanceof Map<?, ?> ownerMap)) {
             return null;
         }
+        return toGitLabOwner((Map<String, Object>) ownerMap);
+    }
+
+    private WebhookPayload.Owner extractGitLabAuthor(Map<String, Object> source, Map<String, Object> fallbackUser) {
+        WebhookPayload.Owner owner = extractGitLabOwner(source, "author");
+        if (owner != null) {
+            return owner;
+        }
+        if (source == null || fallbackUser == null) {
+            return null;
+        }
+        Long authorId = toLong(source.get("author_id"));
+        Long userId = toLong(fallbackUser.get("id"));
+        if (authorId != null && authorId.equals(userId)) {
+            return toGitLabOwner(fallbackUser);
+        }
+        return null;
+    }
+
+    private WebhookPayload.Owner toGitLabOwner(Map<String, Object> user) {
+        if (user == null || user.get("username") == null) {
+            return null;
+        }
         WebhookPayload.Owner owner = new WebhookPayload.Owner();
-        owner.setLogin((String) ((Map<String, Object>) ownerMap).get("username"));
+        owner.setLogin((String) user.get("username"));
         return owner;
     }
 
