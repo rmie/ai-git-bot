@@ -37,6 +37,10 @@ public class GitIntegration {
     @Column(nullable = false)
     private String token;
 
+    @Column(nullable = false)
+    @Enumerated(EnumType.STRING)
+    private GitLabPostReviewAction gitLabPostReviewAction = GitLabPostReviewAction.NONE;
+
     @Column(nullable = false, updatable = false)
     private Instant createdAt;
 

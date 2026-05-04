@@ -54,6 +54,14 @@ public interface RepositoryApiClient {
 
     void postReviewComment(String owner, String repo, Long pullNumber, String body);
 
+    default void approvePullRequest(String owner, String repo, Long pullNumber) {
+        throw new UnsupportedOperationException("Approving pull requests is not supported by this repository provider");
+    }
+
+    default void requestChanges(String owner, String repo, Long pullNumber) {
+        throw new UnsupportedOperationException("Requesting changes is not supported by this repository provider");
+    }
+
     /**
      * Posts a regular top-level comment on a pull/merge request conversation.
      * <p>

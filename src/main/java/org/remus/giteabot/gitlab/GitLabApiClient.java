@@ -84,6 +84,22 @@ public class GitLabApiClient implements RepositoryApiClient {
     }
 
     @Override
+    public void approvePullRequest(String owner, String repo, Long pullNumber) {
+        log.info("Approving MR !{} in {}/{}", pullNumber, owner, repo);
+        String projectPath = encodeProjectPath(owner, repo);
+        gitlabRestClient.post()
+                .uri("/api/v4/projects/{projectPath}/merge_requests/{iid}/approve", projectPath, pullNumber)
+                .retrieve()
+                .toBodilessEntity();
+    }
+
+    @Override
+    public void requestChanges(String owner, String repo, Long pullNumber) {
+        log.info("Requesting changes on MR !{} in {}/{}", pullNumber, owner, repo);
+        postPullRequestComment(owner, repo, pullNumber, "Changes requested after the AI review.");
+    }
+
+    @Override
     public void postPullRequestComment(String owner, String repo, Long pullNumber, String body) {
         log.info("Posting merge request note on MR !{} in {}/{}", pullNumber, owner, repo);
         String projectPath = encodeProjectPath(owner, repo);

@@ -32,6 +32,7 @@ public class GitIntegrationController {
     public String newForm(Model model) {
         model.addAttribute("integration", new GitIntegration());
         model.addAttribute("providerTypes", RepositoryType.values());
+        model.addAttribute("gitLabPostReviewActions", GitLabPostReviewAction.values());
         model.addAttribute("activeNav", "git-integrations");
         return "git-integrations/form";
     }
@@ -42,6 +43,7 @@ public class GitIntegrationController {
                 .map(integration -> {
                     model.addAttribute("integration", integration);
                     model.addAttribute("providerTypes", RepositoryType.values());
+                    model.addAttribute("gitLabPostReviewActions", GitLabPostReviewAction.values());
                     model.addAttribute("activeNav", "git-integrations");
                     return "git-integrations/form";
                 })

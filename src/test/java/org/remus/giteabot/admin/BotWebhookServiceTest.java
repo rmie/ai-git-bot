@@ -124,6 +124,32 @@ class BotWebhookServiceTest {
         assertEquals("", botWebhookService.getBotAlias(bot));
     }
 
+    @Test
+    void isPullRequestAuthor_commentUserMatchesPrAuthor_returnsTrue() {
+        WebhookPayload payload = new WebhookPayload();
+        WebhookPayload.PullRequest pr = new WebhookPayload.PullRequest();
+        pr.setUser(owner("tom"));
+        payload.setPullRequest(pr);
+        WebhookPayload.Comment comment = new WebhookPayload.Comment();
+        comment.setUser(owner("tom"));
+        payload.setComment(comment);
+
+        assertTrue(botWebhookService.isPullRequestAuthor(payload));
+    }
+
+    @Test
+    void isPullRequestAuthor_commentUserDiffersFromPrAuthor_returnsFalse() {
+        WebhookPayload payload = new WebhookPayload();
+        WebhookPayload.PullRequest pr = new WebhookPayload.PullRequest();
+        pr.setUser(owner("tom"));
+        payload.setPullRequest(pr);
+        WebhookPayload.Comment comment = new WebhookPayload.Comment();
+        comment.setUser(owner("sara"));
+        payload.setComment(comment);
+
+        assertFalse(botWebhookService.isPullRequestAuthor(payload));
+    }
+
     // ---- handlePrComment routing tests ----
 
     @Test
@@ -691,6 +717,12 @@ class BotWebhookServiceTest {
         systemPrompt.setWriterAgentSystemPrompt("Writer prompt");
         bot.setSystemPrompt(systemPrompt);
         return bot;
+    }
+
+    private WebhookPayload.Owner owner(String login) {
+        WebhookPayload.Owner owner = new WebhookPayload.Owner();
+        owner.setLogin(login);
+        return owner;
     }
 
     /** Overload kept for backward-compat with the existing tests above. */

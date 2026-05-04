@@ -12,6 +12,7 @@ import org.remus.giteabot.config.PromptService;
 import org.remus.giteabot.config.ReviewConfigProperties;
 import org.remus.giteabot.gitea.model.WebhookPayload;
 import org.remus.giteabot.repository.RepositoryApiClient;
+import org.remus.giteabot.repository.RepositoryType;
 import org.remus.giteabot.review.CodeReviewService;
 import org.remus.giteabot.session.SessionService;
 import org.springframework.scheduling.annotation.Async;
@@ -77,7 +78,11 @@ public class BotWebhookService {
             return;
         }
         try {
-            createCodeReviewService(bot).reviewPullRequest(payload, null);
+            RepositoryApiClient repositoryClient = giteaClientFactory.getApiClient(bot.getGitIntegration());
+            boolean reviewed = createCodeReviewService(bot, repositoryClient).reviewPullRequest(payload, null);
+            if (reviewed) {
+                handleGitLabPostReviewAction(bot, repositoryClient, payload);
+            }
         } catch (Exception e) {
             log.error("[Bot '{}'] Failed to review PR: {}", bot.getName(), e.getMessage(), e);
             botService.recordError(bot, e.getMessage());
@@ -297,8 +302,11 @@ public class BotWebhookService {
      * Creates a per-bot {@link CodeReviewService} using the bot's AI and Git integrations.
      */
     private CodeReviewService createCodeReviewService(Bot bot) {
+        return createCodeReviewService(bot, giteaClientFactory.getApiClient(bot.getGitIntegration()));
+    }
+
+    private CodeReviewService createCodeReviewService(Bot bot, RepositoryApiClient repoClient) {
         AiClient aiClient = aiClientFactory.getClient(bot.getAiIntegration());
-        RepositoryApiClient repoClient = giteaClientFactory.getApiClient(bot.getGitIntegration());
         if (bot.getSystemPrompt() == null) {
             throw new IllegalStateException("Bot must have a system prompt assigned");
         }
@@ -308,6 +316,24 @@ public class BotWebhookService {
         String systemPromptKey = "system-prompt:" + bot.getSystemPrompt().getId();
         return new CodeReviewService(repoClient, aiClient, sessionService, bot.getUsername(),
                 reviewConfig, systemPromptKey, bot.getSystemPrompt().getReviewSystemPrompt());
+    }
+
+    private void handleGitLabPostReviewAction(Bot bot, RepositoryApiClient repositoryClient, WebhookPayload payload) {
+        GitIntegration gitIntegration = bot.getGitIntegration();
+        if (gitIntegration == null || gitIntegration.getProviderType() != RepositoryType.GITLAB
+                || gitIntegration.getGitLabPostReviewAction() == null
+                || gitIntegration.getGitLabPostReviewAction() == GitLabPostReviewAction.NONE) {
+            return;
+        }
+
+        String owner = payload.getRepository().getOwner().getLogin();
+        String repo = payload.getRepository().getName();
+        Long prNumber = payload.getPullRequest().getNumber();
+        if (gitIntegration.getGitLabPostReviewAction() == GitLabPostReviewAction.APPROVE) {
+            repositoryClient.approvePullRequest(owner, repo, prNumber);
+        } else if (gitIntegration.getGitLabPostReviewAction() == GitLabPostReviewAction.REQUEST_CHANGES) {
+            repositoryClient.requestChanges(owner, repo, prNumber);
+        }
     }
 
     /**
