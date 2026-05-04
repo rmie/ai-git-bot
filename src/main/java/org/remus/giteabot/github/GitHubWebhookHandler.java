@@ -99,9 +99,6 @@ public class GitHubWebhookHandler {
         }
         // Check if the comment is on a PR (issue with pull_request link)
         if (payload.getIssue() != null && payload.getIssue().getPullRequest() != null) {
-            if (!botWebhookService.isPullRequestAuthor(payload)) {
-                return ResponseEntity.ok("ignored");
-            }
             botWebhookService.handleBotCommand(bot, payload);
             return ResponseEntity.ok("command received");
         }
@@ -126,9 +123,6 @@ public class GitHubWebhookHandler {
         }
         if (payload.getComment() != null && payload.getComment().getBody() != null
                 && payload.getComment().getBody().contains(botAlias)) {
-            if (!botWebhookService.isPullRequestAuthor(payload)) {
-                return ResponseEntity.ok("ignored");
-            }
             botWebhookService.handleInlineComment(bot, payload);
             return ResponseEntity.ok("inline comment response triggered");
         }

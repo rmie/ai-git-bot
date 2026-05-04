@@ -12,7 +12,6 @@ import org.remus.giteabot.config.PromptService;
 import org.remus.giteabot.config.ReviewConfigProperties;
 import org.remus.giteabot.gitea.model.WebhookPayload;
 import org.remus.giteabot.repository.RepositoryApiClient;
-import org.remus.giteabot.repository.RepositoryType;
 import org.remus.giteabot.review.CodeReviewService;
 import org.remus.giteabot.session.SessionService;
 import org.springframework.scheduling.annotation.Async;
@@ -80,8 +79,11 @@ public class BotWebhookService {
         try {
             RepositoryApiClient repositoryClient = giteaClientFactory.getApiClient(bot.getGitIntegration());
             boolean reviewed = createCodeReviewService(bot, repositoryClient).reviewPullRequest(payload, null);
-            if (reviewed) {
-                handleGitLabPostReviewAction(bot, repositoryClient, payload);
+            if (reviewed && bot.getGitIntegration() != null) {
+                String owner = payload.getRepository().getOwner().getLogin();
+                String repo = payload.getRepository().getName();
+                Long prNumber = payload.getPullRequest().getNumber();
+                repositoryClient.postReviewAction(owner, repo, prNumber, bot.getGitIntegration().getPostReviewAction());
             }
         } catch (Exception e) {
             log.error("[Bot '{}'] Failed to review PR: {}", bot.getName(), e.getMessage(), e);
@@ -95,6 +97,10 @@ public class BotWebhookService {
      */
     @Async
     public void handleBotCommand(Bot bot, WebhookPayload payload) {
+        if (!isPullRequestAuthor(payload)) {
+            log.debug("[Bot '{}'] Ignoring pull request command from non-author", bot.getName());
+            return;
+        }
         if (bot.getBotType() == BotType.WRITER) {
             log.debug("[Bot '{}'] Writer bot ignores pull request command", bot.getName());
             return;
@@ -115,6 +121,10 @@ public class BotWebhookService {
      */
     @Async
     public void handlePrComment(Bot bot, WebhookPayload payload) {
+        if (!isPullRequestAuthor(payload)) {
+            log.debug("[Bot '{}'] Ignoring pull request comment from non-author", bot.getName());
+            return;
+        }
         if (bot.getBotType() == BotType.WRITER) {
             log.debug("[Bot '{}'] Writer bot ignores pull request comment", bot.getName());
             return;
@@ -154,6 +164,10 @@ public class BotWebhookService {
      */
     @Async
     public void handleInlineComment(Bot bot, WebhookPayload payload) {
+        if (!isPullRequestAuthor(payload)) {
+            log.debug("[Bot '{}'] Ignoring inline review comment from non-author", bot.getName());
+            return;
+        }
         if (bot.getBotType() == BotType.WRITER) {
             log.debug("[Bot '{}'] Writer bot ignores inline review comment", bot.getName());
             return;
@@ -298,6 +312,22 @@ public class BotWebhookService {
         return author != null && commenter != null && author.equalsIgnoreCase(commenter);
     }
 
+    public boolean isReviewAgainRequestFromPullRequestAuthor(WebhookPayload payload, String botAlias) {
+        if (!isPullRequestAuthor(payload)) {
+            return false;
+        }
+        return isReviewAgainRequest(payload, botAlias);
+    }
+
+    public boolean isReviewAgainRequest(WebhookPayload payload, String botAlias) {
+        String body = payload.getComment() != null ? payload.getComment().getBody() : null;
+        if (body == null || botAlias == null || !body.contains(botAlias)) {
+            return false;
+        }
+        String normalized = body.toLowerCase();
+        return normalized.contains("review") && (normalized.contains("again") || normalized.contains("re-review"));
+    }
+
     /**
      * Creates a per-bot {@link CodeReviewService} using the bot's AI and Git integrations.
      */
@@ -316,24 +346,6 @@ public class BotWebhookService {
         String systemPromptKey = "system-prompt:" + bot.getSystemPrompt().getId();
         return new CodeReviewService(repoClient, aiClient, sessionService, bot.getUsername(),
                 reviewConfig, systemPromptKey, bot.getSystemPrompt().getReviewSystemPrompt());
-    }
-
-    private void handleGitLabPostReviewAction(Bot bot, RepositoryApiClient repositoryClient, WebhookPayload payload) {
-        GitIntegration gitIntegration = bot.getGitIntegration();
-        if (gitIntegration == null || gitIntegration.getProviderType() != RepositoryType.GITLAB
-                || gitIntegration.getGitLabPostReviewAction() == null
-                || gitIntegration.getGitLabPostReviewAction() == GitLabPostReviewAction.NONE) {
-            return;
-        }
-
-        String owner = payload.getRepository().getOwner().getLogin();
-        String repo = payload.getRepository().getName();
-        Long prNumber = payload.getPullRequest().getNumber();
-        if (gitIntegration.getGitLabPostReviewAction() == GitLabPostReviewAction.APPROVE) {
-            repositoryClient.approvePullRequest(owner, repo, prNumber);
-        } else if (gitIntegration.getGitLabPostReviewAction() == GitLabPostReviewAction.REQUEST_CHANGES) {
-            repositoryClient.requestChanges(owner, repo, prNumber);
-        }
     }
 
     /**

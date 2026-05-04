@@ -126,7 +126,7 @@ Git Integrations define connections to Git providers. Navigate to **Git Integrat
      - For GitLab: `https://gitlab.com` or `https://gitlab.yourdomain.com` (self-managed)
      - For Bitbucket: `https://bitbucket.org`
     - **Token**: Your Git API token (encrypted at rest)
-    - **GitLab Post-review Action** (GitLab only): defaults to **None**. Optionally approve the merge request or post a request-changes note after each bot review.
+    - **Post-review Action**: defaults to **None**. Currently GitLab can use it to approve the merge request or post a request-changes note after each bot review.
 3. Click **Save**
 
 ### Provider-Specific Notes

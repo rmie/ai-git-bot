@@ -104,19 +104,16 @@ public class BitbucketWebhookHandler {
 
         // Bitbucket inline comments have a path set via the "inline" field
         if (payload.getComment().getPath() != null) {
-            if (!botWebhookService.isPullRequestAuthor(payload)) {
-                return ResponseEntity.ok("ignored");
-            }
             botWebhookService.handleInlineComment(bot, payload);
             return ResponseEntity.ok("inline comment response triggered");
         }
 
-        if (!botWebhookService.isPullRequestAuthor(payload)) {
+        if (botWebhookService.isReviewAgainRequest(payload, botAlias)) {
+            if (botWebhookService.isReviewAgainRequestFromPullRequestAuthor(payload, botAlias)) {
+                botWebhookService.reviewPullRequest(bot, payload);
+                return ResponseEntity.ok("review triggered");
+            }
             return ResponseEntity.ok("ignored");
-        }
-        if (isReviewAgainRequest(body, botAlias)) {
-            botWebhookService.reviewPullRequest(bot, payload);
-            return ResponseEntity.ok("review triggered");
         }
 
         // General PR comment mentioning the bot
@@ -340,11 +337,4 @@ public class BitbucketWebhookHandler {
                 .anyMatch(user -> user != null && username.equalsIgnoreCase(user.getLogin()));
     }
 
-    private boolean isReviewAgainRequest(String body, String botAlias) {
-        if (body == null || botAlias == null || !body.contains(botAlias)) {
-            return false;
-        }
-        String normalized = body.toLowerCase();
-        return normalized.contains("review") && (normalized.contains("again") || normalized.contains("re-review"));
-    }
 }

@@ -1,6 +1,7 @@
 package org.remus.giteabot.gitlab;
 
 import lombok.extern.slf4j.Slf4j;
+import org.remus.giteabot.repository.PostReviewAction;
 import org.remus.giteabot.gitlab.model.GitLabReview;
 import org.remus.giteabot.gitlab.model.GitLabReviewComment;
 import org.remus.giteabot.repository.RepositoryApiClient;
@@ -84,19 +85,21 @@ public class GitLabApiClient implements RepositoryApiClient {
     }
 
     @Override
-    public void approvePullRequest(String owner, String repo, Long pullNumber) {
-        log.info("Approving MR !{} in {}/{}", pullNumber, owner, repo);
-        String projectPath = encodeProjectPath(owner, repo);
-        gitlabRestClient.post()
-                .uri("/api/v4/projects/{projectPath}/merge_requests/{iid}/approve", projectPath, pullNumber)
-                .retrieve()
-                .toBodilessEntity();
-    }
-
-    @Override
-    public void requestChanges(String owner, String repo, Long pullNumber) {
-        log.info("Requesting changes on MR !{} in {}/{}", pullNumber, owner, repo);
-        postPullRequestComment(owner, repo, pullNumber, "Changes requested after the AI review.");
+    public void postReviewAction(String owner, String repo, Long pullNumber, PostReviewAction action) {
+        if (action == null || action == PostReviewAction.NONE) {
+            return;
+        }
+        if (action == PostReviewAction.APPROVE) {
+            log.info("Approving MR !{} in {}/{}", pullNumber, owner, repo);
+            String projectPath = encodeProjectPath(owner, repo);
+            gitlabRestClient.post()
+                    .uri("/api/v4/projects/{projectPath}/merge_requests/{iid}/approve", projectPath, pullNumber)
+                    .retrieve()
+                    .toBodilessEntity();
+        } else if (action == PostReviewAction.REQUEST_CHANGES) {
+            log.info("Requesting changes on MR !{} in {}/{}", pullNumber, owner, repo);
+            postPullRequestComment(owner, repo, pullNumber, "Changes requested after the AI review.");
+        }
     }
 
     @Override

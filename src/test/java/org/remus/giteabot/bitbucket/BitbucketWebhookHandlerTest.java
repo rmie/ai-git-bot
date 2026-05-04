@@ -75,6 +75,10 @@ class BitbucketWebhookHandlerTest {
 
     @Test
     void ownerReviewAgainComment_triggersReview() {
+        lenient().when(botWebhookService.isReviewAgainRequest(any(WebhookPayload.class), eq("@ai_bot"))).thenReturn(true);
+        lenient().when(botWebhookService.isReviewAgainRequestFromPullRequestAuthor(any(WebhookPayload.class), eq("@ai_bot")))
+                .thenReturn(true);
+
         ResponseEntity<String> response = handler.handleWebhook(bot, "pullrequest:comment_created",
                 commentPayload("@ai_bot - Review the Pull-Request again", null));
 
@@ -85,7 +89,9 @@ class BitbucketWebhookHandlerTest {
 
     @Test
     void nonOwnerReviewAgainComment_isIgnored() {
-        lenient().when(botWebhookService.isPullRequestAuthor(any(WebhookPayload.class))).thenReturn(false);
+        lenient().when(botWebhookService.isReviewAgainRequest(any(WebhookPayload.class), eq("@ai_bot"))).thenReturn(true);
+        lenient().when(botWebhookService.isReviewAgainRequestFromPullRequestAuthor(any(WebhookPayload.class), eq("@ai_bot")))
+                .thenReturn(false);
 
         ResponseEntity<String> response = handler.handleWebhook(bot, "pullrequest:comment_created",
                 commentPayload("@ai_bot - Review the Pull-Request again", null));
@@ -96,6 +102,8 @@ class BitbucketWebhookHandlerTest {
 
     @Test
     void regularOwnerMention_routesToBotCommand() {
+        lenient().when(botWebhookService.isReviewAgainRequest(any(WebhookPayload.class), eq("@ai_bot"))).thenReturn(false);
+
         ResponseEntity<String> response = handler.handleWebhook(bot, "pullrequest:comment_created",
                 commentPayload("@ai_bot please explain this", null));
 

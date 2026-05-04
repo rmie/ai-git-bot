@@ -132,7 +132,7 @@ In the bot's web UI:
      - For gitlab.com: `https://gitlab.com`
      - For self-managed: `https://gitlab.yourdomain.com`
     - Enter the Personal Access Token you created above
-    - Leave **GitLab Post-review Action** as **None** unless you explicitly want the bot to approve the MR or post a request-changes note after each review
+    - Leave **Post-review Action** as **None** unless you explicitly want the bot to approve the MR or post a request-changes note after each review
     - Click **Save**
 
 2. **Create or Edit a Bot:**
@@ -147,9 +147,9 @@ In the bot's web UI:
 - New commits: pushing to the MR does not run another review. Re-request the bot when you want a fresh review.
 - MR and inline comments that mention the bot are handled only when they are written by the merge request author.
 
-### GitLab Post-review Action
+### Post-review Action
 
-GitLab integrations have an optional **GitLab Post-review Action** setting:
+GitLab integrations support the optional **Post-review Action** setting:
 
 - **None** (default): post the AI review only.
 - **Approve merge request**: call GitLab's approve endpoint after the AI review is posted.

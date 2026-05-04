@@ -775,6 +775,7 @@ class BotWebhookServiceTest {
         pr.setNumber(prNumber);
         pr.setId(80L);
         pr.setState("open");
+        pr.setUser(owner("tom"));
         WebhookPayload.Head head = new WebhookPayload.Head();
         head.setRef("feature/branch");
         pr.setHead(head);

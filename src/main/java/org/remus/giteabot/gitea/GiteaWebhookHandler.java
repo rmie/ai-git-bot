@@ -199,10 +199,6 @@ public class GiteaWebhookHandler {
             if ("created".equals(payload.getAction())
                     && payload.getComment().getBody() != null
                     && payload.getComment().getBody().contains(botAlias)) {
-                if (!botWebhookService.isPullRequestAuthor(payload)) {
-                    log.debug("Ignoring inline comment from non-author");
-                    return ResponseEntity.ok("ignored");
-                }
                 botWebhookService.handleInlineComment(bot, payload);
                 return ResponseEntity.ok("inline comment response triggered");
             }
@@ -225,10 +221,6 @@ public class GiteaWebhookHandler {
                 return ResponseEntity.ok("ignored");
             }
             if (payload.getPullRequest() != null) {
-                if (!botWebhookService.isPullRequestAuthor(payload)) {
-                    log.debug("Ignoring PR comment from non-author");
-                    return ResponseEntity.ok("ignored");
-                }
                 // Comment on a PR discussion thread — let BotWebhookService decide whether to
                 // route to the agent (session exists) or the code-review handler (no session).
                 botWebhookService.handlePrComment(bot, payload);
@@ -294,4 +286,3 @@ public class GiteaWebhookHandler {
                 && bot.getUsername().equalsIgnoreCase(payload.getRequestedReviewer().getLogin());
     }
 }
-

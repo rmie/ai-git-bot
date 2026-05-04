@@ -154,9 +154,6 @@ public class GitLabWebhookHandler {
         if (position != null) {
             String path = (String) position.get("new_path");
             if (path != null && !path.isBlank()) {
-                if (!botWebhookService.isPullRequestAuthor(webhookPayload)) {
-                    return ResponseEntity.ok("ignored");
-                }
                 webhookPayload.getComment().setPath(path);
                 Object newLine = position.get("new_line");
                 if (newLine instanceof Number n) {
@@ -174,12 +171,13 @@ public class GitLabWebhookHandler {
             webhookPayload.getIssue().setPullRequest(issuePr);
         }
 
-        if (!botWebhookService.isPullRequestAuthor(webhookPayload)) {
+        String botAlias = botWebhookService.getBotAlias(bot);
+        if (botWebhookService.isReviewAgainRequest(webhookPayload, botAlias)) {
+            if (botWebhookService.isReviewAgainRequestFromPullRequestAuthor(webhookPayload, botAlias)) {
+                botWebhookService.reviewPullRequest(bot, webhookPayload);
+                return ResponseEntity.ok("review triggered");
+            }
             return ResponseEntity.ok("ignored");
-        }
-        if (isReviewAgainRequest(webhookPayload.getComment().getBody(), botWebhookService.getBotAlias(bot))) {
-            botWebhookService.reviewPullRequest(bot, webhookPayload);
-            return ResponseEntity.ok("review triggered");
         }
 
         botWebhookService.handleBotCommand(bot, webhookPayload);
@@ -538,11 +536,4 @@ public class GitLabWebhookHandler {
                 .toList();
     }
 
-    private boolean isReviewAgainRequest(String body, String botAlias) {
-        if (body == null || botAlias == null || !body.contains(botAlias)) {
-            return false;
-        }
-        String normalized = body.toLowerCase();
-        return normalized.contains("review") && (normalized.contains("again") || normalized.contains("re-review"));
-    }
 }

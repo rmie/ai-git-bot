@@ -76,16 +76,16 @@
                             </div>
                         </div>
 
-                        <div class="col-md-6" id="gitLabPostReviewActionField" style="display: none;">
-                            <label for="gitLabPostReviewAction" class="form-label">GitLab Post-review Action</label>
-                            <select class="form-select" id="gitLabPostReviewAction" th:field="*{gitLabPostReviewAction}">
-                                <option th:each="action : ${gitLabPostReviewActions}"
+                        <div class="col-md-6" id="postReviewActionField" style="display: none;">
+                            <label for="postReviewAction" class="form-label">Post-review Action</label>
+                            <select class="form-select" id="postReviewAction" th:field="*{postReviewAction}">
+                                <option th:each="action : ${postReviewActions}"
                                         th:value="${action}"
-                                        th:text="${action == T(org.remus.giteabot.admin.GitLabPostReviewAction).NONE ? 'None' : (action == T(org.remus.giteabot.admin.GitLabPostReviewAction).APPROVE ? 'Approve merge request' : 'Request changes')}">
+                                        th:text="${action == T(org.remus.giteabot.repository.PostReviewAction).NONE ? 'None' : (action == T(org.remus.giteabot.repository.PostReviewAction).APPROVE ? 'Approve merge request' : 'Request changes')}">
                                 </option>
                             </select>
                             <div class="form-text">
-                                Existing and new GitLab integrations default to no automatic approve or request-changes action.
+                                Defaults to no automatic approve or request-changes action. Currently supported by GitLab.
                             </div>
                         </div>
                     </div>
@@ -113,13 +113,13 @@
                 const tokenLabel = document.getElementById('tokenLabel');
                 const tokenDescription = document.getElementById('tokenDescription');
                 const reviewTriggerNotice = document.getElementById('reviewTriggerNotice');
-                const gitLabPostReviewActionField = document.getElementById('gitLabPostReviewActionField');
+                const postReviewActionField = document.getElementById('postReviewActionField');
 
                 // Reset visibility
                 urlField.style.display = 'block';
                 usernameField.style.display = 'none';
                 reviewTriggerNotice.style.display = 'none';
-                gitLabPostReviewActionField.style.display = 'none';
+                postReviewActionField.style.display = 'none';
 
                 if (providerType === 'GITEA') {
                     // Gitea: URL + Token
@@ -153,7 +153,7 @@
                     tokenLabel.textContent = 'Personal Access Token';
                     tokenDescription.textContent = 'A GitLab Personal Access Token with api and read_repository scopes. See GitLab Settings → Access Tokens.';
                     reviewTriggerNotice.style.display = 'block';
-                    gitLabPostReviewActionField.style.display = 'block';
+                    postReviewActionField.style.display = 'block';
                 } else if (providerType === 'BITBUCKET') {
                     // Bitbucket: Username + Token (App Password)
                     urlField.style.display = 'none';
