@@ -60,7 +60,7 @@ The local Gitea instance comes with existing test data in `systemtest/gitea/`. L
 2. Copy the bot's **Webhook URL**
 3. In Gitea (`http://localhost:3000`), navigate to a repository's **Settings → Webhooks → Add Webhook → Gitea**
 4. Set the **Target URL** to the webhook URL (use `http://host.docker.internal:8080/api/webhook/...` to reach the host from Docker)
-5. Select events: **Pull Request**, **Issue Comment**, **Pull Request Review**, **Pull Request Comment**
+5. Select events: **Pull Request**, **Issue Comment**, **Pull Request Comment** (and **Issues** if you want to test coding/writer agents)
 6. Save the webhook
 
 The `host.docker.internal` hostname allows the Gitea Docker container to reach the bot running natively on your host machine.
@@ -89,63 +89,36 @@ mvn test
 
 ```
 src/main/java/org/remus/giteabot/
-├── admin/          # Admin controllers, services, entities
-│   ├── Bot.java, BotService.java, BotController.java
-│   ├── AiIntegration.java, AiIntegrationService.java, AiIntegrationController.java
-│   ├── GitIntegration.java, GitIntegrationService.java, GitIntegrationController.java
-│   ├── AiClientFactory.java        # Creates AiClient instances per integration
-│   └── EncryptionService.java      # API key encryption
-├── ai/             # AI provider abstraction layer
-│   ├── AiClient.java               # Provider-agnostic interface
-│   ├── AbstractAiClient.java       # Shared chunking/retry logic
-│   ├── AiProviderMetadata.java     # Interface for provider metadata
-│   ├── AiProviderRegistry.java     # Collects all provider metadata
-│   ├── anthropic/                  # Anthropic implementation
-│   │   ├── AnthropicAiClient.java
-│   │   └── AnthropicProviderMetadata.java
-│   ├── openai/                     # OpenAI implementation
-│   │   ├── OpenAiClient.java
-│   │   └── OpenAiProviderMetadata.java
-│   ├── ollama/                     # Ollama implementation
-│   │   ├── OllamaClient.java
-│   │   └── OllamaProviderMetadata.java
-│   └── llamacpp/                   # llama.cpp implementation
-│       ├── LlamaCppClient.java
-│       └── LlamaCppProviderMetadata.java
-├── gitea/          # Gitea integration
-│   ├── GiteaWebhookController.java
-│   ├── GiteaApiClient.java
-│   └── model/      # WebhookPayload, GiteaReview, GiteaReviewComment
-├── github/         # GitHub integration
-│   ├── GitHubWebhookController.java
-│   ├── GitHubApiClient.java
-│   └── model/      # GitHub-specific payload models
-├── repository/     # Repository provider abstraction
-│   ├── RepositoryApiClient.java       # Provider-agnostic interface
-│   ├── RepositoryProviderMetadata.java
-│   ├── RepositoryProviderRegistry.java
-│   ├── GiteaProviderMetadata.java
-│   └── GitHubProviderMetadata.java
-├── agent/          # Issue implementation agent
-├── review/         # CodeReviewService (orchestration)
-├── session/        # ReviewSession, ConversationMessage, SessionService
-└── config/         # Spring configuration classes
+├── admin/          # Admin UI, bot/integration entities and factories
+├── ai/             # AI provider abstraction + provider implementations
+├── agent/          # Coding-agent orchestration, writer agent, workspace/tool execution
+├── review/         # Code-review orchestration and PR context enrichment
+├── repository/     # Provider-agnostic Git API abstraction
+├── webhook/        # Unified webhook controller
+├── gitea/          # Gitea webhook translation + API client
+├── github/         # GitHub webhook translation + API client
+├── gitlab/         # GitLab webhook translation + API client
+├── bitbucket/      # Bitbucket webhook translation + API client
+├── session/        # Review session persistence
+├── systemsettings/ # Reusable system prompt entries and settings UI
+└── config/         # Spring configuration and properties
 
-prompts/            # System prompt templates
-├── default.md      # Concise review prompt
-└── local-llm.md    # Detailed review prompt for local models
+prompts/            # Bundled prompt seed files copied into the container image
+├── default.md      # Default review prompt content
+├── agent.md        # Default coding-agent prompt content
+└── local-llm.md    # Review prompt content optimized for local models
 ```
 
 ## Useful Endpoints
 
 | Endpoint | Description |
 |----------|-------------|
-| `POST /api/webhook/{secret}` | Gitea webhook receiver |
-| `POST /api/github-webhook/{secret}` | GitHub webhook receiver |
+| `POST /api/webhook/{secret}` | Unified webhook receiver for all supported Git providers |
 | `GET /dashboard` | Admin dashboard |
 | `GET /bots` | Bot management |
 | `GET /ai-integrations` | AI integration management |
 | `GET /git-integrations` | Git integration management |
+| `GET /system-settings` | Reusable system prompt entry management |
 | `GET /actuator/health` | Health check |
 | `GET /actuator/info` | Application info |
 

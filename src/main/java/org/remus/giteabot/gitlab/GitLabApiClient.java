@@ -1,6 +1,7 @@
 package org.remus.giteabot.gitlab;
 
 import lombok.extern.slf4j.Slf4j;
+import org.remus.giteabot.repository.PostReviewAction;
 import org.remus.giteabot.gitlab.model.GitLabReview;
 import org.remus.giteabot.gitlab.model.GitLabReviewComment;
 import org.remus.giteabot.repository.RepositoryApiClient;
@@ -79,17 +80,45 @@ public class GitLabApiClient implements RepositoryApiClient {
     @Override
     public void postReviewComment(String owner, String repo, Long pullNumber, String body) {
         log.info("Posting note on MR !{} in {}/{}", pullNumber, owner, repo);
+        postPullRequestComment(owner, repo, pullNumber, body);
+        log.info("Note posted successfully");
+    }
+
+    @Override
+    public void postReviewAction(String owner, String repo, Long pullNumber, PostReviewAction action) {
+        if (action == null || action == PostReviewAction.NONE) {
+            return;
+        }
+        if (action == PostReviewAction.APPROVE) {
+            log.info("Approving MR !{} in {}/{}", pullNumber, owner, repo);
+            String projectPath = encodeProjectPath(owner, repo);
+            gitlabRestClient.post()
+                    .uri("/api/v4/projects/{projectPath}/merge_requests/{iid}/approve", projectPath, pullNumber)
+                    .retrieve()
+                    .toBodilessEntity();
+        } else if (action == PostReviewAction.REQUEST_CHANGES) {
+            log.info("Requesting changes on MR !{} in {}/{}", pullNumber, owner, repo);
+            String projectPath = encodeProjectPath(owner, repo);
+            gitlabRestClient.post()
+                    .uri("/api/v4/projects/{projectPath}/merge_requests/{iid}/request_changes", projectPath, pullNumber)
+                    .retrieve()
+                    .toBodilessEntity();
+        }
+    }
+
+    @Override
+    public void postPullRequestComment(String owner, String repo, Long pullNumber, String body) {
+        log.info("Posting merge request note on MR !{} in {}/{}", pullNumber, owner, repo);
         String projectPath = encodeProjectPath(owner, repo);
         gitlabRestClient.post()
                 .uri("/api/v4/projects/{projectPath}/merge_requests/{iid}/notes", projectPath, pullNumber)
                 .body(Map.of("body", body))
                 .retrieve()
                 .toBodilessEntity();
-        log.info("Note posted successfully");
     }
 
     @Override
-    public void postComment(String owner, String repo, Long issueNumber, String body) {
+    public void postIssueComment(String owner, String repo, Long issueNumber, String body) {
         log.info("Posting note on issue #{} in {}/{}", issueNumber, owner, repo);
         String projectPath = encodeProjectPath(owner, repo);
         gitlabRestClient.post()
@@ -221,6 +250,36 @@ public class GitLabApiClient implements RepositoryApiClient {
                 .retrieve()
                 .body(new ParameterizedTypeReference<>() {});
         return issue != null ? issue : Map.of();
+    }
+
+    @Override
+    public List<Map<String, Object>> searchIssues(String owner, String repo, String query) {
+        log.info("Searching issues in {}/{} for '{}'", owner, repo, query);
+        String projectPath = encodeProjectPath(owner, repo);
+        List<Map<String, Object>> issues = gitlabRestClient.get()
+                .uri(uriBuilder -> uriBuilder
+                        .path("/api/v4/projects/{projectPath}/issues")
+                        .queryParam("search", query)
+                        .queryParam("scope", "all")
+                        .build(Map.of("projectPath", projectPath)))
+                .retrieve()
+                .body(new ParameterizedTypeReference<>() {});
+        return issues != null ? issues : List.of();
+    }
+
+    @Override
+    public Long createIssue(String owner, String repo, String title, String body) {
+        log.info("Creating issue '{}' in {}/{}", title, owner, repo);
+        String projectPath = encodeProjectPath(owner, repo);
+        Map<String, Object> result = gitlabRestClient.post()
+                .uri("/api/v4/projects/{projectPath}/issues", projectPath)
+                .body(Map.of("title", title, "description", body))
+                .retrieve()
+                .body(new ParameterizedTypeReference<>() {});
+        if (result != null && result.get("iid") instanceof Number iid) {
+            return iid.longValue();
+        }
+        return null;
     }
 
     // ---- Repository operations ----

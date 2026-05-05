@@ -84,12 +84,14 @@ You'll enter this token when creating a **Git Integration** in the bot's web UI.
 
 Webhooks tell GitHub to notify the bot when pull request events occur. Each bot has a unique webhook URL.
 
+Code reviews are explicit-request only: pushes to an existing pull request do not trigger another review by themselves.
+
 ### Getting the Webhook URL
 
 1. In the bot's web UI, go to **Bots**
 2. Click on your bot (or create one if you haven't)
 3. The **Webhook URL** is displayed at the top of the edit form
-4. Copy this URL (e.g., `http://your-bot-server:8080/api/github-webhook/abc123-def456-...`)
+4. Copy this URL (e.g., `http://your-bot-server:8080/api/webhook/abc123-def456-...`)
 
 ### Repository-Level Webhook
 
@@ -99,7 +101,7 @@ Webhooks tell GitHub to notify the bot when pull request events occur. Each bot 
    - **Content type:** `application/json`
    - **Secret:** (leave empty — authentication is via the URL path)
 3. Under **Which events would you like to trigger this webhook?**, select **Let me select individual events**, then enable:
-   - ✅ **Pull requests**
+   - ✅ **Pull requests** (PR opened, reviewer added, reviewer re-requested)
    - ✅ **Pull request reviews**
    - ✅ **Pull request review comments**
    - ✅ **Issue comments**
@@ -137,7 +139,14 @@ In the bot's web UI:
 2. **Create or Edit a Bot:**
    - Set the **Username** to match the bot's GitHub username (e.g., `ai-code-reviewer`)
    - This is used to detect and ignore the bot's own actions
-   - The mention alias is derived as `@ai-code-reviewer`
+    - The mention alias is derived as `@ai-code-reviewer`
+
+## Review Workflow
+
+- First review: create the pull request with the bot already listed under **Reviewers**, or add the bot as a reviewer after opening the PR.
+- Re-review: use GitHub's **Re-request review** action for the bot reviewer.
+- New commits: pushing to the PR does not run another review. Re-request the bot when you want a fresh review.
+- PR and inline comments that mention the bot are handled only when they are written by the pull request author.
 
 ## GitHub Enterprise Server
 
@@ -218,7 +227,7 @@ Switched workspace/context branch to 'develop' for issue #42
 
 After setup, create a test pull request. The bot should:
 
-1. Automatically post an AI-generated code review
+1. Post an AI-generated code review when the bot is requested as reviewer
 2. Respond when mentioned in PR comments (e.g., `@ai-code-reviewer explain this`)
 3. Respond to inline review comments mentioning the bot
 4. React with 👀 to acknowledge commands
@@ -264,4 +273,3 @@ Assign the bot to an issue and it will autonomously create a PR with the impleme
 - Check the bot's application logs for error messages
 - Verify the AI integration is configured correctly
 - Ensure the bot is enabled in the bot settings
-

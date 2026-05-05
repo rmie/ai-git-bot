@@ -4,7 +4,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.jspecify.annotations.NonNull;
 import org.remus.giteabot.ai.AiClient;
 import org.remus.giteabot.ai.AiMessage;
-import org.remus.giteabot.config.PromptService;
 import org.remus.giteabot.config.ReviewConfigProperties;
 import org.remus.giteabot.gitea.model.WebhookPayload;
 import org.remus.giteabot.repository.RepositoryApiClient;
@@ -28,23 +27,31 @@ public class CodeReviewService {
 
     private final RepositoryApiClient repositoryClient;
     private final AiClient aiClient;
-    private final PromptService promptService;
     private final SessionService sessionService;
     private final String botUsername;
+    private final String sessionPromptKey;
+    private final String reviewSystemPrompt;
     private final PrContextEnricher contextEnricher;
 
     public CodeReviewService(RepositoryApiClient repositoryClient, AiClient aiClient,
-                             PromptService promptService, SessionService sessionService,
-                             String botUsername, ReviewConfigProperties reviewConfig) {
+                             SessionService sessionService, String botUsername, ReviewConfigProperties reviewConfig,
+                             String sessionPromptKey, String reviewSystemPrompt) {
+        if (sessionPromptKey == null || sessionPromptKey.isBlank()) {
+            throw new IllegalArgumentException("Session prompt key is required");
+        }
+        if (reviewSystemPrompt == null || reviewSystemPrompt.isBlank()) {
+            throw new IllegalArgumentException("Review system prompt is required");
+        }
         this.repositoryClient = repositoryClient;
         this.aiClient = aiClient;
-        this.promptService = promptService;
         this.sessionService = sessionService;
         this.botUsername = botUsername;
+        this.sessionPromptKey = sessionPromptKey;
+        this.reviewSystemPrompt = reviewSystemPrompt;
         this.contextEnricher = new PrContextEnricher(repositoryClient, reviewConfig);
     }
 
-    public void reviewPullRequest(WebhookPayload payload, String promptName) {
+    public boolean reviewPullRequest(WebhookPayload payload, String promptName) {
         String owner = payload.getRepository().getOwner().getLogin();
         String repo = payload.getRepository().getName();
         Long prNumber = payload.getPullRequest().getNumber();
@@ -57,16 +64,16 @@ public class CodeReviewService {
             String diff = repositoryClient.getPullRequestDiff(owner, repo, prNumber);
             if (diff == null || diff.isBlank()) {
                 log.warn("No diff found for PR #{} in {}/{}", prNumber, owner, repo);
-                return;
+                return false;
             }
 
-            String systemPrompt = promptService.getSystemPrompt(promptName);
+            String systemPrompt = reviewSystemPrompt;
 
             // Build enriched context for better review quality
             String headRef = resolveHeadRef(payload);
             String additionalContext = gatherAdditionalContext(owner, repo, prNumber, diff, headRef, prBody);
 
-            ReviewSession session = sessionService.getOrCreateSession(owner, repo, prNumber, promptName);
+            ReviewSession session = sessionService.getOrCreateSession(owner, repo, prNumber, sessionPromptKey);
 
             String review;
             if (session.getMessages().isEmpty()) {
@@ -108,8 +115,10 @@ public class CodeReviewService {
             sessionService.compactContextWindow(session);
 
             log.info("Code review completed for PR #{} in {}/{}", prNumber, owner, repo);
+            return true;
         } catch (Exception e) {
             log.error("Code review failed for PR #{} in {}/{}: {}", prNumber, owner, repo, e.getMessage(), e);
+            return false;
         }
     }
 
@@ -130,10 +139,10 @@ public class CodeReviewService {
                 log.warn("Failed to add reaction to comment #{}: {}", commentId, e.getMessage());
             }
 
-            String systemPrompt = promptService.getSystemPrompt(promptName);
+            String systemPrompt = reviewSystemPrompt;
 
             // Get or create session
-            ReviewSession session = sessionService.getOrCreateSession(owner, repo, prNumber, promptName);
+            ReviewSession session = sessionService.getOrCreateSession(owner, repo, prNumber, sessionPromptKey);
 
             // If session is empty, add context from the PR
             if (session.getMessages().isEmpty()) {
@@ -162,7 +171,7 @@ public class CodeReviewService {
 
             // Post the response as a comment on the PR
             String formattedResponse = formatBotResponse(response);
-            repositoryClient.postComment(owner, repo, prNumber, formattedResponse);
+            repositoryClient.postPullRequestComment(owner, repo, prNumber, formattedResponse);
 
             // Compact context window to reduce memory/token usage
             sessionService.compactContextWindow(session);
@@ -218,10 +227,10 @@ public class CodeReviewService {
                 log.warn("Failed to add reaction to inline comment #{}: {}", commentId, e.getMessage());
             }
 
-            String systemPrompt = promptService.getSystemPrompt(promptName);
+            String systemPrompt = reviewSystemPrompt;
 
             // Get or create session for conversation context
-            ReviewSession session = sessionService.getOrCreateSession(owner, repo, prNumber, promptName);
+            ReviewSession session = sessionService.getOrCreateSession(owner, repo, prNumber, sessionPromptKey);
 
             // If session is empty, add PR context
             if (session.getMessages().isEmpty()) {
@@ -260,10 +269,10 @@ public class CodeReviewService {
                             filePath, line, formattedResponse);
                 } catch (Exception e) {
                     log.warn("Failed to post inline reply, falling back to regular comment: {}", e.getMessage());
-                    repositoryClient.postComment(owner, repo, prNumber, formattedResponse);
+                    repositoryClient.postPullRequestComment(owner, repo, prNumber, formattedResponse);
                 }
             } else {
-                repositoryClient.postComment(owner, repo, prNumber, formattedResponse);
+                repositoryClient.postPullRequestComment(owner, repo, prNumber, formattedResponse);
             }
 
             // Compact context window to reduce memory/token usage
@@ -315,7 +324,7 @@ public class CodeReviewService {
         log.info("Handling review submitted event for PR #{} in {}/{}", prNumber, owner, repo);
 
         try {
-            String systemPrompt = promptService.getSystemPrompt(promptName);
+            String systemPrompt = reviewSystemPrompt;
 
             // Fetch all reviews for the PR to find the latest one
             List<Review> reviews = repositoryClient.getReviews(owner, repo, prNumber);
@@ -356,7 +365,7 @@ public class CodeReviewService {
                     botMentionComments.size(), latestReview.getId(), prNumber);
 
             // Get or create session
-            ReviewSession session = sessionService.getOrCreateSession(owner, repo, prNumber, promptName);
+            ReviewSession session = sessionService.getOrCreateSession(owner, repo, prNumber, sessionPromptKey);
 
             // If session is empty, add PR context
             if (session.getMessages().isEmpty()) {
@@ -436,10 +445,10 @@ public class CodeReviewService {
             } catch (Exception e) {
                 log.warn("Failed to post inline reply for review comment #{}, falling back to regular comment: {}",
                         commentId, e.getMessage());
-                repositoryClient.postComment(owner, repo, prNumber, formattedResponse);
+                repositoryClient.postPullRequestComment(owner, repo, prNumber, formattedResponse);
             }
         } else {
-            repositoryClient.postComment(owner, repo, prNumber, formattedResponse);
+            repositoryClient.postPullRequestComment(owner, repo, prNumber, formattedResponse);
         }
     }
 

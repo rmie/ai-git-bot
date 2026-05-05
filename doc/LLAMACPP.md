@@ -210,7 +210,7 @@ root-content ::= (file-changes-field ws)? (run-tool-field ws)? (message-field ws
 
 This grammar ensures:
 - Valid JSON structure
-- Correct field names (`fileChanges`, `runTool`, `message`, `done`)
+- Reliable structured output for the agent prompts' expected JSON contracts
 - Proper nesting and types
 - No malformed output
 
@@ -290,7 +290,7 @@ Then configure the AI Integration in the web UI with API URL `http://llamacpp:80
 
 Local models may produce shorter responses than cloud providers. To get more detailed reviews:
 
-1. **Use the `local-llm` prompt** — Select the "Local LLM" system prompt template when creating or editing your bot in the web UI. This prompt is specifically designed for local models with more explicit instructions.
+1. **Use the `local-llm` prompt content** — Create or clone a system prompt entry in **System settings → System prompts** and use the bundled `local-llm` prompt text for review-oriented local-model bots. This prompt is designed for local models with more explicit instructions.
 
 2. **Use a larger model** — 14B+ models produce more detailed output
 

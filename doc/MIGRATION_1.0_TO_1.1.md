@@ -106,10 +106,9 @@ After logging in, you **must** recreate your configuration through the UI:
 
 ### 6. Update Webhooks in Git Providers
 
-Since the legacy `/api/webhook` endpoint has been removed, update all webhooks in your Git provider to use the new per-bot webhook URL. The webhook URL format depends on the provider:
+Since the legacy `/api/webhook` endpoint has been removed, update all webhooks in your Git provider to use the new per-bot webhook URL. Current releases use the same webhook URL format for every supported provider:
 
-- **Gitea**: `/api/webhook/{secret}`
-- **GitHub**: `/api/github-webhook/{secret}`
+- **All providers**: `/api/webhook/{secret}`
 
 The webhook secret is shown in the bot management UI after creating a bot.
 

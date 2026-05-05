@@ -1,0 +1,69 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="680" height="360" viewBox="0 0 680 360" role="img">
+  <title>AI-Git-Bot Architecture</title>
+  <desc>AI-Providers links, AI-Git-Bot Zentrum, Git-Systeme rechts, drei Aktionsboxen unten.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M2 1L8 5L2 9" fill="none" stroke="#555" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+  </defs>
+  <rect width="680" height="360" fill="#000000"/>
+  <text font-family="sans-serif" font-size="14" font-weight="500" fill="#ffffff" x="16" y="18">AI providers</text>
+  <circle cx="26" cy="36" r="8" fill="none" stroke="#4B9CD3" stroke-width="1.5"/>
+  <path d="M22 36 Q26 30 30 36 Q26 42 22 36Z" fill="#4B9CD3" opacity="0.8"/>
+  <text font-family="sans-serif" font-size="14" fill="#e0e0e0" x="40" y="40">Anthropic</text>
+  <circle cx="26" cy="57" r="7" fill="none" stroke="#4B9CD3" stroke-width="1.5"/>
+  <circle cx="26" cy="57" r="3" fill="#4B9CD3" opacity="0.7"/>
+  <text font-family="sans-serif" font-size="14" fill="#e0e0e0" x="40" y="61">OpenAI compatible</text>
+  <line x1="40" y1="68" x2="40" y2="116" stroke="#444" stroke-width="1"/>
+  <text font-family="sans-serif" font-size="12" fill="#aaa" x="52" y="78">ChatGPT</text>
+  <text font-family="sans-serif" font-size="12" fill="#aaa" x="52" y="92">OpenRouter</text>
+  <text font-family="sans-serif" font-size="12" fill="#aaa" x="52" y="106">LM Studio</text>
+  <text font-family="sans-serif" font-size="12" fill="#aaa" x="52" y="120">vLLM</text>
+  <circle cx="26" cy="136" r="7" fill="none" stroke="#4B9CD3" stroke-width="1.5"/>
+  <path d="M23 133 Q26 129 29 133 L29 139 Q26 143 23 139Z" fill="#4B9CD3" opacity="0.6"/>
+  <text font-family="sans-serif" font-size="14" fill="#e0e0e0" x="40" y="140">Ollama</text>
+  <circle cx="26" cy="157" r="7" fill="none" stroke="#4B9CD3" stroke-width="1.5"/>
+  <text font-family="sans-serif" font-size="9" font-weight="500" fill="#4B9CD3" x="21" y="161">Ll</text>
+  <text font-family="sans-serif" font-size="14" fill="#e0e0e0" x="40" y="161">llama.cpp</text>
+  <line x1="190" y1="97" x2="238" y2="97" stroke="#555" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <rect x="240" y="69" width="198" height="56" rx="8" fill="#0c2a4a" stroke="#378ADD" stroke-width="0.8"/>
+  <rect x="258" y="81" width="18" height="14" rx="3" fill="#185FA5" opacity="0.9"/>
+  <rect x="261" y="78" width="4" height="4" rx="1" fill="#378ADD" opacity="0.7"/>
+  <rect x="267" y="78" width="4" height="4" rx="1" fill="#378ADD" opacity="0.7"/>
+  <circle cx="263" cy="87" r="2" fill="#B5D4F4" opacity="0.9"/>
+  <circle cx="269" cy="87" r="2" fill="#B5D4F4" opacity="0.9"/>
+  <rect x="262" y="91" width="10" height="2" rx="1" fill="#B5D4F4" opacity="0.7"/>
+  <text font-family="sans-serif" font-size="14" font-weight="500" fill="#B5D4F4" x="355" y="97" text-anchor="middle" dominant-baseline="central">AI-Git-Bot</text>
+  <line x1="438" y1="97" x2="486" y2="97" stroke="#555" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="339" y1="125" x2="339" y2="228" stroke="#555" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <text font-family="sans-serif" font-size="14" font-weight="500" fill="#ffffff" x="494" y="18">Git systems</text>
+  <circle cx="504" cy="36" r="8" fill="#333" stroke="#666" stroke-width="0.5"/>
+  <circle cx="504" cy="33" r="4" fill="white" opacity="0.9"/>
+  <path d="M500 38 Q504 42 508 38" fill="none" stroke="white" stroke-width="1.2"/>
+  <text font-family="sans-serif" font-size="14" fill="#e0e0e0" x="518" y="40">GitHub</text>
+  <path d="M496 50 L512 50 L508 61 L504 58 L500 61Z" fill="#FC6D26"/>
+  <text font-family="sans-serif" font-size="14" fill="#e0e0e0" x="518" y="60">GitLab</text>
+  <rect x="497" y="70" width="14" height="11" rx="2" fill="#609926"/>
+  <path d="M511 74 Q515 74 515 77 Q515 80 511 80" fill="none" stroke="#609926" stroke-width="1.5"/>
+  <text font-family="sans-serif" font-size="14" fill="#e0e0e0" x="518" y="80">Gitea</text>
+  <rect x="497" y="90" width="14" height="12" rx="2" fill="#0052CC"/>
+  <path d="M501 93 L507 93 Q510 93 510 96 Q510 99 507 99 L501 99" fill="none" stroke="white" stroke-width="1.2"/>
+  <text font-family="sans-serif" font-size="14" fill="#e0e0e0" x="518" y="100">Bitbucket</text>
+  <rect x="16" y="230" width="202" height="52" rx="8" fill="#1e1535" stroke="#534AB7" stroke-width="0.8"/>
+  <rect x="28" y="240" width="14" height="18" rx="2" fill="#534AB7" opacity="0.7"/>
+  <rect x="31" y="238" width="8" height="4" rx="1" fill="#7F77DD" opacity="0.9"/>
+  <line x1="31" y1="247" x2="39" y2="247" stroke="#CECBF6" stroke-width="1.2"/>
+  <line x1="31" y1="251" x2="37" y2="251" stroke="#CECBF6" stroke-width="1.2"/>
+  <path d="M31 255 L33 257 L37 252" fill="none" stroke="#CECBF6" stroke-width="1.3"/>
+  <text font-family="sans-serif" font-size="14" font-weight="500" fill="#CECBF6" x="122" y="252" text-anchor="middle" dominant-baseline="central">Review pull</text>
+  <text font-family="sans-serif" font-size="14" font-weight="500" fill="#CECBF6" x="122" y="268" text-anchor="middle" dominant-baseline="central">requests</text>
+  <rect x="238" y="230" width="202" height="52" rx="8" fill="#0d2e27" stroke="#1D9E75" stroke-width="0.8"/>
+  <text font-family="sans-serif" font-size="16" font-weight="500" fill="#1D9E75" x="248" y="262">&lt;/&gt;</text>
+  <text font-family="sans-serif" font-size="14" font-weight="500" fill="#9FE1CB" x="352" y="252" text-anchor="middle" dominant-baseline="central">Generate code</text>
+  <text font-family="sans-serif" font-size="14" font-weight="500" fill="#9FE1CB" x="352" y="268" text-anchor="middle" dominant-baseline="central">from issues</text>
+  <rect x="460" y="230" width="202" height="52" rx="8" fill="#162210" stroke="#639922" stroke-width="0.8"/>
+  <path d="M472 256 L480 248 L485 253 L477 261Z" fill="#639922" opacity="0.9"/>
+  <path d="M470 258 L472 256 L474 262Z" fill="#639922" opacity="0.6"/>
+  <text font-family="sans-serif" font-size="14" font-weight="500" fill="#C0DD97" x="572" y="252" text-anchor="middle" dominant-baseline="central">Write and</text>
+  <text font-family="sans-serif" font-size="14" font-weight="500" fill="#C0DD97" x="572" y="268" text-anchor="middle" dominant-baseline="central">improve issues</text>
+</svg>

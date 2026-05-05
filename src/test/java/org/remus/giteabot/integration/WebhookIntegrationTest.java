@@ -2,6 +2,8 @@ package org.remus.giteabot.integration;
 
 import org.junit.jupiter.api.*;
 import org.remus.giteabot.admin.*;
+import org.remus.giteabot.systemsettings.SystemPrompt;
+import org.remus.giteabot.systemsettings.SystemPromptService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
@@ -55,6 +57,9 @@ class WebhookIntegrationTest {
 
     @Autowired
     private BotService botService;
+
+    @Autowired
+    private SystemPromptService systemPromptService;
 
     @DynamicPropertySource
     static void configureProperties(DynamicPropertyRegistry registry) throws IOException {
@@ -171,6 +176,7 @@ class WebhookIntegrationTest {
         bot.setEnabled(true);
         bot.setAiIntegration(ai);
         bot.setGitIntegration(git);
+        bot.setSystemPrompt(getOrCreateDefaultSystemPrompt());
         bot = botService.save(bot);
 
         String secret = bot.getWebhookSecret();
@@ -232,6 +238,7 @@ class WebhookIntegrationTest {
         bot.setEnabled(true);
         bot.setAiIntegration(ai);
         bot.setGitIntegration(git);
+        bot.setSystemPrompt(getOrCreateDefaultSystemPrompt());
         bot = botService.save(bot);
 
         String webhookPayload = createWebhookPayload("closed");
@@ -254,6 +261,8 @@ class WebhookIntegrationTest {
                         "title": "Add user authentication module",
                         "body": "This PR adds JWT-based authentication.",
                         "state": "open",
+                        "user": {"login": "testowner"},
+                        "requested_reviewers": [{"login": "ai_bot"}],
                         "head": {"ref": "feature/auth", "sha": "abc123"},
                         "base": {"ref": "main", "sha": "def456"}
                     },
@@ -287,5 +296,17 @@ class WebhookIntegrationTest {
                 +    public String getName() { return name; }
                 +}
                 """;
+    }
+
+    private SystemPrompt getOrCreateDefaultSystemPrompt() {
+        return systemPromptService.findDefault().orElseGet(() -> {
+            SystemPrompt systemPrompt = new SystemPrompt();
+            systemPrompt.setName("Default Test");
+            systemPrompt.setReviewSystemPrompt("Review test prompt");
+            systemPrompt.setIssueAgentSystemPrompt("Agent test prompt");
+            systemPrompt.setWriterAgentSystemPrompt("Writer test prompt");
+            systemPrompt.setDefaultEntry(true);
+            return systemPromptService.save(systemPrompt);
+        });
     }
 }

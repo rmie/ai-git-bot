@@ -27,7 +27,7 @@ public class BotService {
 
     @Transactional(readOnly = true)
     public Optional<Bot> findById(Long id) {
-        return botRepository.findById(id);
+        return botRepository.findByIdWithIntegrations(id);
     }
 
     @Transactional(readOnly = true)
@@ -38,6 +38,9 @@ public class BotService {
     public Bot save(Bot bot) {
         if (bot.getWebhookSecret() == null) {
             bot.setWebhookSecret(UUID.randomUUID().toString());
+        }
+        if (bot.getBotType() == BotType.WRITER) {
+            bot.setAgentEnabled(false);
         }
         return botRepository.save(bot);
     }

@@ -4,9 +4,9 @@ This guide covers running AI-Git-Bot with [Ollama](https://ollama.com) for fully
 
 ## ⚠️ Important: Agent Compatibility
 
-**The issue implementation agent has limited support with Ollama.**
+**The coding and writer agents have limited support with Ollama.**
 
-The agent feature requires the AI to produce structured JSON output with specific fields (`fileChanges`, `runTool`, etc.). 
+Issue-based workflows require the AI to produce reliable structured JSON for context requests, tool requests, clarifying questions, and final outputs.
 
 ### Automatic JSON Mode
 
@@ -25,9 +25,9 @@ However, local LLMs may still:
 | 14-16B parameters | ⚠️ **May work** — better results with JSON mode |
 | 32B+ parameters | ✅ **Best chance** — JSON mode helps significantly |
 
-For reliable agent usage, use **Anthropic Claude or OpenAI GPT-4**. Ollama works well for **code reviews** (PR comments), which only require natural language responses.
+For reliable agent usage, use **Anthropic Claude or OpenAI GPT-4/5-class models**. Ollama works well for **code reviews** (PR comments), which only require natural language responses.
 
-If you want to disable the agent when using smaller Ollama models, uncheck the **Agent Enabled** toggle on your bot's settings page in the web UI.
+If you use smaller Ollama models, prefer review-only coding bots by unchecking **Agent Enabled** in the bot settings. Avoid production writer workflows unless the selected model has proven reliable with structured JSON.
 
 See [Agent Documentation](AGENT.md#ollama-limitations) for more details.
 
@@ -129,9 +129,9 @@ Any model works for code reviews since they only require natural language output
 | `deepseek-coder-v2:16b` | ~8.9 GB | High quality code reviews |
 | `qwen2.5-coder:7b` | ~4.7 GB | Strong code understanding |
 
-### For Agent (Issue Implementation) — Experimental
+### For Issue-Based Agents (Coding + Writer) — Experimental
 
-The agent requires structured JSON output. **Most local models fail at this**, but larger models have better success rates:
+Issue-based agents require structured JSON output. **Most local models fail at this**, but larger models have better success rates:
 
 | Model | Size | Agent Compatibility |
 |---|---|---|
@@ -146,8 +146,8 @@ The agent requires structured JSON output. **Most local models fail at this**, b
 **Important notes:**
 - Even "Best chance" models may occasionally fail to produce valid JSON
 - Larger models require significantly more RAM/VRAM (32b needs ~24GB+, 70b needs ~48GB+)
-- For production agent usage, **Anthropic Claude or OpenAI GPT-4 is strongly recommended**
-- If you want to experiment with the agent on Ollama, start with `qwen2.5-coder:32b` or `deepseek-coder:33b`
+- For production agent usage, **Anthropic Claude or OpenAI GPT-4/5-class models are strongly recommended**
+- If you want to experiment with coding or writer agents on Ollama, start with `qwen2.5-coder:32b` or `deepseek-coder:33b`
 
 ### Trying Agent with Larger Models
 
@@ -158,9 +158,9 @@ If you want to test the agent with a larger Ollama model:
 ollama pull qwen2.5-coder:32b
 ```
 
-Then update your AI Integration in the web UI to use the new model, and enable the **Agent** toggle on your bot.
+Then update your AI Integration in the web UI to use the new model. For coding bots, keep **Agent Enabled** turned on. For writer bots, test carefully before relying on issue-drafting workflows in production.
 
-Monitor the logs for JSON parsing errors. If you see frequent failures, disable the agent on the bot's settings page.
+Monitor the logs for JSON parsing errors. If you see frequent failures, disable **Agent Enabled** on coding bots and avoid writer-bot issue workflows with that model.
 
 Choose a model based on your available memory and quality requirements. Smaller models are faster but may produce lower-quality reviews.
 
@@ -212,7 +212,7 @@ If you see errors like:
 ERROR: Failed to parse AI response as JSON: Unexpected character ('@' (code 64))
 ```
 
-This means the AI returned raw code instead of valid JSON. The bot automatically enables Ollama's JSON mode for agent requests, but smaller models may still fail to produce valid structured output.
+This means the AI returned raw text or code instead of valid JSON. The bot automatically enables Ollama's JSON mode for issue-based agent requests, but smaller models may still fail to produce valid structured output.
 
 **Solutions:**
 1. **Use a larger model** (32B+ parameters work best):
@@ -220,8 +220,9 @@ This means the AI returned raw code instead of valid JSON. The bot automatically
    ollama pull qwen2.5-coder:32b
    ```
    Then update the model in your AI Integration via the web UI.
-2. **Disable the agent** on the bot's settings page in the web UI
-3. **Use a cloud provider** (Anthropic Claude, OpenAI GPT-4) for reliable agent functionality
+2. **Disable Agent Enabled** on coding bots in the web UI and keep the bot in review-only mode
+3. **Avoid writer-bot issue workflows** with that model until it consistently produces valid JSON
+4. **Use a cloud provider** (Anthropic Claude, OpenAI GPT-4/5-class models) for reliable agent functionality
 
 You can verify JSON mode is active by checking the logs for:
 ```

@@ -54,7 +54,22 @@ public interface RepositoryApiClient {
 
     void postReviewComment(String owner, String repo, Long pullNumber, String body);
 
-    void postComment(String owner, String repo, Long issueNumber, String body);
+    default void postReviewAction(String owner, String repo, Long pullNumber, PostReviewAction action) {
+        // Most providers do not support post-review state changes.
+    }
+
+    /**
+     * Posts a regular top-level comment on a pull/merge request conversation.
+     * <p>
+     * Providers like GitHub and Gitea can often reuse the same underlying endpoint as issue comments,
+     * while GitLab requires a merge-request-specific endpoint.
+     */
+    void postPullRequestComment(String owner, String repo, Long pullNumber, String body);
+
+    /**
+     * Posts a regular top-level comment on an issue.
+     */
+    void postIssueComment(String owner, String repo, Long issueNumber, String body);
 
     void addReaction(String owner, String repo, Long commentId, String reaction);
 
@@ -81,6 +96,14 @@ public interface RepositoryApiClient {
      */
     default Map<String, Object> getIssueDetails(String owner, String repo, Long issueNumber) {
         return Map.of();
+    }
+
+    default List<Map<String, Object>> searchIssues(String owner, String repo, String query) {
+        return List.of();
+    }
+
+    default Long createIssue(String owner, String repo, String title, String body) {
+        throw new UnsupportedOperationException("Creating issues is not supported by this repository provider");
     }
 
     // ---- Repository operations ----

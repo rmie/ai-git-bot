@@ -8,10 +8,10 @@
 
 > **Your intelligent gateway between Git and AI — Half Bot, half Agent.** 🤖🧠
 
-AI-Git-Bot is a lightweight, self-hostable **gateway application** that connects your Git platforms with AI providers. As a central hub it receives webhooks from **Gitea, GitHub, GitHub Enterprise, GitLab, and Bitbucket Cloud**, routes them to configurable AI providers, and writes the results back as code reviews, comments, or even entire pull requests — fully automated.
+AI-Git-Bot is a lightweight, self-hostable **gateway application** that connects your Git platforms with AI providers. As a central hub it receives webhooks from **Gitea, GitHub, GitHub Enterprise, GitLab, and Bitbucket Cloud**, routes them to configurable AI providers, and writes the results back as code reviews, technical-writing issue drafts, comments, or even entire pull requests — fully automated.
 
 <p align="center">
-  <img src="doc/images/schema.png" alt="AI-Git-Bot Architecture Schema" width="800"/>
+  <img src="doc/images/ai-git-bot-diagram.svg" alt="AI-Git-Bot Architecture Schema" width="800"/>
 </p>
 
 ## 🎯 Who is AI-Git-Bot for?
@@ -21,6 +21,8 @@ AI-Git-Bot is a lightweight, self-hostable **gateway application** that connects
 | 🧑‍💻 **Developers who want a personalized code AI** | Configure your own AI with custom system prompts — for code reviews that match your tech stack and coding standards. |
 | 🔄 **Teams with multiple projects & Git systems** | Define an AI configuration once and reuse it across any number of repositories, projects, and Git platforms — through a single gateway. |
 | 👥 **Multi-pass reviews with different personas** | Create multiple bots with different prompts: a security reviewer, a performance expert, a junior mentor — all on the same PR. |
+| 🧾 **Product owners, maintainers, and triagers** | Use writer bots to turn vague issue reports into actionable, testable implementation-ready issues without leaving the Git platform. |
+| 🧠 **Teams that need better issue quality before coding starts** | Let a technical-writer agent check completeness, contradictions, assumptions, and acceptance criteria before engineering work begins. |
 | 🔒 **Self-hosters with compliance requirements** | Run everything on-premise with local LLMs (Ollama, llama.cpp). No code leaves your infrastructure — ideal for regulatory and compliance needs. |
 | ⚡ **Lightweight AI implementation** | A single Docker image, one PostgreSQL database — done. No complex infrastructure, no Kubernetes clusters required. |
 
@@ -28,8 +30,8 @@ AI-Git-Bot is a lightweight, self-hostable **gateway application** that connects
 
 AI-Git-Bot unites two worlds:
 
-- **As a Bot** it automatically reacts to pull requests, answers questions in comments, and delivers context-aware inline reviews — like a reliable code-review partner that never sleeps.
-- **As an Agent** it autonomously takes on entire issues: it analyzes the task, reads the source code, generates an implementation, validates the code with build tools, and creates a finished pull request — all on its own.
+- **As a Bot** it reacts when it is requested as reviewer, answers questions in comments, and delivers context-aware inline reviews — like a reliable code-review partner that never sleeps.
+- **As an Agent** it autonomously takes on entire issues in two ways: a **coding agent** implements the change and opens a pull request, while a **writer agent** improves vague issues into structured, implementation-ready follow-up issues.
 
 > More than a bot. More than an agent. **The intelligent gateway for your entire code review and implementation workflow.**
 
@@ -81,9 +83,22 @@ graph LR
 
 ## Features
 
-### 🔍 Automatic PR Code Reviews
+### ✅ Why teams use it
 
-When a pull request is opened or updated, the bot automatically reviews the diff and posts feedback as a review comment. Large diffs are intelligently split into chunks with automatic retry on token limits.
+| Capability | What it does | Practical benefit |
+|---|---|---|
+| **Reviewer-triggered PR reviews** | Reviews pull requests when the bot is assigned or re-requested as reviewer | Keeps AI feedback intentional and avoids review noise on every push |
+| **Interactive PR conversations** | Answers `@bot` questions in PR and inline review comments with session history | Lets teams ask follow-up questions without leaving the review thread |
+| **Coding agent** | Implements assigned issues in a workspace, validates changes, and opens a PR | Turns implementation-ready issues into reviewable pull requests faster |
+| **Writer agent** | Rewrites vague issues into clearer, testable follow-up issues | Improves issue quality before engineering time is spent on the wrong problem |
+| **Reusable system prompts** | Separates review, coding-agent, and writer-agent prompts into named entries | Makes personas and standards reusable across many bots and repositories |
+| **Gateway architecture** | Connects any supported Git platform with any supported AI provider | Centralizes setup, credentials, governance, and monitoring in one place |
+
+### 🔍 Reviewer-Triggered PR Code Reviews
+
+When a pull request is opened **with the bot already assigned as reviewer**, or the bot is later **added/re-requested as reviewer**, the bot reviews the diff and posts feedback as a review comment. Large diffs are intelligently split into chunks with automatic retry on token limits.
+
+**Benefit:** teams stay in control of when AI review runs, while still getting deep review coverage on demand.
 
 <details>
 <summary>📸 Screenshots: Code reviews across platforms</summary>
@@ -106,17 +121,23 @@ When a pull request is opened or updated, the bot automatically reviews the diff
 
 Mention the bot (e.g. `@ai_bot`) in any PR comment to ask questions or request additional analysis. The bot acknowledges with 👀 and responds using the full conversation history.
 
+**Benefit:** review discussions stay in the PR instead of moving to chat or ad-hoc side channels.
+
 <img src="doc/screenshots/gitea/screenshot_code_review_with_comment.png" alt="Code Review with Comment" width="600"/>
 
 ### 📝 Inline Review Comment Responses
 
 Mention the bot in an inline review comment on a specific code line. The bot includes the file context and diff hunk when generating its answer and replies directly inline.
 
+**Benefit:** developers get code-local explanations and follow-up analysis exactly where the question came up.
+
 <img src="doc/screenshots/gitea/screenshot_code_review_with_inline_comment.png" alt="Code Review with Inline Comment" width="600"/>
 
 ### 🤖 Autonomous Issue Implementation Agent
 
 Assign the bot to an issue — it analyzes the task, reads the source code, generates an implementation, validates with build tools, and creates a finished pull request. Fully autonomous.
+
+**Benefit:** implementation-ready issues can move from backlog item to reviewable PR with much less manual orchestration.
 
 <details>
 <summary>📸 Screenshots: Agent across platforms</summary>
@@ -131,6 +152,22 @@ Assign the bot to an issue — it analyzes the task, reads the source code, gene
 
 See the [Agent Documentation](doc/AGENT.md) for details.
 
+### ✍️ Technical Writer Agent for Better Issues
+
+Assign a **Writer bot** to an issue when you want the bot to improve the problem statement instead of changing code. The writer agent can inspect related issues and explore the repository in a **read-only workspace** to understand naming, affected components, and constraints before it drafts a better issue.
+
+**Benefit:** teams catch missing acceptance criteria, hidden assumptions, and unclear scope before coding starts.
+
+Typical writer-bot use cases:
+
+- turn vague bug reports into reproducible, testable issues
+- rewrite feature requests into structured engineering work items
+- identify missing acceptance criteria, contradictions, and open questions
+- ask the original issue author only the minimum critical follow-up questions
+- create a linked `AI Created Issue: ...` once enough context is available
+
+Writer bots are currently intended for providers with issue-assignment workflows such as **Gitea, GitHub, and GitLab**. They ignore pull-request review events and never modify repository files.
+
 ### 🖥️ Web-Based Management
 
 All configuration is managed through a **web-based UI** — no environment variables needed for AI providers, Git connections, or bot settings:
@@ -140,12 +177,14 @@ All configuration is managed through a **web-based UI** — no environment varia
 - Create multiple **Bots**, each with its own webhook URL, AI provider, and system prompt
 - Dashboard with statistics and monitoring
 
+**Benefit:** operations teams can standardize setup once instead of hand-configuring secrets and prompts per repository.
+
 ### 🔌 Supported AI Providers
 
 | Provider | Default API URL | Suggested Models |
 |----------|-----------------|------------------|
-| **Anthropic** | `https://api.anthropic.com` | claude-opus-4-6, claude-sonnet-4-6, claude-haiku-4-5-20251001 |
-| **OpenAI** | `https://api.openai.com` | gpt-5.4, gpt-5.3-codex, gpt-5.1-codex-max, gpt-5-codex |
+| **Anthropic** | `https://api.anthropic.com` | claude-opus-4-7, claude-sonnet-4-6, claude-haiku-4-5-20251001 |
+| **OpenAI** | `https://api.openai.com` | gpt-5.5, gpt-5.4, gpt-5.4-mini, gpt-5.3-codex |
 | **Ollama** | `http://localhost:11434` | User-configured local models |
 | **llama.cpp** | `http://localhost:8081` | User-configured GGUF models |
 
@@ -162,13 +201,13 @@ All configuration is managed through a **web-based UI** — no environment varia
 ### More Features
 
 - **Session Management** — Maintains conversation history per PR, persisted in the database, enabling context-aware follow-up reviews
-- **Configurable System Prompts** — Select from built-in prompt templates or define custom prompts per bot
+- **Configurable System Prompts** — Manage reusable review, coding-agent, and writer-agent prompt entries in System settings and assign them per bot
 - **AI-Driven Code Validation** — The agent validates generated code with build tools (Maven, Gradle, npm, Go, Cargo, etc.)
 - **Health Endpoint** — `/actuator/health` for monitoring and orchestration
 
 ## Docker
 
-The bot is available as a Docker image on [Docker Hub](https://hub.docker.com/r/tmseidel/anthropic-gitea-bot).
+The bot is available as a Docker image on [Docker Hub](https://hub.docker.com/r/tmseidel/ai-git-bot).
 
 ```yaml
 services:
@@ -232,6 +271,7 @@ This starts:
    - The API URL is auto-filled with the provider's default
    - Select a model from the dropdown or enter a custom model name
    - Enter your API key
+   - OpenAI-compatible providers can often be configured by selecting "openai" and entering the provider's custom API URL, API key, and model; see the [User Guide](doc/USER_GUIDE.md#openai-compatible-apis)
 
 2. **Create a Git Integration:**
    - Go to **Git Integrations → New Integration**
@@ -241,8 +281,9 @@ This starts:
 
 3. **Create a Bot:**
    - Go to **Bots → New Bot**
+   - Choose **Coding bot** for pull-request review/issue implementation, or **Writer bot** for technical-writing issue drafts
    - Select your AI and Git integrations
-   - Optionally select a system prompt template
+   - Select a system prompt entry from **System settings**
    - Copy the generated **Webhook URL**
 
 ### 4. Configure Webhooks
@@ -281,7 +322,7 @@ The bot receives webhooks from your Git provider, fetches PR diffs, sends them t
 |----------|-------------|
 | [User Guide](doc/USER_GUIDE.md) | Web UI usage, creating bots and integrations |
 | [Architecture](doc/ARCHITECTURE.md) | Component diagrams, request flows, webhook routing |
-| [Agent](doc/AGENT.md) | Autonomous issue implementation agent — setup and usage |
+| [Agent](doc/AGENT.md) | Coding agent and technical writer agent — setup, tools, and workflows |
 | **Git Provider Setup** | |
 | [Gitea Setup](doc/GITEA_SETUP.md) | Bot user creation, permissions, API tokens for Gitea |
 | [GitHub Setup](doc/GITHUB_SETUP.md) | Bot user creation, permissions, PAT tokens for GitHub |

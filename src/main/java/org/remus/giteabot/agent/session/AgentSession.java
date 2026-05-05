@@ -63,6 +63,23 @@ public class AgentSession {
     private Long prNumber;
 
     /**
+     * The issue number created by the technical-writer agent.
+     */
+    private Long generatedIssueNumber;
+
+    /**
+     * The original issue author's username/login for writer-agent follow-up checks.
+     */
+    private String issueAuthorUsername;
+
+    /**
+     * Distinguishes code implementation sessions from technical-writer sessions.
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false)
+    private AgentSessionType sessionType = AgentSessionType.CODING;
+
+    /**
      * Current status of the agent session.
      */
     @Enumerated(EnumType.STRING)
@@ -132,10 +149,18 @@ public class AgentSession {
         COMPLETED,
 
         /**
+         * Writer agent has created the improved issue.
+         */
+        ISSUE_CREATED,
+
+        /**
          * Agent failed to implement the issue.
          */
         FAILED
     }
+
+    public enum AgentSessionType {
+        CODING,
+        WRITER
+    }
 }
-
-

@@ -66,8 +66,19 @@ public class GitHubApiClient implements RepositoryApiClient {
     }
 
     @Override
-    public void postComment(String owner, String repo, Long issueNumber, String body) {
-        log.info("Posting comment on issue/PR #{} in {}/{}", issueNumber, owner, repo);
+    public void postPullRequestComment(String owner, String repo, Long pullNumber, String body) {
+        log.info("Posting top-level comment on PR #{} in {}/{}", pullNumber, owner, repo);
+        restClient.post()
+                .uri("/repos/{owner}/{repo}/issues/{issue_number}/comments", owner, repo, pullNumber)
+                .body(new CommentRequest(body))
+                .retrieve()
+                .toBodilessEntity();
+        log.info("Comment posted successfully");
+    }
+
+    @Override
+    public void postIssueComment(String owner, String repo, Long issueNumber, String body) {
+        log.info("Posting comment on issue #{} in {}/{}", issueNumber, owner, repo);
         restClient.post()
                 .uri("/repos/{owner}/{repo}/issues/{issue_number}/comments", owner, repo, issueNumber)
                 .body(new CommentRequest(body))
@@ -144,6 +155,26 @@ public class GitHubApiClient implements RepositoryApiClient {
                 .retrieve()
                 .body(new ParameterizedTypeReference<>() {});
         return issue != null ? issue : Map.of();
+    }
+
+    @Override
+    public List<Map<String, Object>> searchIssues(String owner, String repo, String query) {
+        log.info("Searching issues in {}/{} for '{}'", owner, repo, query);
+        Map<String, Object> result = restClient.get()
+                .uri(uriBuilder -> uriBuilder
+                        .path("/search/issues")
+                        .queryParam("q", "repo:" + owner + "/" + repo + " is:issue " + query)
+                        .build())
+                .retrieve()
+                .body(new ParameterizedTypeReference<>() {});
+        Object items = result != null ? result.get("items") : null;
+        if (items instanceof List<?> list) {
+            return list.stream()
+                    .filter(Map.class::isInstance)
+                    .map(item -> (Map<String, Object>) item)
+                    .toList();
+        }
+        return List.of();
     }
 
     // ---- Repository operations ----
@@ -281,6 +312,20 @@ public class GitHubApiClient implements RepositoryApiClient {
     }
 
     @Override
+    public Long createIssue(String owner, String repo, String title, String body) {
+        log.info("Creating issue '{}' in {}/{}", title, owner, repo);
+        Map<String, Object> result = restClient.post()
+                .uri("/repos/{owner}/{repo}/issues", owner, repo)
+                .body(new CreateIssue(title, body))
+                .retrieve()
+                .body(new ParameterizedTypeReference<>() {});
+        if (result != null && result.get("number") instanceof Number number) {
+            return number.longValue();
+        }
+        return null;
+    }
+
+    @Override
     public void deleteBranch(String owner, String repo, String branchName) {
         log.info("Deleting branch '{}' in {}/{}", branchName, owner, repo);
         try {
@@ -316,4 +361,5 @@ public class GitHubApiClient implements RepositoryApiClient {
     record InlineReviewRequest(String body, String event, List<InlineReviewComment> comments) {}
     record InlineReviewComment(String body, String path, int line) {}
     record CreatePullRequest(String title, String body, String head, String base) {}
+    record CreateIssue(String title, String body) {}
 }

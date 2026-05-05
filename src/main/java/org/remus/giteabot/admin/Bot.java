@@ -3,6 +3,7 @@ package org.remus.giteabot.admin;
 import jakarta.persistence.*;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import org.remus.giteabot.systemsettings.SystemPrompt;
 
 import java.time.Instant;
 
@@ -22,8 +23,9 @@ public class Bot {
     @Column(nullable = false)
     private String username;
 
-    @Column(columnDefinition = "TEXT")
-    private String prompt;
+    @ManyToOne(optional = false)
+    @JoinColumn(name = "system_prompt_id", nullable = false)
+    private SystemPrompt systemPrompt;
 
     private String webhookSecret;
 
@@ -40,6 +42,10 @@ public class Bot {
 
     @Column(nullable = false)
     private boolean agentEnabled = false;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false)
+    private BotType botType = BotType.CODING;
 
     @Column(nullable = false)
     private long webhookCallCount = 0;

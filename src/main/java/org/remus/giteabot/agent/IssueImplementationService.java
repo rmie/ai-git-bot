@@ -53,17 +53,29 @@ public class IssueImplementationService {
     private final AgentSessionService sessionService;
     private final ToolExecutionService toolExecutionService;
     private final WorkspaceService workspaceService;
+    private final String issueAgentSystemPrompt;
 
     // Extracted helpers
     private final AiResponseParser responseParser;
     private final AgentPromptBuilder promptBuilder;
     private final IssueNotificationService notificationService;
+    private final AgentErrorNotificationService errorNotificationService;
+
+    public IssueImplementationService(RepositoryApiClient repositoryClient,
+                                       AiClient aiClient, PromptService promptService,
+                                       AgentConfigProperties agentConfig, AgentSessionService sessionService,
+                                       ToolExecutionService toolExecutionService,
+                                       WorkspaceService workspaceService) {
+        this(repositoryClient, aiClient, promptService, agentConfig, sessionService,
+                toolExecutionService, workspaceService, null);
+    }
 
     public IssueImplementationService(RepositoryApiClient repositoryClient,
                                       AiClient aiClient, PromptService promptService,
                                       AgentConfigProperties agentConfig, AgentSessionService sessionService,
                                       ToolExecutionService toolExecutionService,
-                                      WorkspaceService workspaceService) {
+                                      WorkspaceService workspaceService,
+                                      String issueAgentSystemPrompt) {
         this.repositoryClient = repositoryClient;
         this.aiClient = aiClient;
         this.promptService = promptService;
@@ -71,10 +83,12 @@ public class IssueImplementationService {
         this.sessionService = sessionService;
         this.toolExecutionService = toolExecutionService;
         this.workspaceService = workspaceService;
+        this.issueAgentSystemPrompt = issueAgentSystemPrompt;
 
         this.responseParser = new AiResponseParser();
         this.promptBuilder = new AgentPromptBuilder();
         this.notificationService = new IssueNotificationService(repositoryClient, responseParser, toolExecutionService);
+        this.errorNotificationService = new AgentErrorNotificationService(repositoryClient);
     }
 
     public void handleIssueAssigned(WebhookPayload payload) {
@@ -91,6 +105,11 @@ public class IssueImplementationService {
         // Check if there's already a session for this issue
         Optional<AgentSession> existingSession = sessionService.getSessionByIssue(owner, repo, issueNumber);
         if (existingSession.isPresent()) {
+            if (existingSession.get().getSessionType() != AgentSession.AgentSessionType.CODING) {
+                repositoryClient.postIssueComment(owner, repo, issueNumber,
+                        "🤖 **AI Agent**: A technical-writer session already exists for this issue. "
+                                + "Please clone the issue if you want the coding agent to implement it separately.");
+            }
             log.info("Session already exists for issue #{}, skipping initial implementation", issueNumber);
             return;
         }
@@ -99,7 +118,7 @@ public class IssueImplementationService {
         Path workspaceDir = null;
 
         try {
-            repositoryClient.postComment(owner, repo, issueNumber,
+            repositoryClient.postIssueComment(owner, repo, issueNumber,
                     "🤖 **AI Agent**: I've been assigned to this issue. Analyzing repository structure...");
 
             // Determine base branch
@@ -118,7 +137,7 @@ public class IssueImplementationService {
                     repositoryClient.getCloneUrl(), repositoryClient.getToken());
             if (!wsResult.success()) {
                 sessionService.setStatus(session, AgentSession.AgentSessionStatus.FAILED);
-                repositoryClient.postComment(owner, repo, issueNumber,
+                repositoryClient.postIssueComment(owner, repo, issueNumber,
                         "⚠️ **AI Agent**: Failed to prepare workspace: " + wsResult.error());
                 return;
             }
@@ -127,7 +146,7 @@ public class IssueImplementationService {
             // Fetch repository tree for context
             List<Map<String, Object>> tree = repositoryClient.getRepositoryTree(owner, repo, baseBranch);
             String treeContext  = promptBuilder.buildTreeContext(tree);
-            String systemPrompt = promptService.getSystemPrompt(AGENT_PROMPT_NAME);
+            String systemPrompt = resolveAgentSystemPrompt();
 
             // STEP 1: Ask AI which context it needs
             log.info("Step 1: Asking AI which files are needed for issue #{}", issueNumber);
@@ -175,7 +194,7 @@ public class IssueImplementationService {
 
             if (!implementationSucceeded) {
                 sessionService.setStatus(session, AgentSession.AgentSessionStatus.FAILED);
-                repositoryClient.postComment(owner, repo, issueNumber,
+                repositoryClient.postIssueComment(owner, repo, issueNumber,
                         """
                         🤖 **AI Agent**: I was unable to produce a valid implementation for this issue. \
                         The issue may be too complex or ambiguous for automated implementation.
@@ -194,7 +213,7 @@ public class IssueImplementationService {
 
             if (!pushed) {
                 sessionService.setStatus(session, AgentSession.AgentSessionStatus.FAILED);
-                repositoryClient.postComment(owner, repo, issueNumber,
+                repositoryClient.postIssueComment(owner, repo, issueNumber,
                         "🤖 **AI Agent**: Implementation succeeded but pushing the branch failed. Please check the logs.");
                 return;
             }
@@ -214,16 +233,9 @@ public class IssueImplementationService {
         } catch (Exception e) {
             log.error("Failed to implement issue #{} in {}: {}", issueNumber, repoFullName, e.getMessage(), e);
             sessionService.setStatus(session, AgentSession.AgentSessionStatus.FAILED);
-            try {
-                repositoryClient.postComment(owner, repo, issueNumber,
-                        String.format("""
-                                🤖 **AI Agent**: Implementation failed with error: `%s`
-
-                                You can mention me in a comment to try again with more details.""",
-                                e.getMessage()));
-            } catch (Exception ce) {
-                log.error("Failed to post failure comment on issue #{}: {}", issueNumber, ce.getMessage());
-            }
+            errorNotificationService.postInternalErrorComment(owner, repo, issueNumber,
+                    "AI Agent",
+                    "Please try again or mention me again with more details.", e);
         } finally {
             if (workspaceDir != null) {
                 workspaceService.cleanupWorkspace(workspaceDir);
@@ -421,6 +433,12 @@ public class IssueImplementationService {
         }
 
         AgentSession session = sessionOpt.get();
+        if (session.getSessionType() != AgentSession.AgentSessionType.CODING) {
+            repositoryClient.postIssueComment(owner, repo, issueNumber,
+                    "🤖 **AI Agent**: This issue is currently owned by a technical-writer session. "
+                            + "Please clone the issue if you want the coding agent to implement it separately.");
+            return;
+        }
         Path workspaceDir = null;
 
         try {
@@ -441,13 +459,13 @@ public class IssueImplementationService {
                     owner, repo, workingBranch,
                     repositoryClient.getCloneUrl(), repositoryClient.getToken());
             if (!wsResult.success()) {
-                repositoryClient.postComment(owner, repo, issueNumber,
+                repositoryClient.postIssueComment(owner, repo, issueNumber,
                         "⚠️ **AI Agent**: Failed to prepare workspace: " + wsResult.error());
                 return;
             }
             workspaceDir = wsResult.workspacePath();
 
-            String systemPrompt = promptService.getSystemPrompt(AGENT_PROMPT_NAME);
+            String systemPrompt = resolveAgentSystemPrompt();
             String userMessage  = promptBuilder.buildContinuationPrompt(commentBody);
 
             log.info("Requesting AI to continue implementation for issue #{}", issueNumber);
@@ -458,7 +476,7 @@ public class IssueImplementationService {
             String selectedContextBranch = implementationResult.selectedBranch();
             if (!success) {
                 sessionService.setStatus(session, AgentSession.AgentSessionStatus.PR_CREATED);
-                repositoryClient.postComment(owner, repo, issueNumber,
+                repositoryClient.postIssueComment(owner, repo, issueNumber,
                         "🤖 **AI Agent**: Validation failed and I couldn't fix the issues. " +
                         "Please check the tool output above and provide more guidance.");
                 return;
@@ -474,7 +492,7 @@ public class IssueImplementationService {
             boolean pushed = workspaceService.commitAndPush(workspaceDir, branchName, commitMessage,
                     GIT_AUTHOR_NAME, GIT_AUTHOR_EMAIL, createNew);
             if (!pushed) {
-                repositoryClient.postComment(owner, repo, issueNumber,
+                repositoryClient.postIssueComment(owner, repo, issueNumber,
                         "🤖 **AI Agent**: Tool execution succeeded but pushing changes failed.");
                 return;
             }
@@ -497,15 +515,9 @@ public class IssueImplementationService {
 
         } catch (Exception e) {
             log.error("Failed to handle comment on issue #{}: {}", issueNumber, e.getMessage(), e);
-            try {
-                repositoryClient.postComment(owner, repo, issueNumber,
-                        String.format("""
-                                🤖 **AI Agent**: Failed to process your request: `%s`
-
-                                Please try again or provide more details.""", e.getMessage()));
-            } catch (Exception ce) {
-                log.error("Failed to post error comment on issue #{}: {}", issueNumber, ce.getMessage());
-            }
+            errorNotificationService.postInternalErrorComment(owner, repo, issueNumber,
+                    "AI Agent",
+                    "Please try again or mention me again with more details.", e);
             if (session.getStatus() == AgentSession.AgentSessionStatus.UPDATING) {
                 sessionService.setStatus(session,
                         session.getPrNumber() != null ? AgentSession.AgentSessionStatus.PR_CREATED
@@ -528,6 +540,13 @@ public class IssueImplementationService {
                 + String.join(", ", toolExecutionService.getAvailableContextTools())
                 + "\n**Available validation tools** (results posted as comments): "
                 + String.join(", ", availableTools);
+    }
+
+    private String resolveAgentSystemPrompt() {
+        if (issueAgentSystemPrompt != null && !issueAgentSystemPrompt.isBlank()) {
+            return issueAgentSystemPrompt;
+        }
+        return promptService.getSystemPrompt(AGENT_PROMPT_NAME);
     }
 
     /**

@@ -5,6 +5,7 @@ import org.remus.giteabot.agent.IssueImplementationService;
 import org.remus.giteabot.agent.session.AgentSessionService;
 import org.remus.giteabot.agent.validation.ToolExecutionService;
 import org.remus.giteabot.agent.validation.WorkspaceService;
+import org.remus.giteabot.agent.writerimpl.WriterAgentService;
 import org.remus.giteabot.ai.AiClient;
 import org.remus.giteabot.config.AgentConfigProperties;
 import org.remus.giteabot.config.PromptService;
@@ -71,8 +72,19 @@ public class BotWebhookService {
      */
     @Async
     public void reviewPullRequest(Bot bot, WebhookPayload payload) {
+        if (bot.getBotType() == BotType.WRITER) {
+            log.debug("[Bot '{}'] Writer bot ignores pull request review event", bot.getName());
+            return;
+        }
         try {
-            createCodeReviewService(bot).reviewPullRequest(payload, null);
+            RepositoryApiClient repositoryClient = giteaClientFactory.getApiClient(bot.getGitIntegration());
+            boolean reviewed = createCodeReviewService(bot, repositoryClient).reviewPullRequest(payload, null);
+            if (reviewed && bot.getGitIntegration() != null) {
+                String owner = payload.getRepository().getOwner().getLogin();
+                String repo = payload.getRepository().getName();
+                Long prNumber = payload.getPullRequest().getNumber();
+                repositoryClient.postReviewAction(owner, repo, prNumber, bot.getGitIntegration().getPostReviewAction());
+            }
         } catch (Exception e) {
             log.error("[Bot '{}'] Failed to review PR: {}", bot.getName(), e.getMessage(), e);
             botService.recordError(bot, e.getMessage());
@@ -85,6 +97,14 @@ public class BotWebhookService {
      */
     @Async
     public void handleBotCommand(Bot bot, WebhookPayload payload) {
+        if (!isPullRequestAuthor(payload)) {
+            log.debug("[Bot '{}'] Ignoring pull request command from non-author", bot.getName());
+            return;
+        }
+        if (bot.getBotType() == BotType.WRITER) {
+            log.debug("[Bot '{}'] Writer bot ignores pull request command", bot.getName());
+            return;
+        }
         try {
             createCodeReviewService(bot).handleBotCommand(payload, null);
         } catch (Exception e) {
@@ -97,10 +117,16 @@ public class BotWebhookService {
      * Handles a comment on a PR discussion thread.
      * <p>
      * Routes to the agent when an agent session exists for the PR (i.e. the PR was created by the
-     * agent and can be continued), or falls back to the code-review handler for manually created PRs.
+     * agent and can be continued).  The agent-session path intentionally skips the PR-author check
+     * because the coding agent is the PR author; human follow-up comments must still reach the agent.
+     * For manually created PRs (no active session), only the PR author may issue commands.
      */
     @Async
     public void handlePrComment(Bot bot, WebhookPayload payload) {
+        if (bot.getBotType() == BotType.WRITER) {
+            log.debug("[Bot '{}'] Writer bot ignores pull request comment", bot.getName());
+            return;
+        }
         String owner = payload.getRepository().getOwner().getLogin();
         String repo = payload.getRepository().getName();
         Long prNumber = payload.getPullRequest().getNumber();
@@ -111,6 +137,8 @@ public class BotWebhookService {
                 || agentSessionService.getSessionByPr(owner, repo, prNumber).isPresent();
 
         if (hasAgentSession && bot.isAgentEnabled()) {
+            // Agent-session path: no author restriction – the coding agent created the PR,
+            // so any human commenter should be able to continue the implementation workflow.
             log.debug("[Bot '{}'] Agent session found for PR #{}, routing to agent", bot.getName(), prNumber);
             try {
                 createIssueImplementationService(bot).handleIssueComment(payload);
@@ -119,6 +147,11 @@ public class BotWebhookService {
                 botService.recordError(bot, e.getMessage());
             }
         } else {
+            // Code-review path: only the PR author may issue bot commands.
+            if (!isPullRequestAuthor(payload)) {
+                log.debug("[Bot '{}'] Ignoring pull request comment from non-author", bot.getName());
+                return;
+            }
             log.debug("[Bot '{}'] No agent session for PR #{}, routing to code-review handler",
                     bot.getName(), prNumber);
             try {
@@ -136,6 +169,14 @@ public class BotWebhookService {
      */
     @Async
     public void handleInlineComment(Bot bot, WebhookPayload payload) {
+        if (!isPullRequestAuthor(payload)) {
+            log.debug("[Bot '{}'] Ignoring inline review comment from non-author", bot.getName());
+            return;
+        }
+        if (bot.getBotType() == BotType.WRITER) {
+            log.debug("[Bot '{}'] Writer bot ignores inline review comment", bot.getName());
+            return;
+        }
         try {
             createCodeReviewService(bot).handleInlineComment(payload, null);
         } catch (Exception e) {
@@ -150,6 +191,10 @@ public class BotWebhookService {
      */
     @Async
     public void handleReviewSubmitted(Bot bot, WebhookPayload payload) {
+        if (bot.getBotType() == BotType.WRITER) {
+            log.debug("[Bot '{}'] Writer bot ignores submitted review", bot.getName());
+            return;
+        }
         try {
             createCodeReviewService(bot).handleReviewSubmitted(payload, null);
         } catch (Exception e) {
@@ -163,6 +208,10 @@ public class BotWebhookService {
      * Delegates to {@link CodeReviewService#handlePrClosed(WebhookPayload)}.
      */
     public void handlePrClosed(Bot bot, WebhookPayload payload) {
+        if (bot.getBotType() == BotType.WRITER) {
+            log.debug("[Bot '{}'] Writer bot ignores pull request closed event", bot.getName());
+            return;
+        }
         createCodeReviewService(bot).handlePrClosed(payload);
     }
 
@@ -172,6 +221,15 @@ public class BotWebhookService {
      */
     @Async
     public void handleIssueAssigned(Bot bot, WebhookPayload payload) {
+        if (bot.getBotType() == BotType.WRITER) {
+            try {
+                createWriterAgentService(bot).handleIssueAssigned(payload);
+            } catch (Exception e) {
+                log.error("[Bot '{}'] Failed to handle writer issue assignment: {}", bot.getName(), e.getMessage(), e);
+                botService.recordError(bot, e.getMessage());
+            }
+            return;
+        }
         if (!bot.isAgentEnabled()) {
             log.debug("[Bot '{}'] Agent feature disabled, ignoring issue assignment", bot.getName());
             return;
@@ -190,6 +248,15 @@ public class BotWebhookService {
      */
     @Async
     public void handleIssueComment(Bot bot, WebhookPayload payload) {
+        if (bot.getBotType() == BotType.WRITER) {
+            try {
+                createWriterAgentService(bot).handleIssueComment(payload);
+            } catch (Exception e) {
+                log.error("[Bot '{}'] Failed to handle writer issue comment: {}", bot.getName(), e.getMessage(), e);
+                botService.recordError(bot, e.getMessage());
+            }
+            return;
+        }
         if (!bot.isAgentEnabled()) {
             log.debug("[Bot '{}'] Agent feature disabled, ignoring issue comment", bot.getName());
             return;
@@ -232,13 +299,59 @@ public class BotWebhookService {
         return "@" + username;
     }
 
+    public boolean isPullRequestAuthor(WebhookPayload payload) {
+        String author = null;
+        if (payload.getPullRequest() != null && payload.getPullRequest().getUser() != null) {
+            author = payload.getPullRequest().getUser().getLogin();
+        } else if (payload.getIssue() != null && payload.getIssue().getUser() != null) {
+            author = payload.getIssue().getUser().getLogin();
+        }
+
+        String commenter = null;
+        if (payload.getComment() != null && payload.getComment().getUser() != null) {
+            commenter = payload.getComment().getUser().getLogin();
+        } else if (payload.getSender() != null) {
+            commenter = payload.getSender().getLogin();
+        }
+
+        return author != null && commenter != null && author.equalsIgnoreCase(commenter);
+    }
+
+    public boolean isReviewAgainRequestFromPullRequestAuthor(WebhookPayload payload, String botAlias) {
+        if (!isPullRequestAuthor(payload)) {
+            return false;
+        }
+        return isReviewAgainRequest(payload, botAlias);
+    }
+
+    public boolean isReviewAgainRequest(WebhookPayload payload, String botAlias) {
+        String body = payload.getComment() != null ? payload.getComment().getBody() : null;
+        if (body == null || botAlias == null || !body.contains(botAlias)) {
+            return false;
+        }
+        String normalized = body.toLowerCase();
+        return normalized.contains("review")
+                && (normalized.contains("again") || normalized.contains("re-review") || normalized.contains("repeat"));
+    }
+
     /**
      * Creates a per-bot {@link CodeReviewService} using the bot's AI and Git integrations.
      */
     private CodeReviewService createCodeReviewService(Bot bot) {
+        return createCodeReviewService(bot, giteaClientFactory.getApiClient(bot.getGitIntegration()));
+    }
+
+    private CodeReviewService createCodeReviewService(Bot bot, RepositoryApiClient repoClient) {
         AiClient aiClient = aiClientFactory.getClient(bot.getAiIntegration());
-        RepositoryApiClient repoClient = giteaClientFactory.getApiClient(bot.getGitIntegration());
-        return new CodeReviewService(repoClient, aiClient, promptService, sessionService, bot.getUsername(), reviewConfig);
+        if (bot.getSystemPrompt() == null) {
+            throw new IllegalStateException("Bot must have a system prompt assigned");
+        }
+        if (bot.getSystemPrompt().getId() == null) {
+            throw new IllegalStateException("Bot system prompt must be persisted");
+        }
+        String systemPromptKey = "system-prompt:" + bot.getSystemPrompt().getId();
+        return new CodeReviewService(repoClient, aiClient, sessionService, bot.getUsername(),
+                reviewConfig, systemPromptKey, bot.getSystemPrompt().getReviewSystemPrompt());
     }
 
     /**
@@ -247,7 +360,22 @@ public class BotWebhookService {
     private IssueImplementationService createIssueImplementationService(Bot bot) {
         AiClient aiClient = aiClientFactory.getClient(bot.getAiIntegration());
         RepositoryApiClient repoClient = giteaClientFactory.getApiClient(bot.getGitIntegration());
+        if (bot.getSystemPrompt() == null) {
+            throw new IllegalStateException("Bot must have a system prompt assigned");
+        }
         return new IssueImplementationService(repoClient, aiClient, promptService, agentConfig,
-                agentSessionService, toolExecutionService, workspaceService);
+                agentSessionService, toolExecutionService, workspaceService,
+                bot.getSystemPrompt().getIssueAgentSystemPrompt());
+    }
+
+    private WriterAgentService createWriterAgentService(Bot bot) {
+        AiClient aiClient = aiClientFactory.getClient(bot.getAiIntegration());
+        RepositoryApiClient repoClient = giteaClientFactory.getApiClient(bot.getGitIntegration());
+        if (bot.getSystemPrompt() == null) {
+            throw new IllegalStateException("Bot must have a system prompt assigned");
+        }
+        return new WriterAgentService(repoClient, aiClient, promptService, agentConfig,
+                agentSessionService, toolExecutionService, workspaceService,
+                bot.getSystemPrompt().getWriterAgentSystemPrompt(), bot.getUsername());
     }
 }

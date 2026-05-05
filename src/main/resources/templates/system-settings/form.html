@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org"
+      xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
+<body>
+<div th:replace="~{layout :: layout(${systemPrompt.id != null ? 'Edit System Prompt' : 'New System Prompt'}, ~{::pageContent})}">
+    <div th:fragment="pageContent">
+
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <h2>
+                <i class="bi bi-gear"></i>
+                <span th:if="${systemPrompt.id != null}">Edit System Prompt</span>
+                <span th:if="${systemPrompt.id == null}">New System Prompt</span>
+            </h2>
+        </div>
+
+        <div class="card">
+            <div class="card-body">
+                <form th:action="@{/system-settings/system-prompts/save}" method="post" th:object="${systemPrompt}">
+                    <input type="hidden" th:if="${systemPrompt.id != null}" th:field="*{id}"/>
+
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <label for="name" class="form-label">Name</label>
+                            <input type="text" class="form-control" id="name" th:field="*{name}"
+                                   placeholder="e.g. Default" required/>
+                        </div>
+                        <div class="col-md-6 d-flex align-items-end">
+                            <span th:if="${systemPrompt.defaultEntry}" class="badge bg-primary mb-2">Default entry</span>
+                        </div>
+
+                        <div class="col-12">
+                            <label for="reviewSystemPrompt" class="form-label">Review System-Prompt</label>
+                            <textarea class="form-control" id="reviewSystemPrompt" th:field="*{reviewSystemPrompt}"
+                                      rows="10" required></textarea>
+                        </div>
+
+                        <div class="col-12">
+                            <label for="issueAgentSystemPrompt" class="form-label">Issue-Agent System-Prompt</label>
+                            <textarea class="form-control" id="issueAgentSystemPrompt" th:field="*{issueAgentSystemPrompt}"
+                                       rows="14" required></textarea>
+                        </div>
+
+                        <div class="col-12">
+                            <label for="writerAgentSystemPrompt" class="form-label">Writer-Agent System-Prompt</label>
+                            <textarea class="form-control" id="writerAgentSystemPrompt" th:field="*{writerAgentSystemPrompt}"
+                                      rows="14" required></textarea>
+                        </div>
+                    </div>
+
+                    <div class="mt-4">
+                        <button type="submit" class="btn btn-primary">
+                            <i class="bi bi-check-lg"></i> Save
+                        </button>
+                        <a th:href="@{/system-settings}" class="btn btn-secondary ms-2">
+                            <i class="bi bi-x-lg"></i> Cancel
+                        </a>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+    </div>
+</div>
+</body>
+</html>

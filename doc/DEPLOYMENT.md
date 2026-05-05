@@ -87,7 +87,7 @@ volumes:
 
 ### Agent Configuration (Optional)
 
-The issue implementation agent is **enabled per-bot** via the web UI. These environment variables configure global agent behavior:
+The **coding agent** is enabled per coding bot via the web UI. Writer workflows are selected separately by choosing **Bot Type = Writer bot**. These environment variables configure global coding-agent behavior:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
@@ -117,23 +117,22 @@ All AI provider and Git configuration is managed through the web interface:
 
 3. **Bots**: Create bots that combine an AI integration with a Git integration
    - Each bot gets a unique webhook URL
-   - Configure system prompts per bot
-   - Enable/disable agent feature per bot
+   - Select a system prompt entry per bot
+   - Enable/disable coding-agent issue implementation per coding bot
+   - Choose **Writer bot** when you want issue drafting instead of code changes
 
-## Prompt Templates
+## System Prompts
 
-System prompt templates are loaded from the `prompts/` directory:
+System prompts are stored in the database and managed in **System settings → System prompts**. On migration, Flyway creates a default prompt entry from the bundled prompt files and assigns it to all existing bots. The migration removes the legacy per-bot prompt column; copy any custom per-bot prompt text before upgrading if you need to recreate it as a reusable system prompt entry.
+
+The `prompts/` directory is still copied into the image as the source for default prompt content:
 
 ```yaml
 volumes:
   - ./prompts:/app/prompts:ro
 ```
 
-The bot includes two built-in templates:
-- `default.md` — Concise code review (best for cloud AI)
-- `local-llm.md` — Detailed, structured review (best for local models)
-
-These are selectable in the bot configuration form. You can also add custom prompts by placing `.md` files in the prompts directory.
+After upgrade, edit or clone prompt entries in the UI instead of editing bot prompt text directly.
 
 ## Dockerfile Details
 

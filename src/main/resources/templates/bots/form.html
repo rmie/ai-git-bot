@@ -39,20 +39,36 @@
                         </div>
 
                         <div class="col-12">
-                            <label for="prompt" class="form-label">System Prompt</label>
-                            <div class="mb-2">
-                                <label for="promptTemplate" class="form-label text-muted small">Load from template:</label>
-                                <select class="form-select form-select-sm" id="promptTemplate" style="max-width: 300px;">
-                                    <option value="">-- Select a template --</option>
-                                    <option th:each="template : ${promptTemplates}"
-                                            th:value="${template.key}"
-                                            th:text="${template.key}"></option>
+                            <label for="botType" class="form-label">Bot Type</label>
+                            <select class="form-select" id="botType" th:field="*{botType}" required>
+                                <option th:each="type : ${botTypes}"
+                                        th:value="${type}"
+                                        th:text="${type == T(org.remus.giteabot.admin.BotType).WRITER ? 'Writer bot' : 'Coding bot'}">
+                                </option>
+                             </select>
+                             <div class="form-text">
+                                Coding bots review pull requests when explicitly requested and can implement issues. Writer bots ignore pull requests and draft improved issues.
+                             </div>
+                         </div>
+
+                        <div class="col-12">
+                            <label for="systemPromptId" class="form-label">System Prompt</label>
+                            <div class="input-group">
+                                <select class="form-select" id="systemPromptId" name="systemPromptId"
+                                        aria-label="System Prompt" required>
+                                    <option value="">Select a system prompt...</option>
+                                    <option th:each="systemPrompt : ${systemPrompts}"
+                                            th:value="${systemPrompt.id}"
+                                            th:text="${systemPrompt.name}"
+                                            th:selected="${bot.systemPrompt != null and bot.systemPrompt.id == systemPrompt.id}">
+                                    </option>
                                 </select>
+                                <button class="btn btn-outline-secondary" type="button" id="previewSystemPrompt">
+                                    <i class="bi bi-eye"></i> Preview
+                                </button>
                             </div>
-                            <textarea class="form-control" id="prompt" th:field="*{prompt}"
-                                      rows="8" placeholder="System prompt for the AI bot..."></textarea>
                             <div class="form-text">
-                                The system prompt instructs the AI how to behave during code reviews.
+                                Select the prompt set used for code reviews, coding-agent implementations, and writer-agent workflows.
                             </div>
                         </div>
 
@@ -84,7 +100,8 @@
                                 <label class="form-check-label" for="enabled">Enabled</label>
                             </div>
                         </div>
-                        <div class="col-md-6">
+                        <div class="col-md-6" id="agentEnabledContainer"
+                             th:hidden="${bot.botType != null and bot.botType.name() == 'WRITER'}">
                             <div class="form-check form-switch mt-3">
                                 <input class="form-check-input" type="checkbox" id="agentEnabled"
                                        th:field="*{agentEnabled}"/>
@@ -105,25 +122,82 @@
             </div>
         </div>
 
+        <div class="modal fade" id="systemPromptPreviewModal" tabindex="-1" aria-labelledby="systemPromptPreviewTitle"
+             aria-hidden="true">
+            <div class="modal-dialog modal-xl modal-dialog-scrollable">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title" id="systemPromptPreviewTitle">System Prompt Preview</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body">
+                        <h6>Review System-Prompt</h6>
+                        <div class="border rounded p-3 mb-4 bg-light" id="reviewPromptPreview"></div>
+                        <h6>Issue-Agent System-Prompt</h6>
+                        <div class="border rounded p-3 mb-4 bg-light" id="agentPromptPreview"></div>
+                        <h6>Writer-Agent System-Prompt</h6>
+                        <div class="border rounded p-3 bg-light" id="writerPromptPreview"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <script src="https://cdn.jsdelivr.net/npm/marked@15.0.12/marked.min.js"></script>
+        <script src="https://cdn.jsdelivr.net/npm/dompurify@3.2.6/dist/purify.min.js"></script>
         <script th:inline="javascript">
             /*<![CDATA[*/
-            const promptTemplates = /*[[${promptTemplates}]]*/ {};
+            const systemPromptPreviewBaseUrl = /*[[@{/system-settings/system-prompts/}]]*/ '/system-settings/system-prompts/';
 
             document.addEventListener('DOMContentLoaded', function() {
-                const templateSelect = document.getElementById('promptTemplate');
-                const promptTextarea = document.getElementById('prompt');
+                const systemPromptSelect = document.getElementById('systemPromptId');
+                const previewButton = document.getElementById('previewSystemPrompt');
+                const previewTitle = document.getElementById('systemPromptPreviewTitle');
+                const reviewPreview = document.getElementById('reviewPromptPreview');
+                const agentPreview = document.getElementById('agentPromptPreview');
+                const writerPreview = document.getElementById('writerPromptPreview');
+                const botTypeSelect = document.getElementById('botType');
+                const agentContainer = document.getElementById('agentEnabledContainer');
+                const agentEnabled = document.getElementById('agentEnabled');
+                const previewModal = new bootstrap.Modal(document.getElementById('systemPromptPreviewModal'));
 
-                templateSelect.addEventListener('change', function() {
-                    const selectedTemplate = this.value;
-                    if (selectedTemplate && promptTemplates[selectedTemplate]) {
-                        // Ask for confirmation if there's existing content
-                        if (promptTextarea.value.trim() &&
-                            !confirm('This will replace the current prompt. Continue?')) {
-                            this.value = '';
-                            return;
-                        }
-                        promptTextarea.value = promptTemplates[selectedTemplate];
+                function renderMarkdown(markdown) {
+                    return DOMPurify.sanitize(marked.parse(markdown || ''));
+                }
+
+                function updateAgentVisibility() {
+                    const isWriter = botTypeSelect.value === 'WRITER';
+                    agentContainer.hidden = isWriter;
+                    if (isWriter) {
+                        agentEnabled.checked = false;
                     }
+                }
+
+                botTypeSelect.addEventListener('change', updateAgentVisibility);
+                updateAgentVisibility();
+
+                previewButton.addEventListener('click', function() {
+                    const selectedPromptId = systemPromptSelect.value;
+                    if (!selectedPromptId) {
+                        alert('Select a system prompt first.');
+                        return;
+                    }
+                    fetch(systemPromptPreviewBaseUrl + encodeURIComponent(selectedPromptId) + '/preview')
+                        .then(function(response) {
+                            if (!response.ok) {
+                                throw new Error('Preview could not be loaded.');
+                            }
+                            return response.json();
+                        })
+                        .then(function(selectedPrompt) {
+                            previewTitle.textContent = selectedPrompt.name + ' Preview';
+                            reviewPreview.innerHTML = renderMarkdown(selectedPrompt.reviewSystemPrompt);
+                            agentPreview.innerHTML = renderMarkdown(selectedPrompt.issueAgentSystemPrompt);
+                            writerPreview.innerHTML = renderMarkdown(selectedPrompt.writerAgentSystemPrompt);
+                            previewModal.show();
+                        })
+                        .catch(function(error) {
+                            alert(error.message);
+                        });
                 });
             });
             /*]]>*/
