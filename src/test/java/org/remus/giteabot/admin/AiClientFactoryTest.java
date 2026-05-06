@@ -9,6 +9,8 @@ import org.remus.giteabot.ai.AiClient;
 import org.remus.giteabot.ai.AiProviderRegistry;
 import org.remus.giteabot.ai.anthropic.AnthropicAiClient;
 import org.remus.giteabot.ai.anthropic.AnthropicProviderMetadata;
+import org.remus.giteabot.ai.google.GoogleAiClient;
+import org.remus.giteabot.ai.google.GoogleAiProviderMetadata;
 import org.remus.giteabot.ai.llamacpp.LlamaCppClient;
 import org.remus.giteabot.ai.llamacpp.LlamaCppProviderMetadata;
 import org.remus.giteabot.ai.ollama.OllamaClient;
@@ -37,6 +39,7 @@ class AiClientFactoryTest {
         providerRegistry = new AiProviderRegistry(List.of(
                 new AnthropicProviderMetadata(),
                 new OpenAiProviderMetadata(),
+                new GoogleAiProviderMetadata(),
                 new OllamaProviderMetadata(),
                 new LlamaCppProviderMetadata()
         ));
@@ -59,6 +62,15 @@ class AiClientFactoryTest {
 
         AiClient client = aiClientFactory.getClient(integration);
         assertInstanceOf(OpenAiClient.class, client);
+    }
+
+    @Test
+    void getClient_google_createsGoogleAiClient() {
+        AiIntegration integration = createIntegration("google", "google-key");
+        when(aiIntegrationService.decryptApiKey(integration)).thenReturn("google-key");
+
+        AiClient client = aiClientFactory.getClient(integration);
+        assertInstanceOf(GoogleAiClient.class, client);
     }
 
     @Test
