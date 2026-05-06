@@ -17,6 +17,7 @@ import org.remus.giteabot.config.AgentConfigProperties;
 import org.remus.giteabot.config.PromptService;
 import org.remus.giteabot.config.ReviewConfigProperties;
 import org.remus.giteabot.gitea.model.WebhookPayload;
+import org.remus.giteabot.mcp.McpOrchestrationService;
 import org.remus.giteabot.repository.RepositoryApiClient;
 import org.remus.giteabot.session.SessionService;
 import org.remus.giteabot.systemsettings.SystemPrompt;
@@ -50,6 +51,7 @@ class BotWebhookServiceTest {
     @Mock private ToolExecutionService toolExecutionService;
     @Mock private WorkspaceService workspaceService;
     @Mock private BotService botService;
+    @Mock private McpOrchestrationService mcpOrchestrationService;
     @Mock private RepositoryApiClient repositoryApiClient;
     @Mock private AiClient aiClient;
 
@@ -59,7 +61,8 @@ class BotWebhookServiceTest {
     void setUp() {
         botWebhookService = new BotWebhookService(aiClientFactory, giteaClientFactory,
                 promptService, sessionService, agentConfig, new ReviewConfigProperties(),
-                agentSessionService, toolExecutionService, workspaceService, botService);
+                agentSessionService, toolExecutionService, workspaceService, botService,
+                mcpOrchestrationService);
     }
 
     // ---- isBotUser tests ----

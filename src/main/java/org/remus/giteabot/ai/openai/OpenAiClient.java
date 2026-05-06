@@ -3,11 +3,8 @@ package org.remus.giteabot.ai.openai;
 import lombok.extern.slf4j.Slf4j;
 import org.remus.giteabot.ai.AbstractAiClient;
 import org.remus.giteabot.ai.AiMessage;
-import org.remus.giteabot.ai.McpConfigurationData;
-import org.remus.giteabot.ai.McpConfigurationMapper;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestClient;
-import org.springframework.web.client.RestClientException;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -32,30 +29,16 @@ public class OpenAiClient extends AbstractAiClient {
     @Override
     protected String sendReviewRequest(String systemPrompt, String effectiveModel,
                                        int maxTokens, String userMessage) {
-        return sendReviewRequest(systemPrompt, effectiveModel, maxTokens, userMessage, null);
-    }
-
-    @Override
-    protected String sendReviewRequest(String systemPrompt, String effectiveModel,
-                                       int maxTokens, String userMessage,
-                                       McpConfigurationData mcpConfiguration) {
         List<OpenAiRequest.Message> messages = new ArrayList<>();
         messages.add(OpenAiRequest.Message.builder().role("system").content(systemPrompt).build());
         messages.add(OpenAiRequest.Message.builder().role("user").content(userMessage).build());
 
-        return doRequest(effectiveModel, maxTokens, messages, "review", mcpConfiguration);
+        return doRequest(effectiveModel, maxTokens, messages, "review");
     }
 
     @Override
     protected String sendChatRequest(String systemPrompt, String effectiveModel,
                                      int maxTokens, List<AiMessage> conversationMessages) {
-        return sendChatRequest(systemPrompt, effectiveModel, maxTokens, conversationMessages, null);
-    }
-
-    @Override
-    protected String sendChatRequest(String systemPrompt, String effectiveModel,
-                                     int maxTokens, List<AiMessage> conversationMessages,
-                                     McpConfigurationData mcpConfiguration) {
         List<OpenAiRequest.Message> messages = new ArrayList<>();
         messages.add(OpenAiRequest.Message.builder().role("system").content(systemPrompt).build());
 
@@ -66,7 +49,7 @@ public class OpenAiClient extends AbstractAiClient {
                     .build());
         }
 
-        return doRequest(effectiveModel, maxTokens, messages, "chat", mcpConfiguration);
+        return doRequest(effectiveModel, maxTokens, messages, "chat");
     }
 
     @Override
@@ -80,45 +63,23 @@ public class OpenAiClient extends AbstractAiClient {
 
     private String doRequest(String model, int maxTokens,
                              List<OpenAiRequest.Message> messages, String context) {
-        return doRequest(model, maxTokens, messages, context, null);
-    }
-
-    private String doRequest(String model, int maxTokens,
-                             List<OpenAiRequest.Message> messages, String context,
-                             McpConfigurationData mcpConfiguration) {
         OpenAiRequest request = OpenAiRequest.builder()
                 .model(model)
                 .maxTokens(maxTokens)
                 .messages(messages)
-                .mcpServers(McpConfigurationMapper.toMcpServers(mcpConfiguration, "OpenAI"))
                 .build();
 
-        OpenAiResponse response = executeRequest(request, mcpConfiguration, context);
+        OpenAiResponse response = executeRequest(request);
 
         return extractText(response, context);
     }
 
-    private OpenAiResponse executeRequest(OpenAiRequest request, McpConfigurationData mcpConfiguration,
-                                          String context) {
-        try {
-            return restClient.post()
-                    .uri("/v1/chat/completions")
-                    .body(request)
-                    .retrieve()
-                    .body(OpenAiResponse.class);
-        } catch (RestClientException e) {
-            if (mcpConfiguration == null) {
-                throw e;
-            }
-            log.error("MCP configuration '{}' could not be applied to OpenAI {} request; retrying without MCP: {}",
-                    mcpConfiguration.name(), context, e.getMessage(), e);
-            request.setMcpServers(null);
-            return restClient.post()
-                    .uri("/v1/chat/completions")
-                    .body(request)
-                    .retrieve()
-                    .body(OpenAiResponse.class);
-        }
+    private OpenAiResponse executeRequest(OpenAiRequest request) {
+        return restClient.post()
+                .uri("/v1/chat/completions")
+                .body(request)
+                .retrieve()
+                .body(OpenAiResponse.class);
     }
 
     private String extractText(OpenAiResponse response, String context) {

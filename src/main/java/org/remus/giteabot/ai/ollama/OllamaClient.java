@@ -3,7 +3,6 @@ package org.remus.giteabot.ai.ollama;
 import lombok.extern.slf4j.Slf4j;
 import org.remus.giteabot.ai.AbstractAiClient;
 import org.remus.giteabot.ai.AiMessage;
-import org.remus.giteabot.ai.McpConfigurationData;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestClient;
 
@@ -33,13 +32,6 @@ public class OllamaClient extends AbstractAiClient {
     @Override
     protected String sendReviewRequest(String systemPrompt, String effectiveModel,
                                        int maxTokens, String userMessage) {
-        return sendReviewRequest(systemPrompt, effectiveModel, maxTokens, userMessage, null);
-    }
-
-    @Override
-    protected String sendReviewRequest(String systemPrompt, String effectiveModel,
-                                       int maxTokens, String userMessage,
-                                       McpConfigurationData mcpConfiguration) {
         List<OllamaRequest.Message> messages = new ArrayList<>();
         messages.add(OllamaRequest.Message.builder().role("system").content(systemPrompt).build());
         messages.add(OllamaRequest.Message.builder().role("user").content(userMessage).build());
@@ -51,13 +43,6 @@ public class OllamaClient extends AbstractAiClient {
     @Override
     protected String sendChatRequest(String systemPrompt, String effectiveModel,
                                      int maxTokens, List<AiMessage> conversationMessages) {
-        return sendChatRequest(systemPrompt, effectiveModel, maxTokens, conversationMessages, null);
-    }
-
-    @Override
-    protected String sendChatRequest(String systemPrompt, String effectiveModel,
-                                     int maxTokens, List<AiMessage> conversationMessages,
-                                     McpConfigurationData mcpConfiguration) {
         List<OllamaRequest.Message> messages = new ArrayList<>();
         messages.add(OllamaRequest.Message.builder().role("system").content(systemPrompt).build());
 

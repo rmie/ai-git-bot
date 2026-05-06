@@ -1,8 +1,6 @@
 package org.remus.giteabot.ai.openai;
 
 import org.junit.jupiter.api.Test;
-import org.mockito.ArgumentCaptor;
-import org.remus.giteabot.ai.McpConfigurationData;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.web.client.HttpClientErrorException;
@@ -63,28 +61,6 @@ class OpenAiClientTest {
         assertFalse(client.isPromptTooLongError(ex));
     }
 
-    @Test
-    void chat_withMcpConfiguration_forwardsMcpServers() {
-        RestClient restClient = mock(RestClient.class);
-        RestClient.RequestBodyUriSpec uriSpec = mock(RestClient.RequestBodyUriSpec.class);
-        RestClient.RequestBodySpec bodySpec = mock(RestClient.RequestBodySpec.class);
-        RestClient.ResponseSpec responseSpec = mock(RestClient.ResponseSpec.class);
-        ArgumentCaptor<OpenAiRequest> requestCaptor = ArgumentCaptor.forClass(OpenAiRequest.class);
-        when(restClient.post()).thenReturn(uriSpec);
-        when(uriSpec.uri("/v1/chat/completions")).thenReturn(bodySpec);
-        when(bodySpec.body(requestCaptor.capture())).thenReturn(bodySpec);
-        when(bodySpec.retrieve()).thenReturn(responseSpec);
-        when(responseSpec.body(OpenAiResponse.class)).thenReturn(response("ok"));
-        OpenAiClient client = new OpenAiClient(restClient, "gpt-4o", 1024, 10, 2, 6);
-
-        String result = client.chat(List.of(), "hello", "system", null, 100,
-                new McpConfigurationData("GitHub MCP", """
-                        {"name":"github","type":"url","url":"https://api.githubcopilot.com/mcp/"}
-                        """));
-
-        assertEquals("ok", result);
-        assertNotNull(requestCaptor.getValue().getMcpServers());
-    }
 
     private OpenAiResponse response(String text) {
         OpenAiResponse response = new OpenAiResponse();

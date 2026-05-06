@@ -73,26 +73,6 @@ public abstract class AbstractAiClient implements AiClient {
     protected abstract String sendChatRequest(String systemPrompt, String effectiveModel,
                                                int maxTokens, List<AiMessage> messages);
 
-    protected String sendReviewRequest(String systemPrompt, String effectiveModel,
-                                       int maxTokens, String userMessage,
-                                       McpConfigurationData mcpConfiguration) {
-        if (mcpConfiguration != null) {
-            log.warn("AI provider {} does not support MCP configuration '{}'; continuing without MCP",
-                    getClass().getSimpleName(), mcpConfiguration.name());
-        }
-        return sendReviewRequest(systemPrompt, effectiveModel, maxTokens, userMessage);
-    }
-
-    protected String sendChatRequest(String systemPrompt, String effectiveModel,
-                                     int maxTokens, List<AiMessage> messages,
-                                     McpConfigurationData mcpConfiguration) {
-        if (mcpConfiguration != null) {
-            log.warn("AI provider {} does not support MCP configuration '{}'; continuing without MCP",
-                    getClass().getSimpleName(), mcpConfiguration.name());
-        }
-        return sendChatRequest(systemPrompt, effectiveModel, maxTokens, messages);
-    }
-
     /**
      * Detects whether a client error indicates the prompt exceeded the model's input limit.
      */
@@ -112,13 +92,6 @@ public abstract class AbstractAiClient implements AiClient {
     @Override
     public String chat(List<AiMessage> conversationHistory, String newUserMessage,
                        String systemPrompt, String modelOverride, Integer maxTokensOverride) {
-        return chat(conversationHistory, newUserMessage, systemPrompt, modelOverride, maxTokensOverride, null);
-    }
-
-    @Override
-    public String chat(List<AiMessage> conversationHistory, String newUserMessage,
-                       String systemPrompt, String modelOverride, Integer maxTokensOverride,
-                       McpConfigurationData mcpConfiguration) {
         String effectiveModel = resolveModel(modelOverride);
         String effectivePrompt = resolvePrompt(systemPrompt);
         int effectiveMaxTokens = (maxTokensOverride != null && maxTokensOverride > 0) ? maxTokensOverride : maxTokens;
@@ -145,7 +118,7 @@ public abstract class AbstractAiClient implements AiClient {
                 .content(newUserMessage)
                 .build());
 
-        String response = sendChatRequest(effectivePrompt, effectiveModel, effectiveMaxTokens, messages, mcpConfiguration);
+        String response = sendChatRequest(effectivePrompt, effectiveModel, effectiveMaxTokens, messages);
 
         // Debug logging: Log the response
         if (log.isDebugEnabled()) {
@@ -164,13 +137,6 @@ public abstract class AbstractAiClient implements AiClient {
     @Override
     public String reviewDiff(String prTitle, String prBody, String diff, String systemPrompt,
                              String modelOverride, String additionalContext) {
-        return reviewDiff(prTitle, prBody, diff, systemPrompt, modelOverride, additionalContext, null);
-    }
-
-    @Override
-    public String reviewDiff(String prTitle, String prBody, String diff, String systemPrompt,
-                             String modelOverride, String additionalContext,
-                             McpConfigurationData mcpConfiguration) {
         String effectiveModel = resolveModel(modelOverride);
         String effectivePrompt = resolvePrompt(systemPrompt);
 
@@ -187,7 +153,7 @@ public abstract class AbstractAiClient implements AiClient {
 
             try {
                 String review = reviewSingleChunk(prTitle, prBody, chunk, chunkNumber, totalChunks, false,
-                        effectivePrompt, effectiveModel, additionalContext, mcpConfiguration);
+                        effectivePrompt, effectiveModel, additionalContext);
 
                 if (totalChunks > 1) {
                     reviews.add("### Diff chunk " + chunkNumber + "/" + totalChunks + "\n" + review);
@@ -224,16 +190,9 @@ public abstract class AbstractAiClient implements AiClient {
     private String reviewSingleChunk(String prTitle, String prBody, String diffChunk, int chunkNumber, int totalChunks,
                                      boolean isRetry, String systemPrompt, String effectiveModel,
                                      String additionalContext) {
-        return reviewSingleChunk(prTitle, prBody, diffChunk, chunkNumber, totalChunks, isRetry, systemPrompt,
-                effectiveModel, additionalContext, null);
-    }
-
-    private String reviewSingleChunk(String prTitle, String prBody, String diffChunk, int chunkNumber, int totalChunks,
-                                     boolean isRetry, String systemPrompt, String effectiveModel,
-                                     String additionalContext, McpConfigurationData mcpConfiguration) {
         try {
             return reviewSingleChunkInternal(prTitle, prBody, diffChunk, chunkNumber, totalChunks, isRetry,
-                    systemPrompt, effectiveModel, additionalContext, mcpConfiguration);
+                    systemPrompt, effectiveModel, additionalContext);
         } catch (HttpClientErrorException.BadRequest e) {
             if (isPromptTooLongError(e) && !isRetry && diffChunk.length() > retryTruncatedChunkChars) {
                 log.warn("Prompt too long for chunk {}/{} (chars={}), retrying with truncated chunk (chars={})",
@@ -243,7 +202,7 @@ public abstract class AbstractAiClient implements AiClient {
                         retryTruncatedChunkChars);
                 String truncatedChunk = truncateDiff(diffChunk, retryTruncatedChunkChars);
                 return reviewSingleChunk(prTitle, prBody, truncatedChunk, chunkNumber, totalChunks, true,
-                        systemPrompt, effectiveModel, additionalContext, mcpConfiguration);
+                        systemPrompt, effectiveModel, additionalContext);
             }
             throw e;
         }
@@ -273,18 +232,6 @@ public abstract class AbstractAiClient implements AiClient {
         return sendReviewRequest(systemPrompt, effectiveModel, maxTokens, userMessage);
     }
 
-    String reviewSingleChunkInternal(String prTitle, String prBody, String diffChunk,
-                                     int chunkNumber, int totalChunks, boolean isRetry,
-                                     String systemPrompt, String effectiveModel,
-                                     String additionalContext, McpConfigurationData mcpConfiguration) {
-        if (mcpConfiguration == null) {
-            return reviewSingleChunkInternal(prTitle, prBody, diffChunk, chunkNumber, totalChunks, isRetry,
-                    systemPrompt, effectiveModel, additionalContext);
-        }
-        String userMessage = buildUserMessage(prTitle, prBody, diffChunk, chunkNumber, totalChunks,
-                isRetry, additionalContext);
-        return sendReviewRequest(systemPrompt, effectiveModel, maxTokens, userMessage, mcpConfiguration);
-    }
 
     ChunkingResult splitDiffIntoChunks(String diff) {
         if (diff == null || diff.isBlank()) {

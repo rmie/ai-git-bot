@@ -3,7 +3,6 @@ package org.remus.giteabot.ai.llamacpp;
 import lombok.extern.slf4j.Slf4j;
 import org.remus.giteabot.ai.AbstractAiClient;
 import org.remus.giteabot.ai.AiMessage;
-import org.remus.giteabot.ai.McpConfigurationData;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestClient;
 
@@ -65,13 +64,6 @@ public class LlamaCppClient extends AbstractAiClient {
     @Override
     protected String sendReviewRequest(String systemPrompt, String effectiveModel,
                                        int maxTokens, String userMessage) {
-        return sendReviewRequest(systemPrompt, effectiveModel, maxTokens, userMessage, null);
-    }
-
-    @Override
-    protected String sendReviewRequest(String systemPrompt, String effectiveModel,
-                                       int maxTokens, String userMessage,
-                                       McpConfigurationData mcpConfiguration) {
         String prompt = buildChatPrompt(systemPrompt, userMessage);
         String grammar = shouldUseJsonGrammar(systemPrompt) ? AGENT_JSON_GRAMMAR : null;
         return doRequest(prompt, maxTokens, "review", grammar);
@@ -80,13 +72,6 @@ public class LlamaCppClient extends AbstractAiClient {
     @Override
     protected String sendChatRequest(String systemPrompt, String effectiveModel,
                                      int maxTokens, List<AiMessage> conversationMessages) {
-        return sendChatRequest(systemPrompt, effectiveModel, maxTokens, conversationMessages, null);
-    }
-
-    @Override
-    protected String sendChatRequest(String systemPrompt, String effectiveModel,
-                                     int maxTokens, List<AiMessage> conversationMessages,
-                                     McpConfigurationData mcpConfiguration) {
         String prompt = buildChatPrompt(systemPrompt, conversationMessages);
         String grammar = shouldUseJsonGrammar(systemPrompt) ? AGENT_JSON_GRAMMAR : null;
         return doRequest(prompt, maxTokens, "chat", grammar);

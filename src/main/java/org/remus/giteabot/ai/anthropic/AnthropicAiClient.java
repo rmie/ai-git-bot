@@ -3,11 +3,8 @@ package org.remus.giteabot.ai.anthropic;
 import lombok.extern.slf4j.Slf4j;
 import org.remus.giteabot.ai.AbstractAiClient;
 import org.remus.giteabot.ai.AiMessage;
-import org.remus.giteabot.ai.McpConfigurationData;
-import org.remus.giteabot.ai.McpConfigurationMapper;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestClient;
-import org.springframework.web.client.RestClientException;
 
 import java.util.List;
 import java.util.Locale;
@@ -27,13 +24,6 @@ public class AnthropicAiClient extends AbstractAiClient {
     @Override
     protected String sendReviewRequest(String systemPrompt, String effectiveModel,
                                        int maxTokens, String userMessage) {
-        return sendReviewRequest(systemPrompt, effectiveModel, maxTokens, userMessage, null);
-    }
-
-    @Override
-    protected String sendReviewRequest(String systemPrompt, String effectiveModel,
-                                       int maxTokens, String userMessage,
-                                       McpConfigurationData mcpConfiguration) {
         AnthropicRequest request = AnthropicRequest.builder()
                 .model(effectiveModel)
                 .maxTokens(maxTokens)
@@ -44,10 +34,9 @@ public class AnthropicAiClient extends AbstractAiClient {
                                 .content(userMessage)
                                 .build()
                 ))
-                .mcpServers(McpConfigurationMapper.toMcpServers(mcpConfiguration, "Anthropic"))
                 .build();
 
-        AnthropicResponse response = executeRequest(request, mcpConfiguration, "review");
+        AnthropicResponse response = executeRequest(request);
 
         return extractText(response, "review");
     }
@@ -55,13 +44,6 @@ public class AnthropicAiClient extends AbstractAiClient {
     @Override
     protected String sendChatRequest(String systemPrompt, String effectiveModel,
                                      int maxTokens, List<AiMessage> messages) {
-        return sendChatRequest(systemPrompt, effectiveModel, maxTokens, messages, null);
-    }
-
-    @Override
-    protected String sendChatRequest(String systemPrompt, String effectiveModel,
-                                     int maxTokens, List<AiMessage> messages,
-                                     McpConfigurationData mcpConfiguration) {
         List<AnthropicRequest.Message> anthropicMessages = messages.stream()
                 .map(m -> AnthropicRequest.Message.builder()
                         .role(m.getRole())
@@ -74,10 +56,9 @@ public class AnthropicAiClient extends AbstractAiClient {
                 .maxTokens(maxTokens)
                 .system(systemPrompt)
                 .messages(anthropicMessages)
-                .mcpServers(McpConfigurationMapper.toMcpServers(mcpConfiguration, "Anthropic"))
                 .build();
 
-        AnthropicResponse response = executeRequest(request, mcpConfiguration, "chat");
+        AnthropicResponse response = executeRequest(request);
 
         return extractText(response, "chat");
     }
@@ -113,39 +94,12 @@ public class AnthropicAiClient extends AbstractAiClient {
         return result;
     }
 
-    private AnthropicResponse executeRequest(AnthropicRequest request, McpConfigurationData mcpConfiguration,
-                                             String context) {
-        try {
-            return restClient.post()
-                    .uri("/v1/messages")
-                    .body(checkMcpTools(request))
-                    .retrieve()
-                    .body(AnthropicResponse.class);
-        } catch (RestClientException e) {
-            if (mcpConfiguration == null) {
-                throw e;
-            }
-            log.error("MCP configuration '{}' could not be applied to Anthropic {} request; retrying without MCP: {}",
-                    mcpConfiguration.name(), context, e.getMessage(), e);
-            request.setMcpServers(null);
-            request.setTools(null);
-            return restClient.post()
-                    .uri("/v1/messages")
-                    .body(request)
-                    .retrieve()
-                    .body(AnthropicResponse.class);
-        }
-    }
-
-    private AnthropicRequest checkMcpTools(AnthropicRequest request) {
-        if (request.getMcpServers() != null) {
-            request.setTools(McpConfigurationMapper.extractNamesFromMcpJson(
-                    request.getMcpServers()).stream().map(
-                            name -> AnthropicRequest.Tool.builder()
-                                    .mcpServerName(name)
-                                    .type("mcp_toolset").build()).toList());
-        }
-        return request;
+    private AnthropicResponse executeRequest(AnthropicRequest request) {
+        return restClient.post()
+                .uri("/v1/messages")
+                .body(request)
+                .retrieve()
+                .body(AnthropicResponse.class);
     }
 
 }
