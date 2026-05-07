@@ -17,7 +17,7 @@ class AiProviderRegistryTest {
                 new OllamaProviderMetadata()
         ));
 
-        assertEquals("Google AI (Gemini)", registry.getDisplayNames().get("google"));
+        assertEquals("gemini", registry.getDisplayNames().get("google"));
         assertTrue(registry.getApiKeyRequirements().get("google"));
         assertFalse(registry.getApiKeyRequirements().get("ollama"));
     }

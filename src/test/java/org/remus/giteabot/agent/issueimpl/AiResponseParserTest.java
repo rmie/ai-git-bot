@@ -116,6 +116,39 @@ class AiResponseParserTest {
         assertThat(plan.getRequestTools().getFirst().getTool()).isEqualTo("rg");
         assertThat(plan.getRequestTools().get(1).getArgs()).containsExactly("pom.xml", "1", "20");
     }
+
+    @Test
+    void parseAiResponse_withRequestToolObjectArg_normalizesToJsonString() {
+        String aiResponse = """
+                {
+                  "summary": "Fetch issues",
+                  "requestTools": [
+                    {
+                      "id": "3b2a1c0d-4e5f-6a7b-8c9d-0e1f2a3b4c5d",
+                      "tool": "mcp:github:list_issues",
+                      "args": [
+                        {
+                          "owner": "tmseidel",
+                          "repo": "ai-git-bot",
+                          "state": "OPEN"
+                        }
+                      ]
+                    }
+                  ]
+                }
+                """;
+
+        ImplementationPlan plan = parser.parseAiResponse(aiResponse);
+
+        assertThat(plan).isNotNull();
+        assertThat(plan.getRequestTools()).hasSize(1);
+        assertThat(plan.getRequestTools().getFirst().getTool()).isEqualTo("mcp:github:list_issues");
+        assertThat(plan.getRequestTools().getFirst().getArgs()).hasSize(1);
+        assertThat(plan.getRequestTools().getFirst().getArgs().getFirst())
+                .contains("\"owner\":\"tmseidel\"")
+                .contains("\"repo\":\"ai-git-bot\"")
+                .contains("\"state\":\"OPEN\"");
+    }
     @Test
     void parseAiResponse_withRunToolLegacy_returnsPlanWithTool() {
         String aiResponse = """
@@ -133,6 +166,33 @@ class AiResponseParserTest {
         assertThat(plan.getToolRequest()).isNotNull();
         assertThat(plan.getToolRequest().getTool()).isEqualTo("mvn");
         assertThat(plan.getToolRequest().getArgs()).containsExactly("compile", "-q", "-B");
+    }
+
+    @Test
+    void parseAiResponse_withRunToolObjectArgs_normalizesToSingleJsonArg() {
+        String aiResponse = """
+                {
+                  "summary": "Call MCP tool",
+                  "runTool": {
+                    "tool": "mcp:github:list_issues",
+                    "args": {
+                      "owner": "tmseidel",
+                      "repo": "ai-git-bot",
+                      "state": "OPEN"
+                    }
+                  }
+                }
+                """;
+
+        ImplementationPlan plan = parser.parseAiResponse(aiResponse);
+
+        assertThat(plan).isNotNull();
+        assertThat(plan.getToolRequest()).isNotNull();
+        assertThat(plan.getToolRequest().getArgs()).hasSize(1);
+        assertThat(plan.getToolRequest().getArgs().getFirst())
+                .contains("\"owner\":\"tmseidel\"")
+                .contains("\"repo\":\"ai-git-bot\"")
+                .contains("\"state\":\"OPEN\"");
     }
     @Test
     void parseAiResponse_rawJson_withRunTool() {

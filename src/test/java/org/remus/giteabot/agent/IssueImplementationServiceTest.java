@@ -17,6 +17,9 @@ import org.remus.giteabot.config.AgentConfigProperties;
 import org.remus.giteabot.config.PromptService;
 import org.remus.giteabot.repository.RepositoryApiClient;
 import org.remus.giteabot.gitea.model.WebhookPayload;
+import org.remus.giteabot.mcp.McpOrchestrationService;
+import org.remus.giteabot.mcp.McpToolCatalog;
+import org.remus.giteabot.mcp.McpToolDefinition;
 
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -37,6 +40,7 @@ class IssueImplementationServiceTest {
     @Mock private AgentSessionService sessionService;
     @Mock private ToolExecutionService toolExecutionService;
     @Mock private WorkspaceService workspaceService;
+    @Mock private McpOrchestrationService mcpOrchestrationService;
 
     private IssueImplementationService service;
 
@@ -509,6 +513,69 @@ class IssueImplementationServiceTest {
                 contains("pushing the branch failed"));
     }
 
+    @Test
+    void handleIssueAssigned_mcpFailureWithSuccessfulValidation_stillCompletes() {
+        WebhookPayload payload = createIssuePayload();
+        IssueImplementationService serviceWithMcp = createServiceWithMcp();
+
+        when(repositoryClient.getDefaultBranch("testowner", "testrepo")).thenReturn("main");
+        when(repositoryClient.getRepositoryTree("testowner", "testrepo", "main"))
+                .thenReturn(List.of(Map.of("type", "blob", "path", "README.md")));
+        when(promptService.getSystemPrompt("agent")).thenReturn("You are an agent");
+        when(workspaceService.prepareWorkspace(eq("testowner"), eq("testrepo"), eq("main"),
+                isNull(), isNull()))
+                .thenReturn(WorkspaceResult.success(FAKE_WORKSPACE));
+
+        String contextResponse = """
+                ```json
+                {"summary": "Need context", "requestFiles": []}
+                ```
+                """;
+        String implResponse = """
+                ```json
+                {
+                  "summary": "Implement with MCP lookup",
+                  "runTools": [
+                    {"id": "mcp-1", "tool": "mcp:github:list_issues", "args": [{"owner":"tmseidel","repo":"ai-git-bot"}]},
+                    {"id": "file-1", "tool": "write-file", "args": ["src/Feature.java", "public class Feature {}"]},
+                    {"id": "val-1", "tool": "mvn", "args": ["compile", "-q", "-B"]}
+                  ]
+                }
+                ```
+                """;
+        when(aiClient.chat(anyList(), anyString(), anyString(), isNull(), anyInt()))
+                .thenReturn(contextResponse, implResponse);
+
+        when(mcpOrchestrationService.isMcpTool(any(McpToolCatalog.class), eq("mcp:github:list_issues"))).thenReturn(true);
+        when(mcpOrchestrationService.executeTool(any(), any(), eq("mcp:github:list_issues"), anyList()))
+                .thenReturn(new ToolResult(false, 1, "", "cursor pagination required"));
+        when(toolExecutionService.isSilentTool("mcp:github:list_issues")).thenReturn(true);
+        when(toolExecutionService.isFileTool("mcp:github:list_issues")).thenReturn(false);
+
+        when(toolExecutionService.isFileTool("write-file")).thenReturn(true);
+        when(toolExecutionService.isFileTool("mvn")).thenReturn(false);
+        when(toolExecutionService.isContextTool("mvn")).thenReturn(false);
+        when(toolExecutionService.isSilentTool("write-file")).thenReturn(true);
+        when(toolExecutionService.isSilentTool("mvn")).thenReturn(false);
+        when(toolExecutionService.executeFileTool(eq(FAKE_WORKSPACE), eq("write-file"), anyList()))
+                .thenReturn(new ToolResult(true, 0, "File written", ""));
+        when(toolExecutionService.executeTool(eq(FAKE_WORKSPACE), eq("mvn"), anyList()))
+                .thenReturn(new ToolResult(true, 0, "BUILD SUCCESS", ""));
+
+        when(workspaceService.commitAndPush(eq(FAKE_WORKSPACE), eq("ai-agent/issue-42"),
+                anyString(), anyString(), anyString(), eq(true)))
+                .thenReturn(true);
+        when(repositoryClient.createPullRequest(eq("testowner"), eq("testrepo"), anyString(), anyString(),
+                eq("ai-agent/issue-42"), eq("main"))).thenReturn(1L);
+
+        serviceWithMcp.handleIssueAssigned(payload);
+
+        verify(workspaceService).commitAndPush(eq(FAKE_WORKSPACE), eq("ai-agent/issue-42"),
+                anyString(), anyString(), anyString(), eq(true));
+        verify(repositoryClient).createPullRequest(eq("testowner"), eq("testrepo"), anyString(), anyString(),
+                eq("ai-agent/issue-42"), eq("main"));
+    }
+
     // ---- handleIssueComment tests ----
 
     @Test
@@ -673,6 +740,65 @@ class IssueImplementationServiceTest {
                 contains("I hit an internal error while processing this request: `follow-up coding failure`"));
     }
 
+    @Test
+    void handleIssueComment_mcpFailureWithSuccessfulValidation_stillCompletes() {
+        WebhookPayload payload = createCommentPayload("Please continue");
+        IssueImplementationService serviceWithMcp = createServiceWithMcp();
+
+        AgentSession session = new AgentSession("testowner", "testrepo", 42L, "Add new feature X");
+        session.setBranchName("ai-agent/issue-42");
+        session.setPrNumber(1L);
+        session.setStatus(AgentSession.AgentSessionStatus.PR_CREATED);
+
+        when(sessionService.getSessionByIssue("testowner", "testrepo", 42L))
+                .thenReturn(Optional.of(session));
+        when(repositoryClient.getDefaultBranch("testowner", "testrepo")).thenReturn("main");
+        when(promptService.getSystemPrompt("agent")).thenReturn("You are an agent");
+        when(sessionService.toAiMessages(any())).thenReturn(
+                new ArrayList<>(List.of(AiMessage.builder().role("user").content("Please continue").build())));
+        when(workspaceService.prepareWorkspace(eq("testowner"), eq("testrepo"), eq("ai-agent/issue-42"),
+                isNull(), isNull()))
+                .thenReturn(WorkspaceResult.success(FAKE_WORKSPACE));
+
+        String response = """
+                ```json
+                {
+                  "summary": "Follow-up",
+                  "runTools": [
+                    {"id": "mcp-1", "tool": "mcp:github:list_issues", "args": [{"owner":"tmseidel","repo":"ai-git-bot"}]},
+                    {"id": "file-1", "tool": "patch-file", "args": ["README.md", "old", "new"]},
+                    {"id": "val-1", "tool": "mvn", "args": ["compile"]}
+                  ]
+                }
+                ```
+                """;
+        when(aiClient.chat(anyList(), anyString(), anyString(), isNull(), anyInt())).thenReturn(response);
+
+        when(mcpOrchestrationService.isMcpTool(any(McpToolCatalog.class), eq("mcp:github:list_issues"))).thenReturn(true);
+        when(mcpOrchestrationService.executeTool(any(), any(), eq("mcp:github:list_issues"), anyList()))
+                .thenReturn(new ToolResult(false, 1, "", "cursor pagination required"));
+        when(toolExecutionService.isSilentTool("mcp:github:list_issues")).thenReturn(true);
+        when(toolExecutionService.isFileTool("mcp:github:list_issues")).thenReturn(false);
+
+        when(toolExecutionService.isFileTool("patch-file")).thenReturn(true);
+        when(toolExecutionService.isFileTool("mvn")).thenReturn(false);
+        when(toolExecutionService.isContextTool("mvn")).thenReturn(false);
+        when(toolExecutionService.isSilentTool("patch-file")).thenReturn(true);
+        when(toolExecutionService.isSilentTool("mvn")).thenReturn(false);
+        when(toolExecutionService.executeFileTool(eq(FAKE_WORKSPACE), eq("patch-file"), anyList()))
+                .thenReturn(new ToolResult(true, 0, "File patched", ""));
+        when(toolExecutionService.executeTool(eq(FAKE_WORKSPACE), eq("mvn"), anyList()))
+                .thenReturn(new ToolResult(true, 0, "BUILD SUCCESS", ""));
+        when(workspaceService.commitAndPush(eq(FAKE_WORKSPACE), eq("ai-agent/issue-42"),
+                anyString(), anyString(), anyString(), eq(false)))
+                .thenReturn(true);
+
+        serviceWithMcp.handleIssueComment(payload);
+
+        verify(workspaceService).commitAndPush(eq(FAKE_WORKSPACE), eq("ai-agent/issue-42"),
+                anyString(), anyString(), anyString(), eq(false));
+    }
+
     // ---- helpers ----
 
     private WebhookPayload createCommentPayload(String commentBody) {
@@ -726,5 +852,23 @@ class IssueImplementationServiceTest {
         payload.setRepository(repository);
 
         return payload;
+    }
+
+    private IssueImplementationService createServiceWithMcp() {
+        AgentConfigProperties agentConfig = new AgentConfigProperties();
+        agentConfig.setEnabled(true);
+        agentConfig.setMaxFiles(10);
+        agentConfig.setBranchPrefix("ai-agent/");
+        McpToolCatalog catalog = new McpToolCatalog(List.of(new McpToolDefinition(
+                "github",
+                "list_issues",
+                "list_issues",
+                "List issues",
+                Map.of(),
+                "mcp:github:list_issues"
+        )));
+        return new IssueImplementationService(repositoryClient, aiClient, promptService, agentConfig,
+                sessionService, toolExecutionService, workspaceService, null,
+                mcpOrchestrationService, null, catalog);
     }
 }

@@ -88,7 +88,7 @@ To create a Google AI integration in the admin UI:
 
 | Field | What to enter |
 |-------|---------------|
-| **Provider Type** | Select `Google AI (Gemini)`. The saved provider type is `google`. |
+| **Provider Type** | Select `gemini`. The saved provider type is `google`. |
 | **API URL** | Keep the default `https://generativelanguage.googleapis.com` unless you are using a compatible proxy. |
 | **API Key** | Enter your Gemini API key from Google AI Studio. |
 | **API Version** | Leave blank. |

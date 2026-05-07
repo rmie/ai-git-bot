@@ -46,6 +46,10 @@ public class WebhookPayload {
 
         private Owner user;
 
+        private Owner assignee;
+
+        private java.util.List<Owner> assignees;
+
         @JsonProperty("requested_reviewers")
         private java.util.List<Owner> requestedReviewers;
     }

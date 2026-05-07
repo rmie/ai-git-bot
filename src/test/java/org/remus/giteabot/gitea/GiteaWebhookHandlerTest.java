@@ -198,6 +198,26 @@ class GiteaWebhookHandlerTest {
         verify(botWebhookService).handlePrClosed(eq(bot), any(WebhookPayload.class));
     }
 
+    @Test
+    void prAssignedToBotEvent_routesToReviewPullRequest() {
+        Map<String, Object> payload = buildPrAssignedPayload(BOT_USERNAME);
+
+        ResponseEntity<String> response = handler.handleWebhook(bot, payload);
+
+        assertEquals("review triggered", response.getBody());
+        verify(botWebhookService).reviewPullRequest(eq(bot), any(WebhookPayload.class));
+    }
+
+    @Test
+    void prAssignedToDifferentUser_isIgnored() {
+        Map<String, Object> payload = buildPrAssignedPayload("someone_else");
+
+        ResponseEntity<String> response = handler.handleWebhook(bot, payload);
+
+        assertEquals("ignored", response.getBody());
+        verify(botWebhookService, never()).reviewPullRequest(any(), any());
+    }
+
     // ---- Issue assignment routing ----
 
     @Test
@@ -290,6 +310,15 @@ class GiteaWebhookHandlerTest {
         return payload;
     }
 
+    private Map<String, Object> buildPrAssignedPayload(String assigneeLogin) {
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("action", "assigned");
+        payload.put("sender", ownerMap("tom"));
+        payload.put("repository", repositoryMap());
+        payload.put("pull_request", pullRequestMapWithAssignee(140L, assigneeLogin));
+        return payload;
+    }
+
     // ---- Domain object helpers ----
 
     private Map<String, Object> ownerMap(String login) {
@@ -348,6 +377,13 @@ class GiteaWebhookHandlerTest {
     private Map<String, Object> issueMapWithAssignee(long number, String assigneeLogin) {
         Map<String, Object> m = issueMap(number, false);
         m.put("assignee", ownerMap(assigneeLogin));
+        return m;
+    }
+
+    private Map<String, Object> pullRequestMapWithAssignee(long number, String assigneeLogin) {
+        Map<String, Object> m = pullRequestMap(number);
+        m.put("assignee", ownerMap(assigneeLogin));
+        m.put("assignees", java.util.List.of(ownerMap(assigneeLogin)));
         return m;
     }
 

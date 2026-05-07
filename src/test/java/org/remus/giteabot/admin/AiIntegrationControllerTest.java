@@ -54,7 +54,7 @@ class AiIntegrationControllerTest {
     @Test
     void newForm_showsGoogleAiProviderAndSetupHints() throws Exception {
         when(providerRegistry.getProviderTypes()).thenReturn(List.of("google"));
-        when(providerRegistry.getDisplayNames()).thenReturn(Map.of("google", "Google AI (Gemini)"));
+        when(providerRegistry.getDisplayNames()).thenReturn(Map.of("google", "gemini"));
         when(providerRegistry.getDefaultApiUrls()).thenReturn(Map.of("google", "https://generativelanguage.googleapis.com"));
         when(providerRegistry.getSuggestedModels()).thenReturn(Map.of("google", List.of("gemini-2.5-flash")));
         when(providerRegistry.getApiKeyRequirements()).thenReturn(Map.of("google", true));
@@ -63,7 +63,7 @@ class AiIntegrationControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(view().name("ai-integrations/form"))
                 .andExpect(content().string(containsString("value=\"google\"")))
-                .andExpect(content().string(containsString("Google AI (Gemini)")))
+                .andExpect(content().string(containsString("gemini")))
                 .andExpect(content().string(containsString("https:\\/\\/generativelanguage.googleapis.com")))
                 .andExpect(content().string(containsString("gemini-2.5-flash")))
                 .andExpect(content().string(containsString("Google AI uses the Gemini REST API")))

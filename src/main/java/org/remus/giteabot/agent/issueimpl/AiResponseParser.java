@@ -13,6 +13,7 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -78,7 +79,7 @@ public class AiResponseParser {
                     String id = (tool.getId() != null && !tool.getId().isBlank())
                             ? tool.getId() : "ctx-" + idx;
                     built.add(ImplementationPlan.ToolRequest.builder()
-                            .id(id).tool(tool.getTool()).args(tool.getArgs()).build());
+                            .id(id).tool(tool.getTool()).args(normalizeArgs(tool.getArgs())).build());
                     idx++;
                 }
                 requestTools = built;
@@ -93,14 +94,14 @@ public class AiResponseParser {
                     String id = (tr.getId() != null && !tr.getId().isBlank())
                             ? tr.getId() : "tool-" + idx;
                     toolRequests.add(ImplementationPlan.ToolRequest.builder()
-                            .id(id).tool(tr.getTool()).args(tr.getArgs()).build());
+                            .id(id).tool(tr.getTool()).args(normalizeArgs(tr.getArgs())).build());
                     idx++;
                 }
             } else if (response.getRunTool() != null && response.getRunTool().getTool() != null) {
                 String id = (response.getRunTool().getId() != null && !response.getRunTool().getId().isBlank())
                         ? response.getRunTool().getId() : "tool-1";
                 toolRequests.add(ImplementationPlan.ToolRequest.builder()
-                        .id(id).tool(response.getRunTool().getTool()).args(response.getRunTool().getArgs()).build());
+                        .id(id).tool(response.getRunTool().getTool()).args(normalizeArgs(response.getRunTool().getArgs())).build());
             }
 
             // Legacy single toolRequest for backward compatibility (first entry)
@@ -430,6 +431,32 @@ public class AiResponseParser {
         return lastComplete;
     }
 
+    private List<String> normalizeArgs(Object rawArgs) {
+        return switch (rawArgs) {
+            case null -> List.of();
+            case String s -> List.of(s);
+            case List<?> list -> list.stream()
+                    .filter(Objects::nonNull)
+                    .map(this::normalizeSingleArg)
+                    .toList();
+            default -> List.of(normalizeSingleArg(rawArgs));
+        };
+    }
+
+    private String normalizeSingleArg(Object arg) {
+        if (arg instanceof String s) {
+            return s;
+        }
+        if (arg instanceof Number || arg instanceof Boolean) {
+            return String.valueOf(arg);
+        }
+        try {
+            return objectMapper.writeValueAsString(arg);
+        } catch (Exception e) {
+            return String.valueOf(arg);
+        }
+    }
+
     // ---- Inner DTOs for AI response deserialization ----
 
     @Data
@@ -452,7 +479,7 @@ public class AiResponseParser {
     static class AiToolRequest {
         private String id;
         private String tool;
-        private List<String> args;
+        private Object args;
     }
 
     @Data

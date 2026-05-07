@@ -29,7 +29,7 @@ public class GoogleAiProviderMetadata implements AiProviderMetadata {
 
     @Override
     public String getDisplayName() {
-        return "Google AI (Gemini)";
+        return "gemini";
     }
 
     @Override

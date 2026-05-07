@@ -358,6 +358,8 @@ public class IssueImplementationService {
 
             List<ImplementationPlan.ToolRequest> requests = plan.getEffectiveToolRequests();
             List<ToolResult> results = executeAllTools(workspaceDir, requests);
+            boolean hasValidationTools = hasValidationTools(requests);
+            boolean validationPassed = !hasValidationTools || allValidationToolsPassed(requests, results);
 
             // Post only non-silent (validation) tool results as comments
             for (int i = 0; i < requests.size(); i++) {
@@ -367,7 +369,7 @@ public class IssueImplementationService {
                 }
             }
 
-            if (hasNonValidationToolFailures(requests, results)) {
+            if (hasBlockingNonValidationToolFailures(requests, results, validationPassed)) {
                 log.info("One or more non-validation tools failed on attempt {}; asking AI to correct", attempt);
                 String feedback = promptBuilder.buildMultiToolFeedback(requests, results);
                 history.add(AiMessage.builder().role("user").content(currentMessage).build());
@@ -387,7 +389,7 @@ public class IssueImplementationService {
             }
 
             // No validation tools present → file-only changes, consider success
-            if (!hasValidationTools(requests)) {
+            if (!hasValidationTools) {
                 if (!workspaceHasChangesOrPrepareRetry(workspaceDir, requests, results, history, currentMessage, aiResponse, session)) {
                     currentMessage = buildNoWorkspaceChangesFeedback(requests, results);
                     continue;
@@ -395,7 +397,7 @@ public class IssueImplementationService {
                 return new ToolImplementationLoopResult(true, currentContextBranch);
             }
 
-            if (allValidationToolsPassed(requests, results)) {
+            if (validationPassed) {
                 log.info("All validation tools passed on attempt {}", attempt);
                 if (!workspaceHasChangesOrPrepareRetry(workspaceDir, requests, results, history, currentMessage, aiResponse, session)) {
                     currentMessage = buildNoWorkspaceChangesFeedback(requests, results);
@@ -443,6 +445,31 @@ public class IssueImplementationService {
         return IntStream.range(0, requests.size())
                 .filter(i -> !toolExecutionService.isValidationTool(requests.get(i).getTool()))
                 .anyMatch(i -> !results.get(i).success());
+    }
+
+    private boolean hasBlockingNonValidationToolFailures(List<ImplementationPlan.ToolRequest> requests,
+                                                         List<ToolResult> results,
+                                                         boolean validationPassed) {
+        if (!hasNonValidationToolFailures(requests, results)) {
+            return false;
+        }
+        AgentConfigProperties.ValidationConfig.NonValidationFailurePolicy policy =
+                agentConfig.getValidation().getNonValidationFailurePolicy();
+        if (policy == AgentConfigProperties.ValidationConfig.NonValidationFailurePolicy.IGNORE_MCP_AFTER_VALIDATION_SUCCESS
+                && validationPassed
+                && hasOnlyMcpNonValidationFailures(requests, results)) {
+            log.info("Ignoring MCP non-validation tool failures because validation passed");
+            return false;
+        }
+        return true;
+    }
+
+    private boolean hasOnlyMcpNonValidationFailures(List<ImplementationPlan.ToolRequest> requests,
+                                                    List<ToolResult> results) {
+        return IntStream.range(0, requests.size())
+                .filter(i -> !toolExecutionService.isValidationTool(requests.get(i).getTool()))
+                .filter(i -> !results.get(i).success())
+                .allMatch(i -> isMcpTool(requests.get(i).getTool()));
     }
 
     private boolean workspaceHasChangesOrPrepareRetry(Path workspaceDir,

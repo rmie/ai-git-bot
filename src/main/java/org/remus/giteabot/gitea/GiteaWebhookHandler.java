@@ -99,6 +99,8 @@ public class GiteaWebhookHandler {
         p.setMerged(pr.get("merged") instanceof Boolean b ? b : null);
         p.setDiffUrl((String) pr.get("diff_url"));
         p.setUser(extractOwner((Map<String, Object>) pr.get("user")));
+        p.setAssignee(extractOwner((Map<String, Object>) pr.get("assignee")));
+        p.setAssignees(extractOwners((List<Map<String, Object>>) pr.get("assignees")));
         p.setRequestedReviewers(extractOwners((List<Map<String, Object>>) pr.get("requested_reviewers")));
 
         Map<String, Object> head = (Map<String, Object>) pr.get("head");
@@ -263,6 +265,7 @@ public class GiteaWebhookHandler {
         }
 
         if (("opened".equals(action) && hasBotReviewer(bot, payload))
+                || ("assigned".equals(action) && isBotAssignee(bot, payload))
                 || ("review_requested".equals(action) && isRequestedReviewer(bot, payload))) {
             botWebhookService.reviewPullRequest(bot, payload);
             return ResponseEntity.ok("review triggered");
@@ -284,5 +287,18 @@ public class GiteaWebhookHandler {
         return bot.getUsername() != null
                 && payload.getRequestedReviewer() != null
                 && bot.getUsername().equalsIgnoreCase(payload.getRequestedReviewer().getLogin());
+    }
+
+    private boolean isBotAssignee(Bot bot, WebhookPayload payload) {
+        if (bot.getUsername() == null || payload.getPullRequest() == null) {
+            return false;
+        }
+        if (payload.getPullRequest().getAssignee() != null
+                && bot.getUsername().equalsIgnoreCase(payload.getPullRequest().getAssignee().getLogin())) {
+            return true;
+        }
+        return payload.getPullRequest().getAssignees() != null
+                && payload.getPullRequest().getAssignees().stream()
+                .anyMatch(assignee -> bot.getUsername().equalsIgnoreCase(assignee.getLogin()));
     }
 }

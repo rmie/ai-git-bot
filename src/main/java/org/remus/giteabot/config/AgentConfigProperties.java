@@ -54,6 +54,11 @@ public class AgentConfigProperties {
 
     @Data
     public static class ValidationConfig {
+        public enum NonValidationFailurePolicy {
+            STRICT,
+            IGNORE_MCP_AFTER_VALIDATION_SUCCESS
+        }
+
         /**
          * Whether to validate generated code before committing.
          */
@@ -75,6 +80,14 @@ public class AgentConfigProperties {
          * Timeout in seconds for tool commands.
          */
         private int toolTimeoutSeconds = 300;
+
+        /**
+         * Policy for handling failures of non-validation tools in runTools.
+         * STRICT: any non-validation failure requires a retry.
+         * IGNORE_MCP_AFTER_VALIDATION_SUCCESS: ignore MCP tool failures when all validation tools passed.
+         */
+        private NonValidationFailurePolicy nonValidationFailurePolicy =
+                NonValidationFailurePolicy.IGNORE_MCP_AFTER_VALIDATION_SUCCESS;
 
         /**
          * List of available build/validation tools the AI can use.
