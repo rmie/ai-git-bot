@@ -8,7 +8,7 @@ This document describes how MCP servers are configured, how tool whitelisting wo
 - Only remote transports are supported (HTTP/HTTPS/WS/WSS/SSE).
 - Local `stdio` MCP transport is intentionally rejected.
 
-<img src="doc/screenshots/mcp/screenshot_system_settings.png" alt="System Settings with MCP-Configuration" width="600"/>
+<img src="screenshots/mcp/screenshot_system_settings.png" alt="System Settings with MCP-Configuration" width="600"/>
 
 ## 1) Create or Edit an MCP Configuration
 
@@ -19,7 +19,7 @@ This document describes how MCP servers are configured, how tool whitelisting wo
    - **MCP JSON** (remote server definitions)
 4. Click **Save and select tools**.
 
-   <img src="doc/screenshots/mcp/screenshot_mcp_tools.png" alt="MCP-Configuration" width="600"/>
+   <img src="screenshots/mcp/screenshot_mcp_tools.png" alt="MCP-Configuration" width="600"/>
 
 After save, the application validates the JSON and discovers tools from all configured MCP servers.
 
@@ -60,7 +60,7 @@ Only selected tools are persisted and appended to agent system prompts.
 
 Unselected tools remain hidden from the AI agent.
 
-<img src="doc/screenshots/mcp/screenshot_mcp_tool_selection.png" alt="MCP-Tools selection" width="600"/>
+<img src="screenshots/mcp/screenshot_mcp_tool_selection.png" alt="MCP-Tools selection" width="600"/>
 
 ## 3) View Selected Tools in Bot Configuration
 
@@ -75,7 +75,7 @@ The details dialog shows a read-only list of the selected tools for that MCP con
 
 This is based on the persisted whitelist selection.
 
-<img src="doc/screenshots/mcp/screenshot-bot-configuration-selected-tools.png" alt="Selected MCP-Tools for the bot" width="600"/>
+<img src="screenshots/mcp/screenshot-bot-configuration-selected-tools.png" alt="Selected MCP-Tools for the bot" width="600"/>
 
 
 ## 4) How Prompt Exposure Works
@@ -111,7 +111,7 @@ This keeps issue threads readable while still allowing technical traceability in
 <summary>📸 Screenshots: MCP-Tool selection transparency in Issue-comments</summary>
 
 **Gitea:**
-<img src="doc/screenshots/mcp/screenshot-gitea-mcp-tools.png" alt="Gitea Implementation Agent with MCP-Calls" width="600"/>
+<img src="screenshots/mcp/screenshot-gitea-mcp-tools.png" alt="Gitea Implementation Agent with MCP-Calls" width="600"/>
 
 </details>
 
