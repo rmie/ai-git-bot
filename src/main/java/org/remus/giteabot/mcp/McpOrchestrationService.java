@@ -173,7 +173,7 @@ public class McpOrchestrationService {
                 .requestTimeout(REQUEST_TIMEOUT)
                 .loggingConsumer(notification -> log.debug(notification.data()))
                 .initializationTimeout(REQUEST_TIMEOUT)
-                .clientInfo(new McpSchema.Implementation("ai-git-bot", "1.4.0-SNAPSHOT"))
+                .clientInfo(new McpSchema.Implementation("ai-git-bot", "1.5.0"))
                 .build();
     }
 
@@ -230,7 +230,7 @@ public class McpOrchestrationService {
                     "params", Map.of(
                             "protocolVersion", protocolVersion,
                             "capabilities", Map.of(),
-                            "clientInfo", Map.of("name", "ai-git-bot", "version", "1.4.0-SNAPSHOT"))));
+                            "clientInfo", Map.of("name", "ai-git-bot", "version", "1.5.0"))));
             URI uri = URI.create(attempt.endpoint().baseUri()).resolve(attempt.endpoint().endpoint());
             HttpRequest.Builder request = HttpRequest.newBuilder(uri)
                     .timeout(REQUEST_TIMEOUT)

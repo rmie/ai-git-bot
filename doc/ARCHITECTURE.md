@@ -19,6 +19,8 @@ graph LR
     Bot["AI-Git-Bot<br/>(Gateway)"]
     AI["AI Provider<br/>(Anthropic / OpenAI / Ollama / llama.cpp)"]
     DB["PostgreSQL Database"]
+    MCPConfig["MCP Config + Tool Whitelist"]
+    MCPServers["Remote MCP Servers"]
 
     Git -- "Webhook (PR/Comment/Review event)" --> Bot
     Bot -- "Fetch PR diff" --> Git
@@ -27,10 +29,13 @@ graph LR
     Bot -- "Add reaction" --> Git
     Bot -- "Review diff / Chat" --> AI
     AI -- "Review text" --> Bot
+    Bot -- "Discover tools / Call MCP tools" --> MCPServers
+    MCPConfig -- "Selected tool exposure" --> Bot
     Bot -- "Config & Sessions" --> DB
+    MCPConfig -- "Persisted selection" --> DB
 ```
 
-The gateway sits between Git hosting platforms (Gitea, GitHub, GitLab, or Bitbucket) and configurable AI providers. When a pull request is opened with the bot as reviewer, or the bot is later added/re-requested as reviewer, the Git provider sends a webhook to the gateway. The gateway fetches the diff, sends it to the configured AI provider for review, and posts the review back as a PR comment. All configuration (AI integrations, Git integrations, bots) and conversation sessions are persisted in a database.
+The gateway sits between Git hosting platforms (Gitea, GitHub, GitLab, or Bitbucket), configurable AI providers, and optional remote MCP servers. When a pull request is opened or updated, the Git provider sends a webhook to the gateway. The gateway fetches the diff, sends it to the configured AI provider for review, and posts the review back as a PR comment. All configuration (AI integrations, Git integrations, bots, MCP configurations, MCP selected-tool whitelist) and conversation sessions are persisted in a database.
 
 The gateway also responds to inline review comments and submitted reviews containing bot mentions by fetching the relevant review data from the Git API and posting context-aware replies. In **agent mode**, it supports two issue-based workflows: a **coding agent** that implements issues and opens pull requests, and a **technical writer agent** that improves vague issues into structured, implementation-ready follow-up issues.
 
@@ -40,8 +45,8 @@ The gateway also responds to inline review comments and submitted reviews contai
 graph TD
     subgraph "Spring Boot Application"
         subgraph "Web Layer"
-            GiteaWebhookController["GiteaWebhookController<br/><i>Gitea webhook endpoints</i>"]
-            GitHubWebhookController["GitHubWebhookController<br/><i>GitHub webhook endpoints</i>"]
+          UnifiedWebhookController["UnifiedWebhookController<br/><i>Single webhook endpoint</i>"]
+          ProviderWebhookHandlers["Provider Webhook Handlers<br/><i>Gitea / GitHub / GitLab / Bitbucket translation</i>"]
             AdminControllers["Admin Controllers<br/><i>Dashboard, Bots, Integrations</i>"]
             SetupController["SetupController<br/><i>Initial setup</i>"]
         end
@@ -52,6 +57,8 @@ graph TD
             AiIntegrationService["AiIntegrationService<br/><i>AI config CRUD</i>"]
             GitIntegrationService["GitIntegrationService<br/><i>Git config CRUD</i>"]
             SessionService["SessionService<br/><i>Session lifecycle</i>"]
+            McpToolSelectionService["McpToolSelectionService<br/><i>Whitelist persistence/filtering</i>"]
+            McpOrchestrationService["McpOrchestrationService<br/><i>MCP discovery + execution</i>"]
             EncryptionService["EncryptionService<br/><i>API key encryption</i>"]
         end
 
@@ -96,6 +103,8 @@ graph TD
             BotRepo["BotRepository"]
             AiIntegrationRepo["AiIntegrationRepository"]
             GitIntegrationRepo["GitIntegrationRepository"]
+            McpConfigurationRepo["McpConfigurationRepository"]
+            McpSelectedToolRepo["McpSelectedToolRepository"]
             SessionRepo["ReviewSessionRepository"]
             AdminRepo["AdminUserRepository"]
         end
@@ -111,16 +120,23 @@ graph TD
         Ollama["Ollama (local)"]
         LlamaCpp["llama.cpp (local)"]
         PromptFiles["Prompt Files<br/><i>prompts/*.md</i>"]
+        MCPServers["Remote MCP Servers"]
         DB["Database<br/><i>PostgreSQL / H2</i>"]
     end
 
-    GiteaWebhookController --> BotService
-    GiteaWebhookController --> BotWebhookService
-    GitHubWebhookController --> BotService
-    GitHubWebhookController --> BotWebhookService
+    UnifiedWebhookController --> BotService
+    UnifiedWebhookController --> ProviderWebhookHandlers
+    ProviderWebhookHandlers --> BotWebhookService
     BotWebhookService --> AiClientFactory
     BotWebhookService --> RepoClientFactory
     BotWebhookService --> SessionService
+    BotWebhookService --> McpToolSelectionService
+    BotWebhookService --> McpOrchestrationService
+    AdminControllers --> McpToolSelectionService
+    SystemSettingsController --> McpToolSelectionService
+    McpToolSelectionService --> McpOrchestrationService
+    McpToolSelectionService --> McpSelectedToolRepo
+    McpToolSelectionService --> McpConfigurationRepo
     AiClientFactory --> AiProviderRegistry
     AiClientFactory --> AiIntegrationService
     RepoClientFactory --> RepoProviderRegistry
@@ -158,8 +174,11 @@ graph TD
     GitHubClient --> GitHub
     GitLabClient --> GitLab
     BitbucketClient --> Bitbucket
+    McpOrchestrationService --> MCPServers
     BotRepo --> DB
     SessionRepo --> DB
+    McpConfigurationRepo --> DB
+    McpSelectedToolRepo --> DB
 ```
 
 ## AI Provider Architecture
@@ -180,10 +199,10 @@ Each AI provider implements `AiProviderMetadata` to define:
 AiProviderMetadata (interface)
  ├── AnthropicProviderMetadata
  │    └── Default URL: https://api.anthropic.com
- │    └── Models: claude-opus-4-6, claude-sonnet-4-6, claude-haiku-4-5-20251001
+ │    └── Models: claude-opus-4-7, claude-sonnet-4-6, claude-haiku-4-5-20251001
  ├── OpenAiProviderMetadata
  │    └── Default URL: https://api.openai.com
- │    └── Models: gpt-5.4, gpt-5.3-codex, gpt-5.1-codex-max, gpt-5-codex
+ │    └── Models: gpt-5.5, gpt-5.4, gpt-5.4-mini, gpt-5.3-codex
  ├── OllamaProviderMetadata
  │    └── Default URL: http://localhost:11434
  │    └── Models: (user-configured)
@@ -345,7 +364,8 @@ erDiagram
         String name UK
         String username
         BotType botType
-        String prompt
+        Long systemPromptId FK
+        Long mcpConfigurationId FK
         String webhookSecret UK
         boolean enabled
         boolean agentEnabled
@@ -372,23 +392,42 @@ erDiagram
         String content
         Instant createdAt
     }
-    
-    Bot ||--o{ AiIntegration : "uses"
-    Bot ||--o{ GitIntegration : "uses"
-    ReviewSession ||--|{ ConversationMessage : "contains"
+
+    McpConfiguration {
+      Long id PK
+      String name UK
+      String jsonContent
+      Instant createdAt
+      Instant updatedAt
+    }
+
+    McpSelectedTool {
+      Long id PK
+      Long mcpConfigurationId FK
+      String qualifiedName UK
+      String serverName
+      String toolName
+      String title
+      String description
+    }
+
+  Bot ||--o{ AiIntegration : "uses"
+  Bot ||--o{ GitIntegration : "uses"
+  Bot ||--o| McpConfiguration : "optional"
+  McpConfiguration ||--|{ McpSelectedTool : "contains whitelist"
+  ReviewSession ||--|{ ConversationMessage : "contains"
 ```
 
 ## Components
 
 ### Webhook Controllers
 
-#### GiteaWebhookController
+#### UnifiedWebhookController
 
-- **Package:** `org.remus.giteabot.gitea`
-- **Endpoint:** `POST /api/webhook/{webhookSecret}`
-- Receives Gitea webhook payloads for pull request, issue comment, and review comment events
-- Looks up Bot by webhook secret
-- Routes events based on payload structure to `BotWebhookService`
+- **Packages:** `org.remus.giteabot.{gitea,github,gitlab,bitbucket}`
+- Translate provider-specific webhook payloads into the common `WebhookPayload` model
+- Apply provider-specific trigger rules such as reviewer assignment/re-request behavior
+- Delegate normalized events to `BotWebhookService`
 
 #### GitHubWebhookController
 
@@ -409,7 +448,7 @@ erDiagram
   - `CODING` → `IssueImplementationService` (when `agentEnabled` is true)
   - `WRITER` → `WriterAgentService`
 - Handles:
-  - PR reviews (opened, synchronized)
+  - PR reviews when a provider-specific review trigger is detected (for example opened-with-reviewer or reviewer re-requested)
   - Bot commands (PR comments with mention)
   - Inline review comments
   - Review submitted events
@@ -431,6 +470,33 @@ erDiagram
 - Uses repository context tools and issue tools (`get-issue`, `search-issues`) to improve issue quality
 - Restricts follow-up continuation to the original issue author when clarifying questions are pending
 - Creates a linked `AI Created Issue: ...` instead of a pull request
+
+
+### MCP Orchestration and Tool Whitelist
+
+- **Orchestration location:** MCP discovery and tool execution are handled in application services, not in AI-provider clients.
+- `McpOrchestrationService` discovers tools from configured remote MCP servers and executes MCP tool calls.
+- `McpToolSelectionService` persists and serves the MCP tool whitelist per `McpConfiguration`.
+- `BotWebhookService` applies the whitelist before creating `IssueImplementationService` / `WriterAgentService`, so only selected MCP tools are appended to prompts.
+- `SystemSettingsController` provides MCP configuration + tool-selection flows; `BotController` provides a read-only selected-tools details endpoint for bot configuration.
+
+```mermaid
+flowchart LR
+    Admin["Admin UI"] --> SysCtrl["SystemSettingsController"]
+    SysCtrl --> SelSvc["McpToolSelectionService"]
+    SelSvc --> Orchestrator["McpOrchestrationService"]
+    Orchestrator --> MCPServers["Remote MCP Servers"]
+    SelSvc --> SelRepo["McpSelectedToolRepository"]
+
+    BotWebhook["BotWebhookService"] --> Orchestrator
+    BotWebhook --> SelSvc
+    SelRepo --> Filtered["Filtered MCP catalog"]
+    Filtered --> PromptRenderer["McpToolPromptRenderer"]
+    PromptRenderer --> Agents["IssueImplementationService / WriterAgentService"]
+
+    BotForm["Bots form (Details)"] --> BotCtrl["BotController selected-tools endpoint"]
+    BotCtrl --> SelSvc
+```
 
 ### AiClientFactory
 
@@ -567,31 +633,31 @@ sequenceDiagram
 
 ```mermaid
 flowchart TD
-    A["Webhook received at /api/webhook/{secret}"] --> B{Bot found?}
-    B -- No --> Z["404 Not Found"]
-    B -- Yes --> C{Bot enabled?}
-    C -- No --> Y["200 'bot disabled'"]
-    C -- Yes --> D{Is bot's own action?}
-    D -- Yes --> X["200 'ignored'"]
-    D -- No --> E{comment with path?}
-    E -- Yes --> F["handleInlineComment()"]
-    E -- No --> G{comment + issue?}
-    G -- Yes --> H{Bot mentioned?}
-    H -- No --> X
-    H -- Yes --> I{Is PR?}
-    I -- Yes --> J["handleBotCommand()"]
-    I -- No --> K["handleIssueComment() → writer or coding issue flow"]
-    G -- No --> L{Issue assigned to bot?}
-    L -- Yes --> M["handleIssueAssigned() → writer or coding issue flow"]
-    L -- No --> N{pullRequest present?}
-    N -- No --> X
-    N -- Yes --> O{action = reviewed?}
-    O -- Yes --> P["handleReviewSubmitted()"]
-    O -- No --> Q{action = closed?}
-    Q -- Yes --> R["handlePrClosed()"]
-    Q -- No --> S{action = opened/synchronized?}
-    S -- Yes --> T["reviewPullRequest()"]
-    S -- No --> X
+  A["Webhook received at /api/webhook/{secret}"] --> B{Bot found?}
+  B -- No --> Z["404 Not Found"]
+  B -- Yes --> C{Bot enabled?}
+  C -- No --> Y["200 'bot disabled'"]
+  C -- Yes --> D{Is bot's own action?}
+  D -- Yes --> X["200 'ignored'"]
+  D -- No --> E{comment with path?}
+  E -- Yes --> F["handleInlineComment()"]
+  E -- No --> G{comment + issue?}
+  G -- Yes --> H{Bot mentioned?}
+  H -- No --> X
+  H -- Yes --> I{Is PR?}
+  I -- Yes --> J["handleBotCommand()"]
+  I -- No --> K["handleIssueComment() → writer or coding issue flow"]
+  G -- No --> L{Issue assigned to bot?}
+  L -- Yes --> M["handleIssueAssigned() → writer or coding issue flow"]
+  L -- No --> N{pullRequest present?}
+  N -- No --> X
+  N -- Yes --> O{action = reviewed?}
+  O -- Yes --> P["handleReviewSubmitted()"]
+  O -- No --> Q{action = closed?}
+  Q -- Yes --> R["handlePrClosed()"]
+  Q -- No --> S{action = opened/synchronized?}
+  S -- Yes --> T["reviewPullRequest()"]
+  S -- No --> X
 ```
 
 The issue paths above are resolved inside `BotWebhookService` by `botType`. Writer bots ignore PR-review-related handlers and only participate in issue-assignment and issue-comment flows.
@@ -614,7 +680,7 @@ graph LR
     subgraph "Docker Compose"
         subgraph "App Container"
             App["app.jar<br/>(Spring Boot)"]
-            Prompts["/app/prompts/<br/>Prompt templates"]
+            Prompts["/app/prompts/<br/>File-based prompt fallbacks"]
         end
         subgraph "DB Container"
             Postgres["PostgreSQL 17<br/>(Config & Sessions)"]
@@ -629,7 +695,7 @@ graph LR
 ```
 
 - All configuration (AI integrations, Git integrations, bots) is stored in the database
-- The `prompts/` directory contains prompt templates loaded at runtime
+- Default `system_prompts` rows are seeded by Flyway migration scripts (`V3__system_prompts.sql`, `V5__technical_writer_agent.sql`); the `prompts/` directory is only used by `PromptService` as a file-based fallback for legacy prompt overrides
 - PostgreSQL persists configuration and review sessions
 - Session data survives container restarts via the `pgdata` volume
 

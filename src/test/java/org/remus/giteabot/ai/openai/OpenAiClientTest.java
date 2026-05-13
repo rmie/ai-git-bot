@@ -7,10 +7,10 @@ import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestClient;
 
 import java.nio.charset.StandardCharsets;
-import java.util.List;
 
-import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.Mockito.*;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.mock;
 
 class OpenAiClientTest {
 
@@ -61,15 +61,4 @@ class OpenAiClientTest {
         assertFalse(client.isPromptTooLongError(ex));
     }
 
-
-    private OpenAiResponse response(String text) {
-        OpenAiResponse response = new OpenAiResponse();
-        OpenAiResponse.Message message = new OpenAiResponse.Message();
-        message.setRole("assistant");
-        message.setContent(text);
-        OpenAiResponse.Choice choice = new OpenAiResponse.Choice();
-        choice.setMessage(message);
-        response.setChoices(List.of(choice));
-        return response;
-    }
 }
