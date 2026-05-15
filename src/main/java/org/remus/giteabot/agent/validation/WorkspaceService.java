@@ -146,6 +146,28 @@ public class WorkspaceService {
         return !statusResult.output().isBlank();
     }
 
+    /**
+     * Step 7.3 — returns a {@code git diff --stat} style summary of the
+     * uncommitted changes in {@code workspaceDir}. Used by the optional
+     * Critic / Reflection step to give the LLM a compact view of what is
+     * about to be committed without paying for the full diff.
+     *
+     * @return a textual summary, possibly empty; never {@code null}.
+     */
+    public String diffStat(Path workspaceDir) {
+        if (workspaceDir == null) {
+            return "";
+        }
+        CommandResult result = runCommand(workspaceDir.toFile(),
+                new String[]{"git", "diff", "--stat", "HEAD"}, 15);
+        if (!result.success()) {
+            log.debug("git diff --stat failed: {}", result.output());
+            return "";
+        }
+        String out = result.output();
+        return out == null ? "" : out.strip();
+    }
+
 
     /**
      * Cleans up a workspace directory by deleting it recursively.

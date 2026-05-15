@@ -311,6 +311,57 @@ The `AgentMetrics` Spring bean publishes three Micrometer meters under
 `provider` is the lower-cased simple class name of the active client
 (`openaiclient`, `anthropicaiclient`, …).
 
+### Plan persistence, consolidated budgets and the optional Critic step (Step 7)
+
+#### Plan persistence
+
+The most recently parsed `ImplementationPlan` is now written through to the
+`agent_sessions` row by `AgentSessionService.recordPlan(...)` after every
+successful `AiResponseParser.parseAiResponse`. Three new columns store
+`last_plan_summary` (VARCHAR 2048), `last_plan_json` (CLOB / TEXT) and
+`last_plan_at` (TIMESTAMP). Downstream callers (PR-body generation, follow-up
+comments) read the plan in O(1) instead of walking the conversation history.
+A history-walk fallback remains for sessions created before Flyway migration
+`V11__agent_session_last_plan.sql`.
+
+#### Consolidated budget config
+
+All numeric loop budgets are now grouped under `agent.budget.*`:
+
+```yaml
+agent:
+  budget:
+    max-rounds: 10                          # AgentLoop hard cap
+    max-context-rounds: 3                   # pure context-fetch rounds
+    max-validation-retries: 3               # validation/correction iterations
+    max-context-tool-requests-per-round: 5  # ls/cat/find calls per AI turn
+    max-tokens-per-call: 16384              # passed to chat / chatWithTools
+```
+
+The legacy properties `agent.max-tokens` and `agent.validation.max-retries`
+are still honoured: a `@PostConstruct` hook copies them into the new
+`BudgetConfig` whenever its fields are still at their defaults, so existing
+deployments keep their previous behaviour without any config edits.
+
+#### Optional Critic / Reflection step
+
+Disabled by default. When enabled, an extra LLM call after successful
+validation reviews whether the actual diff really addresses the issue:
+
+```yaml
+agent:
+  critic:
+    enabled: false                       # opt-in
+    max-iterations: 1
+    require-approval-for: [LARGE_DIFF]   # informational, future use
+```
+
+The critic returns one of `APPROVE`, `ITERATE` or `ABORT`. With
+`enabled=false` (default) the helper short-circuits with `SKIPPED` and makes
+**no** AI call — verified in `CriticAgentTest#disabledNeverCallsAi`. The
+outcome is published as `agent.critic.outcome_total{outcome=…}` in
+Prometheus.
+
 ## AI-Driven Code Generation and Validation (Coding Agent)
 
 The coding agent uses AI-driven tool calls where the AI decides which file operations and validation commands to run based on the project structure.

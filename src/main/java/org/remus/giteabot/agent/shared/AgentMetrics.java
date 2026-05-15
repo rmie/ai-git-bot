@@ -39,6 +39,7 @@ public class AgentMetrics {
     private final ConcurrentMap<String, Counter> modeCounters = new ConcurrentHashMap<>();
     private final ConcurrentMap<String, Counter> parseFailureCounters = new ConcurrentHashMap<>();
     private final ConcurrentMap<String, Timer> latencyTimers = new ConcurrentHashMap<>();
+    private final ConcurrentMap<String, Counter> criticOutcomeCounters = new ConcurrentHashMap<>();
 
     @Autowired
     public AgentMetrics(MeterRegistry meterRegistry) {
@@ -85,6 +86,21 @@ public class AgentMetrics {
                         .tag("provider", safeProvider)
                         .register(meterRegistry)
         ).record(duration);
+    }
+
+    /**
+     * Step 7.3 — counts critic / reflection outcomes (APPROVE, ITERATE, ABORT,
+     * SKIPPED). The {@code SKIPPED} value is published once per disabled
+     * critic invocation so operators can verify the feature flag is honoured.
+     */
+    public void recordCriticOutcome(String outcome) {
+        String safeOutcome = normalise(outcome);
+        criticOutcomeCounters.computeIfAbsent(safeOutcome, key ->
+                Counter.builder("agent.critic.outcome_total")
+                        .description("Number of critic/reflection outcomes per outcome class")
+                        .tag("outcome", safeOutcome)
+                        .register(meterRegistry)
+        ).increment();
     }
 
     private String normalise(String value) {

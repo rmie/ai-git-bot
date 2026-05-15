@@ -1,5 +1,6 @@
 package org.remus.giteabot.config;
 
+import jakarta.annotation.PostConstruct;
 import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
@@ -25,7 +26,14 @@ public class AgentConfigProperties {
      * Maximum tokens for AI responses during issue implementation.
      * This is typically higher than the default for code reviews since
      * implementation responses include full file contents.
+     *
+     * @deprecated Step 7.2 — use {@link BudgetConfig#getMaxTokensPerCall()}
+     *             via {@link #getBudget()}. Kept for backwards compatibility:
+     *             if a deployment still sets {@code agent.max-tokens} the
+     *             {@link #applyLegacyBudgetDefaults()} hook copies the value
+     *             into {@link BudgetConfig}.
      */
+    @Deprecated
     private int maxTokens = 16384;
 
     /**
@@ -66,6 +74,42 @@ public class AgentConfigProperties {
      * JSON-Schema validation settings for agent plan responses (Step 5).
      */
     private SchemaConfig schema = new SchemaConfig();
+
+    /**
+     * Step 7.2 — consolidated budget knobs for the agent loop. Replaces the
+     * scattered counters that were previously sprinkled across
+     * {@link ValidationConfig}, {@link WriterConfig} and hard-coded constants
+     * in the implementation services.
+     */
+    private BudgetConfig budget = new BudgetConfig();
+
+    /**
+     * Step 7.3 — optional Critic / Reflection step. Disabled by default; when
+     * enabled, runs an extra LLM call after successful validation to review
+     * whether the diff actually addresses the issue.
+     */
+    private CriticConfig critic = new CriticConfig();
+
+    /**
+     * Bridges legacy {@code agent.validation.*} / {@code agent.max-tokens} /
+     * {@code agent.writer.*} settings into {@link BudgetConfig} so that
+     * existing deployments keep their previous behaviour without having to
+     * touch their config files.
+     */
+    @PostConstruct
+    void applyLegacyBudgetDefaults() {
+        // Only copy from the legacy fields if the operator did not explicitly
+        // override the new BudgetConfig values (i.e. they still hold the
+        // built-in defaults). This keeps "the new config wins" semantics.
+        BudgetConfig defaults = new BudgetConfig();
+        if (budget.getMaxValidationRetries() == defaults.getMaxValidationRetries()
+                && validation != null) {
+            budget.setMaxValidationRetries(validation.isEnabled() ? validation.getMaxRetries() : 1);
+        }
+        if (budget.getMaxTokensPerCall() == defaults.getMaxTokensPerCall()) {
+            budget.setMaxTokensPerCall(maxTokens);
+        }
+    }
 
     @Data
     public static class SchemaConfig {
@@ -116,6 +160,79 @@ public class AgentConfigProperties {
         private int maxInitialTreeFiles = 100;
     }
 
+    /**
+     * Step 7.2 — single source of truth for all numeric agent-loop budgets.
+     * Existing deployments may continue to set {@code agent.validation.*} and
+     * {@code agent.max-tokens}; the legacy values are copied into this object
+     * by {@link AgentConfigProperties#applyLegacyBudgetDefaults()} when the
+     * new properties are left at their defaults.
+     */
+    @Data
+    public static class BudgetConfig {
+        /**
+         * Hard upper bound on chat-decide-act iterations of the
+         * {@link org.remus.giteabot.agent.loop.AgentLoop AgentLoop}. Strategies
+         * may apply tighter sub-budgets internally but cannot exceed this cap.
+         */
+        private int maxRounds = 10;
+
+        /**
+         * Maximum number of pure context-fetch rounds (the AI may ask for more
+         * files / tool output without spending an implementation attempt).
+         * Replaces the previously hard-coded {@code fileRequestRounds < 3}
+         * literal in the coding strategy.
+         */
+        private int maxContextRounds = 3;
+
+        /**
+         * Maximum number of validation/correction iterations. Mirrors
+         * {@link ValidationConfig#getMaxRetries()} but lives on the budget so
+         * future strategies can reuse it.
+         */
+        private int maxValidationRetries = 3;
+
+        /**
+         * Maximum number of context-tool requests (e.g. {@code ls},
+         * {@code cat}) that {@code IssueImplementationService} will execute
+         * within a single AI round. Replaces the previously hard-coded
+         * {@code MAX_CONTEXT_TOOL_REQUESTS = 5} literal.
+         */
+        private int maxContextToolRequestsPerRound = 5;
+
+        /**
+         * Token budget passed to {@code aiClient.chat / chatWithTools} for
+         * every AI call. Mirrors the legacy {@code agent.max-tokens} setting.
+         */
+        private int maxTokensPerCall = 16384;
+    }
+
+    /**
+     * Step 7.3 — Critic / Reflection step configuration.
+     */
+    @Data
+    public static class CriticConfig {
+        /**
+         * Default {@code false}: the critic step is opt-in. When disabled,
+         * the loop short-circuits with an APPROVE outcome and never makes
+         * an extra LLM call.
+         */
+        private boolean enabled = false;
+
+        /**
+         * Maximum number of additional Plan/Critique iterations triggered by
+         * an {@code ITERATE} verdict. Each iteration counts towards the loop's
+         * {@link BudgetConfig#getMaxRounds()} cap, so this is a soft limit.
+         */
+        private int maxIterations = 1;
+
+        /**
+         * Optional triggers; if non-empty, the critic only runs when one of
+         * the listed conditions matches. Currently informational — strategies
+         * may evaluate it themselves. Supported tokens: {@code LARGE_DIFF}.
+         */
+        private List<String> requireApprovalFor = List.of();
+    }
+
     @Data
     public static class ValidationConfig {
         public enum NonValidationFailurePolicy {
@@ -131,7 +248,12 @@ public class AgentConfigProperties {
         /**
          * Maximum number of validation/correction iterations.
          * If code fails validation, it will be sent back to AI for fixes up to this many times.
+         *
+         * @deprecated Step 7.2 — use {@link BudgetConfig#getMaxValidationRetries()}.
+         *             Kept for backwards compatibility; copied into BudgetConfig
+         *             by {@link AgentConfigProperties#applyLegacyBudgetDefaults()}.
          */
+        @Deprecated
         private int maxRetries = 3;
 
         /**

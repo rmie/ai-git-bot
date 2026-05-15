@@ -1,6 +1,8 @@
 package org.remus.giteabot.agent;
 
 import lombok.extern.slf4j.Slf4j;
+import org.remus.giteabot.agent.critic.CriticAgent;
+import org.remus.giteabot.agent.critic.ReflectionResult;
 import org.remus.giteabot.agent.issueimpl.AgentPromptBuilder;
 import org.remus.giteabot.agent.issueimpl.AiResponseParser;
 import org.remus.giteabot.agent.issueimpl.CodingAgentStrategy;
@@ -53,7 +55,6 @@ import java.util.Optional;
 public class IssueImplementationService {
 
     private static final String AGENT_PROMPT_NAME = "agent";
-    private static final int MAX_CONTEXT_TOOL_REQUESTS = 5;
     /** Git author identity used for automated commits. */
     private static final String GIT_AUTHOR_NAME  = "AI Agent";
     private static final String GIT_AUTHOR_EMAIL = "ai-agent@bot.local";
@@ -79,6 +80,7 @@ public class IssueImplementationService {
     private final AgentErrorNotificationService errorNotificationService;
     private final BranchSwitcher branchSwitcher;
     private final AgentToolRouter toolRouter;
+    private final CriticAgent criticAgent;
 
     public IssueImplementationService(IssueImplementationContext context,
                                       PromptService promptService,
@@ -107,6 +109,10 @@ public class IssueImplementationService {
         this.branchSwitcher = new BranchSwitcher(toolExecutionService);
         this.toolRouter = new AgentToolRouter(toolExecutionService, this.mcpOrchestrationService,
                 this.mcpConfiguration, this.mcpToolCatalog, this.repositoryClient);
+        this.criticAgent = new CriticAgent(
+                agentConfig != null ? agentConfig.getCritic() : null,
+                agentConfig != null ? agentConfig.getBudget() : null,
+                null);
     }
 
     public void handleIssueAssigned(WebhookPayload payload) {
@@ -175,7 +181,7 @@ public class IssueImplementationService {
             sessionService.addMessage(session, "user", fileRequestPrompt);
 
             String fileRequestResponse = aiClient.chat(new ArrayList<>(), fileRequestPrompt, systemPrompt,
-                    null, agentConfig.getMaxTokens());
+                    null, agentConfig.getBudget().getMaxTokensPerCall());
             sessionService.addMessage(session, "assistant", fileRequestResponse);
 
             ImplementationPlan initialContextPlan = responseParser.parseAiResponse(fileRequestResponse);
@@ -227,6 +233,33 @@ public class IssueImplementationService {
             // Commit and push to new feature branch
             String branchName = agentConfig.getBranchPrefix() + "issue-" + issueNumber;
             sessionService.setBranchName(session, branchName);
+
+            // Step 7.3 — optional Critic / Reflection step. With critic.enabled=false
+            // (default) this short-circuits without an LLM call.
+            ImplementationPlan plannedPlan = getLastPlanFromSession(session);
+            ReflectionResult reflection = criticAgent.review(
+                    issueTitle, issueBody,
+                    plannedPlan != null ? plannedPlan.getSummary() : null,
+                    workspaceService.diffStat(workspaceDir),
+                    aiClient);
+            if (reflection.outcome() == ReflectionResult.Outcome.ABORT) {
+                log.warn("Critic aborted implementation for issue #{}: {}",
+                        issueNumber, reflection.feedback());
+                sessionService.setStatus(session, AgentSession.AgentSessionStatus.FAILED);
+                repositoryClient.postIssueComment(owner, repo, issueNumber,
+                        "🤖 **AI Agent (Critic)**: I reviewed my own implementation and decided not to "
+                                + "open a PR. Reason: " + reflection.feedback());
+                return;
+            }
+            if (reflection.outcome() == ReflectionResult.Outcome.ITERATE) {
+                log.info("Critic requested another iteration for issue #{}: {}",
+                        issueNumber, reflection.feedback());
+                sessionService.setStatus(session, AgentSession.AgentSessionStatus.FAILED);
+                repositoryClient.postIssueComment(owner, repo, issueNumber,
+                        "🤖 **AI Agent (Critic)**: My implementation needs another iteration. "
+                                + "Mention me to retry. Feedback: " + reflection.feedback());
+                return;
+            }
 
             String commitMessage = String.format("agent: implement #%d - %s", issueNumber, issueTitle);
             boolean pushed = workspaceService.commitAndPush(workspaceDir, branchName, commitMessage,
@@ -284,7 +317,6 @@ public class IssueImplementationService {
                 responseParser,
                 notificationService,
                 sessionService,
-                repositoryClient,
                 branchSwitcher,
                 toolRouter,
                 toolExecutionService,
@@ -294,13 +326,16 @@ public class IssueImplementationService {
                 mcpToolCatalog,
                 this::fetchRequestedContext);
 
-        // Hard cap: validation retries + context-fetch rounds + missing-tool rounds. Use a
-        // generous upper bound so the strategy's own sub-budgets are what actually limit progress.
-        int maxRetries = agentConfig.getValidation().isEnabled()
-                ? agentConfig.getValidation().getMaxRetries() : 1;
+        // Step 7.2 — budgets are now sourced from BudgetConfig. Validation
+        // sub-budget is still a hint (the strategy enforces it internally),
+        // but the loop's hard cap derives from validation+tool+context rounds.
+        AgentConfigProperties.BudgetConfig budgetCfg = agentConfig.getBudget();
+        int maxRetries = budgetCfg.getMaxValidationRetries();
         int maxToolRounds = agentConfig.getValidation().getMaxToolExecutions();
-        int hardCap = maxRetries + maxToolRounds + 3 /* file-request rounds */ + 2 /* slack */;
-        AgentBudget budget = new AgentBudget(hardCap, 3, maxRetries, agentConfig.getMaxTokens());
+        int hardCap = Math.max(budgetCfg.getMaxRounds(),
+                maxRetries + maxToolRounds + budgetCfg.getMaxContextRounds() + 2 /* slack */);
+        AgentBudget budget = new AgentBudget(hardCap, budgetCfg.getMaxContextRounds(),
+                maxRetries, budgetCfg.getMaxTokensPerCall());
         AgentLoop loop = new AgentLoop(aiClient, sessionService, budget);
         AgentRunContext ctx = new AgentRunContext(
                 session, owner, repo, issueNumber, workspaceDir, initialContextBranch);
@@ -545,9 +580,9 @@ public class IssueImplementationService {
             if (toolRequest == null || toolRequest.getTool() == null || toolRequest.getTool().isBlank()) {
                 continue;
             }
-            if (toolCount >= MAX_CONTEXT_TOOL_REQUESTS) {
+            if (toolCount >= agentConfig.getBudget().getMaxContextToolRequestsPerRound()) {
                 sb.append("\nAdditional tool requests were skipped after reaching the per-round limit of ")
-                        .append(MAX_CONTEXT_TOOL_REQUESTS).append(".\n");
+                        .append(agentConfig.getBudget().getMaxContextToolRequestsPerRound()).append(".\n");
                 break;
             }
             toolCount++;
@@ -608,24 +643,33 @@ public class IssueImplementationService {
         return McpTools.isMcpTool(mcpOrchestrationService, mcpToolCatalog, toolName);
     }
 
-    /**
-     * Result of processing an optional branch-switch request from AI context tools.
-     * <p>
-     * Kept as a thin alias around {@link BranchSwitcher.Result} so the public class
-     * surface stays stable for tests and reflective callers.
-     */
-    private record BranchSwitchResult(String initialBranch,
-                                      String selectedBranch,
-                                      List<ImplementationPlan.ToolRequest> remainingToolRequests) {
-    }
 
     /** Result of the implementation loop including the final branch used for context lookups. */
     private record ToolImplementationLoopResult(boolean success, String selectedBranch) {
     }
 
-    /** Retrieves the last parsed plan from the session history (the latest assistant JSON response). */
+    /**
+     * Step 7.1 — retrieves the most recently parsed implementation plan from
+     * the session row in O(1). Falls back to the legacy history-walk for old
+     * sessions persisted before V11 (no {@code last_plan_json} populated) or
+     * when the session itself is {@code null} (test scaffolding).
+     */
     private ImplementationPlan getLastPlanFromSession(AgentSession session) {
+        if (session == null) {
+            return null;
+        }
+        String rawJson = session.getLastPlanJson();
+        if (rawJson != null && !rawJson.isBlank()) {
+            ImplementationPlan p = responseParser.parseAiResponse(rawJson);
+            if (p != null) {
+                return p;
+            }
+        }
+        // Fallback for legacy sessions without persisted plan.
         List<AiMessage> messages = sessionService.toAiMessages(session);
+        if (messages == null) {
+            return null;
+        }
         for (int i = messages.size() - 1; i >= 0; i--) {
             if ("assistant".equals(messages.get(i).getRole())) {
                 ImplementationPlan p = responseParser.parseAiResponse(messages.get(i).getContent());

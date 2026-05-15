@@ -10,6 +10,7 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
+import jakarta.persistence.Lob;
 import jakarta.persistence.OneToMany;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.PreUpdate;
@@ -94,6 +95,26 @@ public class AgentSession {
     @JoinColumn(name = "agent_session_id")
     private Set<ConversationMessage> messages = new HashSet<>();
 
+    /**
+     * Step 7.1 — short summary of the most recently parsed implementation plan,
+     * persisted so PR-body / follow-up comment generation no longer needs to
+     * re-parse the conversation history.
+     */
+    @Column(name = "last_plan_summary", length = 2048)
+    private String lastPlanSummary;
+
+    /**
+     * Step 7.1 — raw JSON of the most recently parsed implementation plan.
+     */
+    @Lob
+    @Column(name = "last_plan_json")
+    private String lastPlanJson;
+
+    /**
+     * Step 7.1 — timestamp at which {@link #lastPlanJson} was recorded.
+     */
+    @Column(name = "last_plan_at")
+    private Instant lastPlanAt;
 
     @Column(nullable = false, updatable = false)
     private Instant createdAt;

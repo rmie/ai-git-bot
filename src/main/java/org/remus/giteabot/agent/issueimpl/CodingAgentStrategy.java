@@ -17,7 +17,6 @@ import org.remus.giteabot.agent.validation.WorkspaceService;
 import org.remus.giteabot.config.AgentConfigProperties;
 import org.remus.giteabot.mcp.McpOrchestrationService;
 import org.remus.giteabot.mcp.McpToolCatalog;
-import org.remus.giteabot.repository.RepositoryApiClient;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -46,7 +45,6 @@ public final class CodingAgentStrategy implements AgentStrategy {
     private final AiResponseParser responseParser;
     private final IssueNotificationService notificationService;
     private final AgentSessionService sessionService;
-    private final RepositoryApiClient repositoryClient;
     private final BranchSwitcher branchSwitcher;
     private final AgentToolRouter toolRouter;
     private final ToolExecutionService toolExecutionService;
@@ -58,6 +56,7 @@ public final class CodingAgentStrategy implements AgentStrategy {
 
     private final int maxToolRounds;
     private final int maxRetries;
+    private final int maxContextRounds;
     private int fileRequestRounds = 0;
     private int toolRounds = 0;
     private int attempt = 1;
@@ -76,7 +75,6 @@ public final class CodingAgentStrategy implements AgentStrategy {
                                AiResponseParser responseParser,
                                IssueNotificationService notificationService,
                                AgentSessionService sessionService,
-                               RepositoryApiClient repositoryClient,
                                BranchSwitcher branchSwitcher,
                                AgentToolRouter toolRouter,
                                ToolExecutionService toolExecutionService,
@@ -90,7 +88,6 @@ public final class CodingAgentStrategy implements AgentStrategy {
         this.responseParser = responseParser;
         this.notificationService = notificationService;
         this.sessionService = sessionService;
-        this.repositoryClient = repositoryClient;
         this.branchSwitcher = branchSwitcher;
         this.toolRouter = toolRouter;
         this.toolExecutionService = toolExecutionService;
@@ -102,6 +99,7 @@ public final class CodingAgentStrategy implements AgentStrategy {
         this.maxRetries = agentConfig.getValidation().isEnabled()
                 ? agentConfig.getValidation().getMaxRetries() : 1;
         this.maxToolRounds = agentConfig.getValidation().getMaxToolExecutions();
+        this.maxContextRounds = agentConfig.getBudget().getMaxContextRounds();
     }
 
     @Override
@@ -109,9 +107,6 @@ public final class CodingAgentStrategy implements AgentStrategy {
         return systemPrompt;
     }
 
-    public ImplementationPlan lastSuccessfulPlan() {
-        return lastSuccessfulPlan;
-    }
 
     @Override
     public StepDecision step(AgentRunContext ctx, String aiResponse, int round) {
@@ -130,11 +125,15 @@ public final class CodingAgentStrategy implements AgentStrategy {
             log.warn("Failed to parse AI response on attempt {}", attempt);
             return new StepDecision.Finish(LoopOutcome.fail(ctx.baseBranch()));
         }
+        // Step 7.1 — persist the latest parsed plan on the session so PR-body
+        // and follow-up comment generation no longer need to re-parse the
+        // entire conversation history.
+        sessionService.recordPlan(ctx.session(), plan.getSummary(), aiResponse);
 
         // 1) Context-only request (no tool requests yet): fetch and continue without spending an attempt.
-        if (plan.hasContextRequests() && !plan.hasToolRequest() && fileRequestRounds < 3) {
+        if (plan.hasContextRequests() && !plan.hasToolRequest() && fileRequestRounds < maxContextRounds) {
             fileRequestRounds++;
-            log.info("AI requesting additional context (round {}/3)", fileRequestRounds);
+            log.info("AI requesting additional context (round {}/{})", fileRequestRounds, maxContextRounds);
             BranchSwitcher.Result branchSwitchResult = branchSwitcher.apply(
                     ctx.workspaceDir(), ctx.baseBranch(), plan.getRequestTools(), ctx.issueNumber());
             ctx.setBaseBranch(branchSwitchResult.selectedBranch());

@@ -33,17 +33,18 @@ public final class AgentMetricsHolder {
         }
     }
 
-    public static void recordParseFailure(String provider) {
-        AgentMetrics m = instance;
-        if (m != null) {
-            m.recordParseFailure(provider);
-        }
-    }
 
     public static void recordLatency(String mode, String provider, Duration duration) {
         AgentMetrics m = instance;
         if (m != null) {
             m.recordLatency(mode, provider, duration);
+        }
+    }
+
+    public static void recordCriticOutcome(String outcome) {
+        AgentMetrics m = instance;
+        if (m != null) {
+            m.recordCriticOutcome(outcome);
         }
     }
 }

@@ -46,12 +46,9 @@ public class WriterAgentService {
     private final PromptService promptService;
     private final AgentConfigProperties agentConfig;
     private final AgentSessionService sessionService;
-    private final ToolExecutionService toolExecutionService;
     private final WorkspaceService workspaceService;
     private final String writerAgentSystemPrompt;
     private final String botUsername;
-    private final McpOrchestrationService mcpOrchestrationService;
-    private final McpConfiguration mcpConfiguration;
     private final McpToolCatalog mcpToolCatalog;
     private final AgentErrorNotificationService errorNotificationService;
     private final BranchSwitcher branchSwitcher;
@@ -91,12 +88,9 @@ public class WriterAgentService {
         this.promptService = promptService;
         this.agentConfig = agentConfig;
         this.sessionService = sessionService;
-        this.toolExecutionService = toolExecutionService;
         this.workspaceService = workspaceService;
         this.writerAgentSystemPrompt = writerAgentSystemPrompt;
         this.botUsername = botUsername;
-        this.mcpOrchestrationService = mcpOrchestrationService;
-        this.mcpConfiguration = mcpConfiguration;
         this.mcpToolCatalog = mcpToolCatalog != null ? mcpToolCatalog : McpToolCatalog.empty();
         this.errorNotificationService = new AgentErrorNotificationService(repositoryClient);
         this.branchSwitcher = new BranchSwitcher(toolExecutionService);
@@ -253,7 +247,7 @@ public class WriterAgentService {
         // terminal answer after exhausting context. Mirror that by setting the loop's hard
         // cap to maxToolRounds + 1.
         AgentBudget budget = new AgentBudget(
-                maxToolRounds() + 1, maxToolRounds(), 0, agentConfig.getMaxTokens());
+                maxToolRounds() + 1, maxToolRounds(), 0, agentConfig.getBudget().getMaxTokensPerCall());
         AgentLoop loop = new AgentLoop(aiClient, sessionService, budget);
         AgentRunContext ctx = new AgentRunContext(
                 session, owner, repo, issueNumber, workspaceDir, session.getBranchName());
