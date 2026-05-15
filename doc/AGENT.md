@@ -234,6 +234,28 @@ These settings mainly affect the **coding agent** validation workflow:
 | `AGENT_VALIDATION_MAX_TOOL_EXECUTIONS` | `agent.validation.max-tool-executions` | `10` | Max total tool rounds per session |
 | `AGENT_VALIDATION_TOOL_TIMEOUT` | `agent.validation.tool-timeout-seconds` | `300` | Timeout for each tool command |
 | `AGENT_VALIDATION_AVAILABLE_TOOLS` | `agent.validation.available-tools` | `mvn,gradle,npm,...,dotnet` | Comma-separated list of available validation tools |
+| `AGENT_SCHEMA_ENFORCE` | `agent.schema.enforce` | `false` | Reject AI plan responses that fail JSON-Schema validation. When `false` (default) violations are only counted via the `agent.plan.schema_violations_total` Micrometer counter and the existing repair heuristics still run. See [JSON-Schema Validation](#json-schema-validation-step-5) below. |
+
+### JSON-Schema Validation (Step 5)
+
+Both agents return structured JSON plans. Since version 1.6 these plans are
+validated against the bundled schemas
+
+- `src/main/resources/agent/schemas/coding-plan.schema.json`
+- `src/main/resources/agent/schemas/writer-plan.schema.json`
+
+The validator runs in **observe-only mode by default**: violations are logged at
+WARN level (with the schema path and the first 500 characters of the offending
+payload) and counted as the
+`agent.plan.schema_violations_total{agent=coding|writer}` Micrometer counter
+exposed under `/actuator/prometheus`.
+
+Set `AGENT_SCHEMA_ENFORCE=true` (env) or `agent.schema.enforce=true`
+(properties) to switch to **enforce mode**. In enforce mode an invalid response
+is rejected, the agent loop falls back to the existing "no plan returned"
+handling and asks the model to retry. Enforce mode is intended for
+post-rollout once telemetry shows that the schemas accept all real-world
+responses without false positives.
 
 ## AI-Driven Code Generation and Validation (Coding Agent)
 

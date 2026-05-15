@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/anthropic-gitea-bot/agent/schemas/coding-plan.schema.json",
+  "title": "CodingAgentPlan",
+  "description": "Structured output contract for the coding agent (issue implementation). Field aliases (requestedFiles, requestedTools) are accepted to remain compatible with current AI responses.",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {
+    "summary": {
+      "type": "string",
+      "description": "Short summary of the planned implementation."
+    },
+    "branchName": {
+      "type": "string",
+      "description": "Branch name suggested by the AI (informational)."
+    },
+    "requestFiles": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "description": "Files the AI requests to see before proceeding."
+    },
+    "requestedFiles": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "description": "Alias for requestFiles (legacy)."
+    },
+    "requestTools": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/toolRequest" },
+      "description": "Repository exploration tools the AI wants to run."
+    },
+    "requestedTools": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/toolRequest" },
+      "description": "Alias for requestTools (legacy)."
+    },
+    "runTool": {
+      "$ref": "#/$defs/toolRequest",
+      "description": "Single tool to run (legacy single-tool form)."
+    },
+    "runTools": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/toolRequest" },
+      "description": "Tools to run (file modifications, validation, MCP). Preferred over runTool."
+    }
+  },
+  "anyOf": [
+    { "required": ["summary"] },
+    { "required": ["requestFiles"] },
+    { "required": ["requestedFiles"] },
+    { "required": ["requestTools"] },
+    { "required": ["requestedTools"] },
+    { "required": ["runTool"] },
+    { "required": ["runTools"] }
+  ],
+  "$defs": {
+    "toolRequest": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["tool"],
+      "properties": {
+        "id": { "type": "string" },
+        "tool": { "type": "string", "minLength": 1 },
+        "args": {
+          "description": "Tool arguments. May be a single string, a list of strings, or any JSON value (will be normalized).",
+          "anyOf": [
+            { "type": "string" },
+            { "type": "array" },
+            { "type": "object" },
+            { "type": "number" },
+            { "type": "boolean" },
+            { "type": "null" }
+          ]
+        }
+      }
+    }
+  }
+}

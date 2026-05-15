@@ -1,0 +1,12 @@
+{
+  "summary": "Legacy single-tool form with field aliases",
+  "requestedFiles": ["README.md"],
+  "requestedTools": [
+    { "tool": "ls", "args": "doc/" }
+  ],
+  "runTool": {
+    "tool": "patch-file",
+    "args": ["README.md", "@@\n+ updated\n"]
+  }
+}
+

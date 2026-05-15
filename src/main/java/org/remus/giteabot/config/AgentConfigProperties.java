@@ -62,6 +62,23 @@ public class AgentConfigProperties {
      */
     private WriterConfig writer = new WriterConfig();
 
+    /**
+     * JSON-Schema validation settings for agent plan responses (Step 5).
+     */
+    private SchemaConfig schema = new SchemaConfig();
+
+    @Data
+    public static class SchemaConfig {
+        /**
+         * If {@code true}, parsers reject AI responses that fail JSON-Schema
+         * validation. If {@code false} (default), violations are only logged
+         * and counted via the {@code agent.plan.schema_violations_total}
+         * Micrometer counter while the existing repair heuristics continue to
+         * run.
+         */
+        private boolean enforce = false;
+    }
+
     @Data
     public static class ContextConfig {        /**
          * Maximum number of repository-tree file entries included in agent prompts.

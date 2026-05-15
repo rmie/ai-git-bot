@@ -6,6 +6,9 @@ import lombok.NoArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.remus.giteabot.agent.model.ImplementationPlan;
 import org.remus.giteabot.agent.shared.AgentJackson;
+import org.remus.giteabot.agent.shared.AgentSchema;
+import org.remus.giteabot.agent.shared.AgentSchemaValidator;
+import org.remus.giteabot.agent.shared.AgentSchemaValidatorHolder;
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.ObjectMapper;
 
@@ -23,7 +26,12 @@ public class WriterResponseParser {
 
     public WriterPlan parse(String aiResponse) {
         if (aiResponse == null || aiResponse.isBlank()) {
-            return WriterPlan.builder().qualityAssessment("").build();
+            // Always populate clarifyingQuestions with at least an empty list so
+            // downstream consumers (WriterPromptBuilder) never NPE.
+            return WriterPlan.builder()
+                    .qualityAssessment("")
+                    .clarifyingQuestions(List.of())
+                    .build();
         }
         String json = extractJson(aiResponse);
         if (json == null) {
@@ -33,6 +41,15 @@ public class WriterResponseParser {
                     .build();
         }
         try {
+            // Step 5: schema validation – observe-only by default. In enforce
+            // mode we treat the response like an unparseable payload and fall
+            // back to the question-only WriterPlan.
+            if (!validateAgainstSchema(json)) {
+                return WriterPlan.builder()
+                        .qualityAssessment(aiResponse.strip())
+                        .clarifyingQuestions(List.of(aiResponse.strip()))
+                        .build();
+            }
             AiWriterResponse response = objectMapper.readValue(json, AiWriterResponse.class);
             return WriterPlan.builder()
                     .qualityAssessment(response.getQualityAssessment())
@@ -109,6 +126,23 @@ public class WriterResponseParser {
             }
         }
         return json;
+    }
+
+    private boolean validateAgainstSchema(String json) {
+        AgentSchemaValidator validator = AgentSchemaValidatorHolder.get();
+        if (validator == null) {
+            return true;
+        }
+        var violations = validator.validate(json, AgentSchema.WRITER_PLAN);
+        if (violations.isEmpty()) {
+            return true;
+        }
+        if (validator.isEnforce()) {
+            log.warn("Rejecting writer plan: {} schema violation(s) and enforce mode active",
+                    violations.get().size());
+            return false;
+        }
+        return true;
     }
 
     private List<String> nullToEmpty(List<String> values) {

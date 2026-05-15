@@ -1,0 +1,8 @@
+{
+  "qualityAssessment": "Need to scan the codebase before drafting.",
+  "requestFiles": ["src/main/java/org/remus/giteabot/agent/IssueImplementationService.java"],
+  "requestTools": [
+    { "id": "w-1", "tool": "rg", "args": ["WriterAgentService", "src", "-n"] }
+  ],
+  "readyToCreate": false
+}

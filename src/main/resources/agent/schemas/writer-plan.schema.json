@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/anthropic-gitea-bot/agent/schemas/writer-plan.schema.json",
+  "title": "WriterAgentPlan",
+  "description": "Structured output contract for the writer agent (issue refinement / drafting).",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {
+    "qualityAssessment": {
+      "type": "string",
+      "description": "Free-form assessment of the current issue quality."
+    },
+    "clarifyingQuestions": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "description": "Open questions the writer wants the user to answer."
+    },
+    "revisedIssueDraft": {
+      "type": "string",
+      "description": "Proposed revised issue body."
+    },
+    "assumptions": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "openQuestions": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "readyToCreate": {
+      "type": "boolean",
+      "description": "True when the draft is ready to be turned into a real issue."
+    },
+    "requestFiles": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "description": "Files the writer wants to consult before drafting."
+    },
+    "requestTools": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/toolRequest" },
+      "description": "Repository exploration tools the writer wants to invoke."
+    }
+  },
+  "anyOf": [
+    { "required": ["qualityAssessment"] },
+    { "required": ["clarifyingQuestions"] },
+    { "required": ["revisedIssueDraft"] },
+    { "required": ["readyToCreate"] },
+    { "required": ["requestFiles"] },
+    { "required": ["requestTools"] }
+  ],
+  "$defs": {
+    "toolRequest": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["tool"],
+      "properties": {
+        "id": { "type": "string" },
+        "tool": { "type": "string", "minLength": 1 },
+        "args": {
+          "anyOf": [
+            { "type": "string" },
+            { "type": "array" },
+            { "type": "object" },
+            { "type": "number" },
+            { "type": "boolean" },
+            { "type": "null" }
+          ]
+        }
+      }
+    }
+  }
+}

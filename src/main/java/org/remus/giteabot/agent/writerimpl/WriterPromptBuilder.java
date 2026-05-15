@@ -63,9 +63,22 @@ public class WriterPromptBuilder {
         if (plan.getQualityAssessment() != null && !plan.getQualityAssessment().isBlank()) {
             sb.append("**Quality assessment:** ").append(plan.getQualityAssessment()).append("\n\n");
         }
-        sb.append("I need the issue author to answer these questions before I can create the improved issue:\n\n");
-        for (String question : plan.getClarifyingQuestions()) {
-            sb.append("- ").append(question).append("\n");
+        List<String> questions = plan.getClarifyingQuestions();
+        if (questions != null && !questions.isEmpty()) {
+            sb.append("I need the issue author to answer these questions before I can create the improved issue:\n\n");
+            for (String question : questions) {
+                if (question == null || question.isBlank()) {
+                    continue;
+                }
+                sb.append("- ").append(question).append("\n");
+            }
+        } else {
+            // No structured questions returned by the model. Surface whatever
+            // free-form text we have (qualityAssessment) instead of posting an
+            // empty bullet list and ask for additional context generically.
+            sb.append("I do not yet have enough information to draft an improved issue. ")
+                    .append("Could you please add more context (acceptance criteria, intended user, ")
+                    .append("affected components, examples) and mention me again?\n");
         }
         return sb.toString();
     }

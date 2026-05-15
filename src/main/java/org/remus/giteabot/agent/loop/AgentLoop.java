@@ -59,14 +59,32 @@ public final class AgentLoop {
         String currentMessage = initialUserMessage;
 
         for (int round = 1; round <= budget.maxRounds(); round++) {
+            log.debug("AgentLoop round {}/{} for issue #{}: calling AI (history={} msgs, prompt={} chars)",
+                    round, budget.maxRounds(), ctx.issueNumber(), history.size(),
+                    currentMessage == null ? 0 : currentMessage.length());
             String aiResponse = aiClient.chat(history, currentMessage, systemPrompt,
                     null, budget.maxTokensPerCall());
+            log.debug("AgentLoop round {}/{} for issue #{}: AI returned {} chars",
+                    round, budget.maxRounds(), ctx.issueNumber(),
+                    aiResponse == null ? 0 : aiResponse.length());
             sessionService.addMessage(ctx.session(), "assistant", aiResponse);
 
-            StepDecision decision = strategy.step(ctx, aiResponse, round);
+            StepDecision decision;
+            try {
+                decision = strategy.step(ctx, aiResponse, round);
+            } catch (RuntimeException e) {
+                log.error("AgentLoop round {}/{} for issue #{}: strategy.step threw {}: {}",
+                        round, budget.maxRounds(), ctx.issueNumber(),
+                        e.getClass().getSimpleName(), e.getMessage(), e);
+                throw e;
+            }
             if (decision instanceof StepDecision.Finish finish) {
+                log.debug("AgentLoop round {}/{} for issue #{}: strategy decided FINISH",
+                        round, budget.maxRounds(), ctx.issueNumber());
                 return finish.outcome();
             }
+            log.debug("AgentLoop round {}/{} for issue #{}: strategy decided CONTINUE",
+                    round, budget.maxRounds(), ctx.issueNumber());
             String next = ((StepDecision.Continue) decision).nextUserMessage();
             history.add(AiMessage.builder().role("user").content(currentMessage).build());
             history.add(AiMessage.builder().role("assistant").content(aiResponse).build());
