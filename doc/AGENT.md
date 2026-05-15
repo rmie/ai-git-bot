@@ -257,6 +257,60 @@ handling and asks the model to retry. Enforce mode is intended for
 post-rollout once telemetry shows that the schemas accept all real-world
 responses without false positives.
 
+### Provider-native Function Calling (Step 6)
+
+`AiClient` exposes `chatWithTools(history, message, tools, systemPrompt,
+modelOverride, maxTokens) → ChatTurn` next to the textual `chat(...)` API.
+The result carries `assistantText`, structured `ToolCall`s (each with a
+provider-supplied `id`, `name` and `JsonNode args`) and a `StopReason`. The
+default implementation falls back to `chat(...)` so providers without native
+support behave exactly as before.
+
+| Provider | Native tool calling |
+|---|---|
+| Anthropic | ✅ `tools[]` + `tool_use`/`tool_result` content blocks |
+| OpenAI | ✅ `tools[]` + `tool_calls`/`tool_call_id` |
+| Google Gemini | ✅ `tools[].functionDeclarations` + `functionCall`/`functionResponse` |
+| Ollama | ✅ `tools[]` (OpenAI-compatible) on `/api/chat` |
+| llama.cpp | ❌ stays on `/completion` with GBNF; opt out — falls back to legacy chat path |
+
+Each AI integration carries a per-row toggle
+`use_legacy_tool_calling` (boolean, default `false`). The admin form
+(`/ai-integrations/new` and edit) exposes it under "Tool calling" with a
+popover explaining both modes. When the operator turns the switch on, the
+provider-specific factory passes `nativeToolsEnabled=false` to the client
+and `chatWithTools` automatically delegates to `chat(...)` — useful for
+older models or self-hosted setups whose tool support is unreliable.
+
+#### AgentLoop integration
+
+`AgentStrategy` exposes three opt-in hooks:
+
+- `preferredToolMode()` returns `LEGACY` (default) or `NATIVE`.
+- `toolDescriptors()` returns the `ToolDescriptor`s the model may invoke.
+- `step(AgentRunContext, ChatTurn, int)` receives the structured turn; the
+  default delegates to the textual `step(...)` so existing strategies keep
+  working untouched.
+
+`AgentLoop` runs in `NATIVE` mode only when the strategy asks for it,
+the configured `AiClient.supportsNativeTools()` is `true` and at least one
+descriptor is supplied; otherwise it transparently falls back to the legacy
+text path.
+
+#### Telemetry
+
+The `AgentMetrics` Spring bean publishes three Micrometer meters under
+`/actuator/prometheus`:
+
+| Metric | Tags | Meaning |
+|---|---|---|
+| `agent.tool_call.mode_total` | `mode={native,legacy}`, `provider` | One increment per AI round. |
+| `agent.tool_call.parse_failures_total` | `provider` | Plan/tool-call parse failures (Step 7 hook). |
+| `agent.tool_call.latency_seconds` | `mode`, `provider` | Wall-clock per AI round. |
+
+`provider` is the lower-cased simple class name of the active client
+(`openaiclient`, `anthropicaiclient`, …).
+
 ## AI-Driven Code Generation and Validation (Coding Agent)
 
 The coding agent uses AI-driven tool calls where the AI decides which file operations and validation commands to run based on the project structure.

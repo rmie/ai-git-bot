@@ -5,6 +5,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Data;
 
 import java.util.List;
+import java.util.Map;
 
 @Data
 @JsonIgnoreProperties(ignoreUnknown = true)
@@ -31,10 +32,23 @@ public class GoogleAiResponse {
         private List<Part> parts;
     }
 
+    /**
+     * Polymorphic response part. May carry plain {@code text} or, when the
+     * model wants to invoke a tool (Step 6), a {@link #functionCall} block.
+     */
     @Data
     @JsonIgnoreProperties(ignoreUnknown = true)
     public static class Part {
         private String text;
+        @JsonProperty("functionCall")
+        private FunctionCall functionCall;
+    }
+
+    @Data
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public static class FunctionCall {
+        private String name;
+        private Map<String, Object> args;
     }
 
     @Data
@@ -50,3 +64,4 @@ public class GoogleAiResponse {
         private int totalTokenCount;
     }
 }
+

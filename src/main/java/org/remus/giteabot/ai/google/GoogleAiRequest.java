@@ -6,9 +6,21 @@ import lombok.Builder;
 import lombok.Data;
 
 import java.util.List;
+import java.util.Map;
 
+/**
+ * Gemini {@code generateContent} request payload.
+ *
+ * <p>Step 6: when the agent runs in native-tool-calling mode the
+ * {@link #tools} list carries one or more {@code functionDeclarations}; the
+ * model may then emit {@link Part#functionCall} blocks that the loop
+ * dispatches via {@link org.remus.giteabot.agent.tools.AgentToolRouter}. For
+ * text-only legacy calls {@code tools} stays {@code null} and only
+ * {@link Part#text} is populated.</p>
+ */
 @Data
 @Builder
+@JsonInclude(JsonInclude.Include.NON_NULL)
 public class GoogleAiRequest {
 
     @JsonProperty("systemInstruction")
@@ -19,6 +31,9 @@ public class GoogleAiRequest {
     @JsonProperty("generationConfig")
     private GenerationConfig generationConfig;
 
+    /** Tool declarations (Step 6). */
+    private List<Tool> tools;
+
     @Data
     @Builder
     @JsonInclude(JsonInclude.Include.NON_NULL)
@@ -27,10 +42,37 @@ public class GoogleAiRequest {
         private List<Part> parts;
     }
 
+    /**
+     * Polymorphic part. Exactly one of {@link #text}, {@link #functionCall} or
+     * {@link #functionResponse} should be populated.
+     */
     @Data
     @Builder
+    @JsonInclude(JsonInclude.Include.NON_NULL)
     public static class Part {
         private String text;
+        @JsonProperty("functionCall")
+        private FunctionCall functionCall;
+        @JsonProperty("functionResponse")
+        private FunctionResponse functionResponse;
+    }
+
+    @Data
+    @Builder
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public static class FunctionCall {
+        private String name;
+        /** Object whose fields are the function arguments. */
+        private Map<String, Object> args;
+    }
+
+    @Data
+    @Builder
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public static class FunctionResponse {
+        private String name;
+        /** Free-form result; Gemini accepts arbitrary JSON. */
+        private Map<String, Object> response;
     }
 
     @Data
@@ -39,4 +81,23 @@ public class GoogleAiRequest {
         @JsonProperty("maxOutputTokens")
         private int maxOutputTokens;
     }
+
+    @Data
+    @Builder
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public static class Tool {
+        @JsonProperty("functionDeclarations")
+        private List<FunctionDeclaration> functionDeclarations;
+    }
+
+    @Data
+    @Builder
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public static class FunctionDeclaration {
+        private String name;
+        private String description;
+        /** Draft-2020-12 JSON-Schema subset accepted by Gemini. */
+        private Object parameters;
+    }
 }
+

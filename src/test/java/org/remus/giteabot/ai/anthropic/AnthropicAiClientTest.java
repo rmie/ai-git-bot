@@ -48,4 +48,17 @@ class AnthropicAiClientTest {
         assertFalse(client.isPromptTooLongError(ex));
     }
 
+    @Test
+    void supportsNativeTools_defaultsToTrue() {
+        AnthropicAiClient client = createClient();
+        assertTrue(client.supportsNativeTools());
+    }
+
+    @Test
+    void supportsNativeTools_canBeDisabled() {
+        AnthropicAiClient client = new AnthropicAiClient(mock(RestClient.class),
+                "claude-sonnet-4-20250514", 1024, 10, 2, 6, false);
+        assertFalse(client.supportsNativeTools());
+    }
+
 }

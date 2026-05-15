@@ -3,17 +3,32 @@ package org.remus.giteabot.ai.google;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
+import org.remus.giteabot.agent.shared.AgentJackson;
 import org.remus.giteabot.ai.AbstractAiClient;
+import org.remus.giteabot.ai.AiClientDelegateSupport;
 import org.remus.giteabot.ai.AiMessage;
+import org.remus.giteabot.ai.ChatTurn;
+import org.remus.giteabot.ai.StopReason;
+import org.remus.giteabot.ai.ToolCall;
+import org.remus.giteabot.ai.ToolDescriptor;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestClient;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 
 /**
  * AI client implementation for Google's Gemini REST API.
+ *
+ * <p>Step 6: implements native function calling via Gemini's
+ * {@code tools[].functionDeclarations} request field and the corresponding
+ * {@code functionCall}/{@code functionResponse} response/request parts.
+ * Activation is gated by the per-integration
+ * {@code use_legacy_tool_calling} switch (see
+ * {@link org.remus.giteabot.admin.AiIntegration}).</p>
  */
 @Slf4j
 public class GoogleAiClient extends AbstractAiClient {
@@ -21,20 +36,35 @@ public class GoogleAiClient extends AbstractAiClient {
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
     private final RestClient restClient;
+    private final boolean nativeToolsEnabled;
+    private final tools.jackson.databind.ObjectMapper jackson3 = AgentJackson.mapper();
 
     public GoogleAiClient(RestClient restClient, String model, int maxTokens,
                           int maxDiffCharsPerChunk, int maxDiffChunks,
                           int retryTruncatedChunkChars) {
+        this(restClient, model, maxTokens, maxDiffCharsPerChunk, maxDiffChunks,
+                retryTruncatedChunkChars, true);
+    }
+
+    public GoogleAiClient(RestClient restClient, String model, int maxTokens,
+                          int maxDiffCharsPerChunk, int maxDiffChunks,
+                          int retryTruncatedChunkChars, boolean nativeToolsEnabled) {
         super(model, maxTokens, maxDiffCharsPerChunk, maxDiffChunks, retryTruncatedChunkChars);
         this.restClient = restClient;
+        this.nativeToolsEnabled = nativeToolsEnabled;
+    }
+
+    @Override
+    public boolean supportsNativeTools() {
+        return nativeToolsEnabled;
     }
 
     @Override
     protected String sendReviewRequest(String systemPrompt, String effectiveModel,
                                        int maxTokens, String userMessage) {
         GoogleAiRequest request = GoogleAiRequest.builder()
-                .systemInstruction(content(null, systemPrompt))
-                .contents(List.of(content("user", userMessage)))
+                .systemInstruction(textContent(null, systemPrompt))
+                .contents(List.of(textContent("user", userMessage)))
                 .generationConfig(GoogleAiRequest.GenerationConfig.builder()
                         .maxOutputTokens(maxTokens)
                         .build())
@@ -48,11 +78,16 @@ public class GoogleAiClient extends AbstractAiClient {
                                      int maxTokens, List<AiMessage> messages) {
         List<GoogleAiRequest.Content> contents = new ArrayList<>();
         for (AiMessage message : messages) {
-            contents.add(content(toGoogleRole(message.getRole()), message.getContent()));
+            // Plain-text path: collapse tool-results into user-text content.
+            String text = "tool".equals(message.getRole())
+                    ? (message.getToolResult() != null ? message.getToolResult() : message.getContent())
+                    : message.getContent();
+            contents.add(textContent(toGoogleRole(message.getRole()),
+                    text == null ? "" : text));
         }
 
         GoogleAiRequest request = GoogleAiRequest.builder()
-                .systemInstruction(content(null, systemPrompt))
+                .systemInstruction(textContent(null, systemPrompt))
                 .contents(contents)
                 .generationConfig(GoogleAiRequest.GenerationConfig.builder()
                         .maxOutputTokens(maxTokens)
@@ -60,6 +95,185 @@ public class GoogleAiClient extends AbstractAiClient {
                 .build();
 
         return doRequest(effectiveModel, request, "chat");
+    }
+
+    @Override
+    public ChatTurn chatWithTools(List<AiMessage> conversationHistory,
+                                  String newUserMessage,
+                                  List<ToolDescriptor> tools,
+                                  String systemPrompt,
+                                  String modelOverride,
+                                  Integer maxTokensOverride) {
+        if (!supportsNativeTools() || tools == null || tools.isEmpty()) {
+            return AiClientDelegateSupport.delegateToChat(this, conversationHistory,
+                    newUserMessage, systemPrompt, modelOverride, maxTokensOverride);
+        }
+        String effectiveModel = (modelOverride != null && !modelOverride.isBlank())
+                ? modelOverride : getModel();
+        int effectiveMaxTokens = (maxTokensOverride != null && maxTokensOverride > 0)
+                ? maxTokensOverride : getMaxTokens();
+
+        List<AiMessage> fullHistory = new ArrayList<>(conversationHistory);
+        if (newUserMessage != null && !newUserMessage.isBlank()) {
+            fullHistory.add(AiMessage.builder().role("user").content(newUserMessage).build());
+        }
+
+        List<GoogleAiRequest.Content> contents = buildToolContents(fullHistory);
+
+        List<GoogleAiRequest.FunctionDeclaration> declarations = tools.stream()
+                .map(this::toFunctionDeclaration)
+                .toList();
+
+        GoogleAiRequest request = GoogleAiRequest.builder()
+                .systemInstruction(textContent(null, systemPrompt))
+                .contents(contents)
+                .generationConfig(GoogleAiRequest.GenerationConfig.builder()
+                        .maxOutputTokens(effectiveMaxTokens)
+                        .build())
+                .tools(List.of(GoogleAiRequest.Tool.builder()
+                        .functionDeclarations(declarations).build()))
+                .build();
+
+        log.info("Google AI chat-with-tools request: model={}, tools={}, history={}",
+                effectiveModel, declarations.size(), contents.size());
+
+        try {
+            GoogleAiResponse response = restClient.post()
+                    .uri("/v1beta/" + toModelPath(effectiveModel) + ":generateContent")
+                    .body(request)
+                    .retrieve()
+                    .body(GoogleAiResponse.class);
+            return interpret(response);
+        } catch (HttpClientErrorException e) {
+            if (isPromptTooLongError(e)) {
+                throw e;
+            }
+            throw new IllegalStateException("Google AI request failed: " + safeErrorMessage(e), e);
+        }
+    }
+
+    private List<GoogleAiRequest.Content> buildToolContents(List<AiMessage> history) {
+        List<GoogleAiRequest.Content> contents = new ArrayList<>();
+        for (AiMessage m : history) {
+            if ("tool".equals(m.getRole())) {
+                Map<String, Object> response = new LinkedHashMap<>();
+                response.put("result", m.getToolResult() != null ? m.getToolResult() : m.getContent());
+                contents.add(GoogleAiRequest.Content.builder()
+                        .role("user")
+                        .parts(List.of(GoogleAiRequest.Part.builder()
+                                .functionResponse(GoogleAiRequest.FunctionResponse.builder()
+                                        .name(callNameFor(m, "tool"))
+                                        .response(response)
+                                        .build())
+                                .build()))
+                        .build());
+                continue;
+            }
+
+            if ("assistant".equals(m.getRole()) && m.getToolCalls() != null && !m.getToolCalls().isEmpty()) {
+                List<GoogleAiRequest.Part> parts = new ArrayList<>();
+                if (m.getContent() != null && !m.getContent().isBlank()) {
+                    parts.add(GoogleAiRequest.Part.builder().text(m.getContent()).build());
+                }
+                for (ToolCall call : m.getToolCalls()) {
+                    parts.add(GoogleAiRequest.Part.builder()
+                            .functionCall(GoogleAiRequest.FunctionCall.builder()
+                                    .name(call.name())
+                                    .args(call.args() != null
+                                            ? jackson3.convertValue(call.args(), Map.class)
+                                            : Map.of())
+                                    .build())
+                            .build());
+                }
+                contents.add(GoogleAiRequest.Content.builder()
+                        .role("model")
+                        .parts(parts)
+                        .build());
+                continue;
+            }
+
+            contents.add(textContent(toGoogleRole(m.getRole()),
+                    m.getContent() == null ? "" : m.getContent()));
+        }
+        return contents;
+    }
+
+    private String callNameFor(AiMessage m, String fallback) {
+        // Tool-result messages don't directly know the call name; encode it in
+        // the toolCallId or default to a generic value.
+        if (m.getToolCallId() != null && m.getToolCallId().contains(":")) {
+            return m.getToolCallId().substring(0, m.getToolCallId().indexOf(':'));
+        }
+        return fallback;
+    }
+
+    private GoogleAiRequest.FunctionDeclaration toFunctionDeclaration(ToolDescriptor descriptor) {
+        Object schema;
+        try {
+            schema = descriptor.jsonSchema() == null
+                    ? Map.of("type", "object")
+                    : jackson3.convertValue(descriptor.jsonSchema(), Map.class);
+        } catch (RuntimeException e) {
+            schema = Map.of("type", "object");
+        }
+        return GoogleAiRequest.FunctionDeclaration.builder()
+                .name(descriptor.name())
+                .description(descriptor.description())
+                .parameters(schema)
+                .build();
+    }
+
+    private ChatTurn interpret(GoogleAiResponse response) {
+        if (response == null || response.getCandidates() == null || response.getCandidates().isEmpty()) {
+            log.warn("Empty response from Google AI tool-call request");
+            return ChatTurn.text("Unable to generate response - empty reply from AI.");
+        }
+        GoogleAiResponse.Candidate candidate = response.getCandidates().getFirst();
+        if (candidate == null || candidate.getContent() == null
+                || candidate.getContent().getParts() == null) {
+            return ChatTurn.text("");
+        }
+
+        StringBuilder text = new StringBuilder();
+        List<ToolCall> calls = new ArrayList<>();
+        int idx = 0;
+        for (GoogleAiResponse.Part part : candidate.getContent().getParts()) {
+            if (part.getText() != null && !part.getText().isBlank()) {
+                text.append(part.getText());
+            } else if (part.getFunctionCall() != null) {
+                Map<String, Object> args = part.getFunctionCall().getArgs() != null
+                        ? part.getFunctionCall().getArgs() : new LinkedHashMap<>();
+                JsonNode argsNode = OBJECT_MAPPER.valueToTree(args);
+                tools.jackson.databind.JsonNode args3 = jackson3.valueToTree(args);
+                calls.add(new ToolCall(
+                        part.getFunctionCall().getName() + ":" + (idx++),
+                        part.getFunctionCall().getName(),
+                        args3));
+            }
+        }
+        StopReason reason = mapStopReason(candidate.getFinishReason());
+        if (!calls.isEmpty()) {
+            reason = StopReason.TOOL_USE;
+        }
+        if (response.getUsageMetadata() != null) {
+            log.info("Google AI chat-with-tools: {} prompt tokens, {} candidate tokens, {} functionCall(s)",
+                    response.getUsageMetadata().getPromptTokenCount(),
+                    response.getUsageMetadata().getCandidatesTokenCount(),
+                    calls.size());
+        }
+        return new ChatTurn(text.toString(), calls, reason);
+    }
+
+    private StopReason mapStopReason(String finishReason) {
+        if (finishReason == null) {
+            return StopReason.OTHER;
+        }
+        return switch (finishReason) {
+            case "STOP" -> StopReason.END_TURN;
+            case "MAX_TOKENS" -> StopReason.MAX_TOKENS;
+            case "TOOL_CODE", "FUNCTION_CALL" -> StopReason.TOOL_USE;
+            default -> StopReason.OTHER;
+        };
     }
 
     @Override
@@ -109,7 +323,7 @@ public class GoogleAiClient extends AbstractAiClient {
 
         String result = firstCandidate.getContent().getParts().stream()
                 .map(GoogleAiResponse.Part::getText)
-                .filter(text -> text != null && !text.isBlank())
+                .filter(t -> t != null && !t.isBlank())
                 .reduce("", (a, b) -> a + b);
 
         if (result.isBlank()) {
@@ -127,7 +341,7 @@ public class GoogleAiClient extends AbstractAiClient {
         return result;
     }
 
-    private GoogleAiRequest.Content content(String role, String text) {
+    private GoogleAiRequest.Content textContent(String role, String text) {
         return GoogleAiRequest.Content.builder()
                 .role(role)
                 .parts(List.of(GoogleAiRequest.Part.builder().text(text).build()))
@@ -173,3 +387,4 @@ public class GoogleAiClient extends AbstractAiClient {
         }
     }
 }
+
