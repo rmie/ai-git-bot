@@ -259,6 +259,11 @@ responses without false positives.
 
 ### Provider-native Function Calling (Step 6)
 
+> 💡 For an operator-facing knowledge base on **why** provider tool APIs
+> differ, which fallbacks and safety nets exist, and what to do when a
+> model misbehaves (including the **legacy tool-calling switch**), see
+> [TOOL_CALLING.md](TOOL_CALLING.md).
+
 `AiClient` exposes `chatWithTools(history, message, tools, systemPrompt,
 modelOverride, maxTokens) → ChatTurn` next to the textual `chat(...)` API.
 The result carries `assistantText`, structured `ToolCall`s (each with a
