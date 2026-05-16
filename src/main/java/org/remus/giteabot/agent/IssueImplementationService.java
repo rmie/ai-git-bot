@@ -37,7 +37,6 @@ import org.remus.giteabot.repository.RepositoryApiClient;
 import org.remus.giteabot.systemsettings.McpConfiguration;
 
 import java.nio.file.Path;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -176,54 +175,24 @@ public class IssueImplementationService {
             // Fetch repository tree for context
             List<Map<String, Object>> tree = repositoryClient.getRepositoryTree(owner, repo, baseBranch);
             String treeContext  = promptBuilder.buildTreeContext(tree);
-            // Both Step 1 (one-shot "which files do you need?") and Step 2 (implementation loop)
-            // use the same system prompt: the native short prompt when the operator left the
-            // `use_legacy_tool_calling` toggle off, the long legacy prompt otherwise. Step 1's
-            // user message already carries the JSON output template and the available-tools
-            // list, so the short native system prompt does not strand the model — and matches
-            // what the user actually expects to see in the log when "use legacy" is off.
             String systemPrompt = resolveAgentSystemPrompt();
 
-            // STEP 1: Ask AI which context it needs
-            log.info("Step 1: Asking AI which files are needed for issue #{}", issueNumber);
-            String fileRequestPrompt = promptBuilder.buildFileRequestPrompt(
-                    issueTitle, issueBody, issueCommentsContext, treeContext);
-            sessionService.addMessage(session, "user", fileRequestPrompt);
-
-            String fileRequestResponse = aiClient.chat(new ArrayList<>(), fileRequestPrompt, systemPrompt,
-                    null, agentConfig.getBudget().getMaxTokensPerCall());
-            sessionService.addMessage(session, "assistant", fileRequestResponse);
-
-            ImplementationPlan initialContextPlan = responseParser.parseAiResponse(fileRequestResponse);
-            List<String> requestedFiles = initialContextPlan != null && initialContextPlan.getRequestFiles() != null
-                    ? initialContextPlan.getRequestFiles()
-                    : responseParser.parseRequestedFiles(fileRequestResponse, tree);
-            List<ImplementationPlan.ToolRequest> requestedTools =
-                    initialContextPlan != null ? initialContextPlan.getRequestTools() : List.of();
-            log.info("AI requested {} files and {} repository tools for context",
-                    requestedFiles.size(), requestedTools != null ? requestedTools.size() : 0);
-
-            BranchSwitcher.Result branchSwitchResult = branchSwitcher.apply(
-                    workspaceDir, baseBranch, requestedTools, issueNumber);
-            baseBranch = branchSwitchResult.selectedBranch();
-            requestedTools = branchSwitchResult.remainingToolRequests();
-            if (!baseBranch.equals(branchSwitchResult.initialBranch())) {
-                tree = repositoryClient.getRepositoryTree(owner, repo, baseBranch);
-                treeContext = promptBuilder.buildTreeContext(tree);
-            }
-
-            String fileContext = fetchRequestedContext(owner, repo, baseBranch,
-                    requestedFiles, requestedTools, workspaceDir);
-
-            // STEP 2: Generate implementation via tool requests
-            log.info("Step 2: Generating implementation for issue #{}", issueNumber);
+            // Single implementation loop — symmetric to WriterAgentService#handleIssueAssigned.
+            // The previous "Step 1" (separate one-shot AI call to ask which files were needed)
+            // has been folded into the AgentLoop: the CodingAgentStrategy already supports
+            // context-only rounds (`requestFiles`/`requestTools` in legacy mode, or `cat`/`rg`
+            // tool calls in native mode), so a dedicated pre-loop turn was redundant and
+            // diverged from the writer flow.
             String implementationPrompt = promptBuilder.buildImplementationPromptWithContext(
-                    issueTitle, issueBody, issueCommentsContext, treeContext, fileContext);
+                    issueTitle, issueBody, issueCommentsContext, treeContext,
+                    "(no files preloaded — request more via `requestFiles`/`requestTools` or "
+                            + "use context tools like `cat`, `rg`, `find`, `tree` if you need to inspect specific files)");
 
             // Add tools info to prompt
             String toolsInfo = buildToolsInfo();
             String fullPrompt = implementationPrompt + toolsInfo;
 
+            log.info("Starting implementation loop for issue #{}", issueNumber);
             ToolImplementationLoopResult implementationResult = runToolImplementationLoop(
                     session, fullPrompt, systemPrompt, workspaceDir, owner, repo, issueNumber, baseBranch);
             boolean implementationSucceeded = implementationResult.success();

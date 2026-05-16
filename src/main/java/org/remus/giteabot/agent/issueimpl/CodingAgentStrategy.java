@@ -171,16 +171,20 @@ public final class CodingAgentStrategy implements AgentStrategy {
         log.info("Tool implementation loop for issue #{}, attempt {}/{} (native, {} calls)",
                 ctx.issueNumber(), attempt, maxRetries, turn.toolCalls().size());
 
-        if (turn.assistantText() != null && !turn.assistantText().isBlank()) {
-            notificationService.postAiThinkingComment(ctx.owner(), ctx.repo(), ctx.issueNumber(),
-                    turn.assistantText());
-        }
-
         // 1) Resolve branch-switcher requests up-front (same precedence as legacy).
         List<ImplementationPlan.ToolRequest> requests = new ArrayList<>();
         for (ToolCall call : turn.toolCalls()) {
             requests.add(toRequest(call));
         }
+
+        // Always emit a thinking/plan comment so users see what the agent is about
+        // to do — providers often return only tool_calls with empty assistantText
+        // in native mode, which would otherwise leave the issue silent. Tool args
+        // are truncated by the notification service to keep large/sensitive
+        // write-file payloads out of issue comments.
+        notificationService.postNativeToolPlanComment(ctx.owner(), ctx.repo(), ctx.issueNumber(),
+                turn.assistantText(), requests);
+
         BranchSwitcher.Result branchSwitchResult = branchSwitcher.apply(
                 ctx.workspaceDir(), ctx.baseBranch(), requests, ctx.issueNumber());
         ctx.setBaseBranch(branchSwitchResult.selectedBranch());
