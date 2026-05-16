@@ -167,7 +167,7 @@ public final class WriterAgentStrategy implements AgentStrategy {
         if (root != null && root.isObject()) {
             JsonNode varargs = root.get("args");
             if (varargs != null && varargs.isArray()) {
-                varargs.forEach(node -> args.add(node.isTextual() ? node.asString() : node.toString()));
+                varargs.forEach(node -> args.add(node.isString() ? node.asString() : node.toString()));
             } else {
                 addIfPresent(root, "path", args);
                 addIfPresent(root, "branch", args);
@@ -185,7 +185,7 @@ public final class WriterAgentStrategy implements AgentStrategy {
     private static void addIfPresent(JsonNode root, String field, List<String> out) {
         JsonNode v = root.get(field);
         if (v != null && !v.isMissingNode() && !v.isNull()) {
-            out.add(v.isTextual() ? v.asString() : v.toString());
+            out.add(v.isString() ? v.asString() : v.toString());
         }
     }
 

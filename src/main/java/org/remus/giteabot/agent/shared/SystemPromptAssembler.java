@@ -96,15 +96,6 @@ public class SystemPromptAssembler {
         return sb.toString();
     }
 
-    /**
-     * Backwards-compatible 3-arg overload that defaults to {@link PromptKind#ISSUE_AGENT}.
-     *
-     * @deprecated prefer {@link #assemble(String, McpToolCatalog, ToolingMode, PromptKind)}.
-     */
-    @Deprecated
-    public String assemble(String basePrompt, McpToolCatalog mcpToolCatalog, ToolingMode mode) {
-        return assemble(basePrompt, mcpToolCatalog, mode, PromptKind.ISSUE_AGENT);
-    }
 
     private String stripLegacyBlock(String basePrompt) {
         if (basePrompt.contains(BEGIN_MARKER) && basePrompt.contains(END_MARKER)) {
@@ -133,10 +124,5 @@ public class SystemPromptAssembler {
             log.warn("Failed to read system-prompt template {}: {}", resourcePath, e.getMessage());
             return "";
         }
-    }
-
-    /** Visible for tests that want a clean cache state. */
-    static void clearTemplateCacheForTests() {
-        TEMPLATE_CACHE.clear();
     }
 }

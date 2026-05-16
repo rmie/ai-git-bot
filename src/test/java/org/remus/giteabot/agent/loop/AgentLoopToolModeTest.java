@@ -36,12 +36,11 @@ class AgentLoopToolModeTest {
     @Mock private AiClient aiClient;
     @Mock private AgentSessionService sessionService;
 
-    private AgentSession session;
     private AgentRunContext ctx;
 
     @BeforeEach
     void setUp() {
-        session = new AgentSession("owner", "repo", 7L, "title");
+        AgentSession session = new AgentSession("owner", "repo", 7L, "title");
         ctx = new AgentRunContext(session, "owner", "repo", 7L, Path.of("/tmp/ws"), "main");
         when(sessionService.toAiMessages(session)).thenReturn(List.of());
     }

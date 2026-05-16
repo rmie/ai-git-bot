@@ -6,7 +6,6 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.remus.giteabot.agent.loop.AgentRunContext;
-import org.remus.giteabot.agent.loop.LoopOutcome;
 import org.remus.giteabot.agent.loop.StepDecision;
 import org.remus.giteabot.agent.session.AgentSession;
 import org.remus.giteabot.agent.session.AgentSessionService;
@@ -55,7 +54,6 @@ class CodingAgentStrategyTest {
     @Mock private AgentToolRouter toolRouter;
 
     private AgentConfigProperties agentConfig;
-    private AgentSession session;
     private AgentRunContext ctx;
     private AgentPromptBuilder promptBuilder;
     private AiResponseParser responseParser;
@@ -64,11 +62,11 @@ class CodingAgentStrategyTest {
     void setUp() {
         agentConfig = new AgentConfigProperties();
         agentConfig.getValidation().setEnabled(true);
-        agentConfig.getValidation().setMaxRetries(3);
+        agentConfig.getBudget().setMaxValidationRetries(3);
         agentConfig.getValidation().setMaxToolExecutions(10);
         promptBuilder = new AgentPromptBuilder();
         responseParser = new AiResponseParser();
-        session = new AgentSession("o", "r", 1L, "t");
+        AgentSession session = new AgentSession("o", "r", 1L, "t");
         ctx = new AgentRunContext(session, "o", "r", 1L, Path.of("/tmp/ws"), "main");
 
         // Tool classification: "mvn" is a validation tool, others are not.

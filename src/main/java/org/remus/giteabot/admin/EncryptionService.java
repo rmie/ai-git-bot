@@ -1,5 +1,6 @@
 package org.remus.giteabot.admin;
 
+import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -28,6 +29,7 @@ public class EncryptionService {
 
     private final SecretKeySpec secretKey;
     private final SecureRandom secureRandom = new SecureRandom();
+    @Getter
     private final boolean encryptionEnabled;
 
     public EncryptionService(@Value("${app.encryption-key:#{null}}") String encryptionKey) {
@@ -135,7 +137,4 @@ public class EncryptionService {
         }
     }
 
-    public boolean isEncryptionEnabled() {
-        return encryptionEnabled;
-    }
 }

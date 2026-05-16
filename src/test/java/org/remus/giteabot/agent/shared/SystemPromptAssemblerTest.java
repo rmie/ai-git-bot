@@ -118,11 +118,4 @@ class SystemPromptAssemblerTest {
         assertFalse(out.contains("Available MCP tools"));
     }
 
-    @Test
-    void deprecated3ArgOverloadStillWorks() {
-        @SuppressWarnings("deprecation")
-        String out = new SystemPromptAssembler().assemble(CLEAN_BASE, catalog, ToolingMode.LEGACY);
-        assertTrue(out.contains("## Output Format"),
-                "3-arg overload must default to ISSUE_AGENT and apply the same logic");
-    }
 }

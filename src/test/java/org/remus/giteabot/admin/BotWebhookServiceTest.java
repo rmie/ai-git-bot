@@ -227,7 +227,6 @@ class BotWebhookServiceTest {
                 .thenReturn(WorkspaceResult.success(Path.of("/tmp/writer-test-workspace")));
         when(repositoryApiClient.getRepositoryTree("Test", "my-repo", "main")).thenReturn(java.util.List.of());
         when(agentSessionService.toAiMessages(session)).thenReturn(java.util.List.of());
-        lenient().when(agentConfig.getMaxTokens()).thenReturn(4096);
         when(aiClient.chat(any(), any(), startsWith("Writer prompt"), any(), eq(4096))).thenReturn("""
                 {"qualityAssessment":"Missing acceptance criteria","revisedIssueDraft":"## Goal\\nDo something testable","assumptions":[],"openQuestions":[],"readyToCreate":true}
                 """);
@@ -260,7 +259,6 @@ class BotWebhookServiceTest {
                 .thenReturn(WorkspaceResult.success(Path.of("/tmp/writer-test-workspace")));
         when(repositoryApiClient.getRepositoryTree("Test", "my-repo", "main")).thenReturn(java.util.List.of());
         when(agentSessionService.toAiMessages(session)).thenReturn(java.util.List.of());
-        lenient().when(agentConfig.getMaxTokens()).thenReturn(4096);
         when(aiClient.chat(any(), any(), startsWith("Writer prompt"), any(), eq(4096))).thenReturn("""
                 Now I have enough context. Let me look at the exact filtering logic in the webhook handlers.
 
@@ -368,7 +366,6 @@ class BotWebhookServiceTest {
                 .thenReturn(WorkspaceResult.success(workspace));
         when(repositoryApiClient.getRepositoryTree("Test", "my-repo", "main")).thenReturn(java.util.List.of());
         when(agentSessionService.toAiMessages(session)).thenReturn(java.util.List.of());
-        lenient().when(agentConfig.getMaxTokens()).thenReturn(4096);
         when(aiClient.chat(any(), any(), startsWith("Writer prompt"), any(), eq(4096)))
                 .thenReturn("""
                         {"qualityAssessment":"Needs repo context","requestTools":[{"id":"1","tool":"branch-switcher","args":["develop"]},{"id":"2","tool":"cat","args":["README.md"]}],"readyToCreate":false}
@@ -431,7 +428,6 @@ class BotWebhookServiceTest {
                 .thenReturn(WorkspaceResult.success(Path.of("/tmp/writer-test-workspace")));
         when(repositoryApiClient.getRepositoryTree("Test", "my-repo", "main")).thenReturn(java.util.List.of());
         when(agentSessionService.toAiMessages(session)).thenReturn(java.util.List.of());
-        lenient().when(agentConfig.getMaxTokens()).thenReturn(4096);
         when(aiClient.chat(any(), any(), startsWith("Writer prompt"), any(), eq(4096))).thenReturn("""
                 {"qualityAssessment":"Missing acceptance criteria","revisedIssueDraft":"## Goal\\nDo something testable","assumptions":[],"openQuestions":[],"readyToCreate":true}
                 """);
@@ -465,7 +461,6 @@ class BotWebhookServiceTest {
                 .thenReturn(WorkspaceResult.success(Path.of("/tmp/writer-test-workspace")));
         when(repositoryApiClient.getRepositoryTree("Test", "my-repo", "main")).thenReturn(java.util.List.of());
         when(agentSessionService.toAiMessages(session)).thenReturn(java.util.List.of());
-        lenient().when(agentConfig.getMaxTokens()).thenReturn(4096);
         when(aiClient.chat(any(), any(), startsWith("Writer prompt"), any(), eq(4096)))
                 .thenThrow(new RuntimeException("simulated loop failure"));
 
@@ -495,7 +490,6 @@ class BotWebhookServiceTest {
                 .thenReturn(WorkspaceResult.success(Path.of("/tmp/writer-test-workspace")));
         when(repositoryApiClient.getRepositoryTree("Test", "my-repo", "main")).thenReturn(java.util.List.of());
         when(agentSessionService.toAiMessages(session)).thenReturn(java.util.List.of());
-        lenient().when(agentConfig.getMaxTokens()).thenReturn(4096);
         when(aiClient.chat(any(), any(), startsWith("Writer prompt"), any(), eq(4096))).thenReturn("""
                 {"qualityAssessment":"Missing target behavior","clarifyingQuestions":["What should happen?"],"readyToCreate":false}
                 """);
@@ -531,7 +525,6 @@ class BotWebhookServiceTest {
                 .thenReturn(WorkspaceResult.success(workspace));
         when(repositoryApiClient.getRepositoryTree("Test", "my-repo", "main")).thenReturn(java.util.List.of());
         when(agentSessionService.toAiMessages(session)).thenReturn(java.util.List.of());
-        lenient().when(agentConfig.getMaxTokens()).thenReturn(4096);
         when(aiClient.chat(any(), any(), startsWith("Writer prompt"), any(), eq(4096)))
                 .thenReturn(contextRequest, contextRequest, contextRequest,
                         contextRequest, contextRequest, contextRequest);
@@ -573,7 +566,6 @@ class BotWebhookServiceTest {
                 .thenReturn(WorkspaceResult.success(workspace));
         when(repositoryApiClient.getRepositoryTree("Test", "my-repo", "main")).thenReturn(java.util.List.of());
         when(agentSessionService.toAiMessages(session)).thenReturn(java.util.List.of());
-        lenient().when(agentConfig.getMaxTokens()).thenReturn(4096);
         when(aiClient.chat(any(), any(), startsWith("Writer prompt"), any(), eq(4096)))
                 .thenReturn(contextRequest, contextRequest, contextRequest, contextRequest, finalResponse);
         when(toolExecutionService.isContextTool("cat")).thenReturn(true);
@@ -609,7 +601,6 @@ class BotWebhookServiceTest {
         when(workspaceService.prepareWorkspace(eq("Test"), eq("my-repo"), eq("main"), any(), any()))
                 .thenReturn(WorkspaceResult.success(Path.of("/tmp/writer-test-workspace")));
         when(agentSessionService.toAiMessages(session)).thenReturn(java.util.List.of());
-        lenient().when(agentConfig.getMaxTokens()).thenReturn(4096);
         when(aiClient.chat(any(), any(), startsWith("Writer prompt"), any(), eq(4096)))
                 .thenThrow(new RuntimeException("follow-up failure"));
 

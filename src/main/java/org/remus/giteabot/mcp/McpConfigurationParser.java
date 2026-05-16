@@ -5,7 +5,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 
 import java.util.ArrayList;
-import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -42,9 +41,7 @@ public class McpConfigurationParser {
             return;
         }
         if (node.has("mcpServers") && node.get("mcpServers").isObject()) {
-            Iterator<Map.Entry<String, JsonNode>> fields = node.get("mcpServers").fields();
-            while (fields.hasNext()) {
-                Map.Entry<String, JsonNode> entry = fields.next();
+            for (Map.Entry<String, JsonNode> entry : node.get("mcpServers").properties()) {
                 servers.add(toServerDefinition(entry.getKey(), entry.getValue()));
             }
             return;

@@ -1,6 +1,5 @@
 package org.remus.giteabot.config;
 
-import jakarta.annotation.PostConstruct;
 import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
@@ -22,19 +21,6 @@ public class AgentConfigProperties {
      */
     private int maxFiles = 10;
 
-    /**
-     * Maximum tokens for AI responses during issue implementation.
-     * This is typically higher than the default for code reviews since
-     * implementation responses include full file contents.
-     *
-     * @deprecated Step 7.2 — use {@link BudgetConfig#getMaxTokensPerCall()}
-     *             via {@link #getBudget()}. Kept for backwards compatibility:
-     *             if a deployment still sets {@code agent.max-tokens} the
-     *             {@link #applyLegacyBudgetDefaults()} hook copies the value
-     *             into {@link BudgetConfig}.
-     */
-    @Deprecated
-    private int maxTokens = 16384;
 
     /**
      * Whitelist of repositories (in "owner/repo" format) where the agent is active.
@@ -90,26 +76,6 @@ public class AgentConfigProperties {
      */
     private CriticConfig critic = new CriticConfig();
 
-    /**
-     * Bridges legacy {@code agent.validation.*} / {@code agent.max-tokens} /
-     * {@code agent.writer.*} settings into {@link BudgetConfig} so that
-     * existing deployments keep their previous behaviour without having to
-     * touch their config files.
-     */
-    @PostConstruct
-    void applyLegacyBudgetDefaults() {
-        // Only copy from the legacy fields if the operator did not explicitly
-        // override the new BudgetConfig values (i.e. they still hold the
-        // built-in defaults). This keeps "the new config wins" semantics.
-        BudgetConfig defaults = new BudgetConfig();
-        if (budget.getMaxValidationRetries() == defaults.getMaxValidationRetries()
-                && validation != null) {
-            budget.setMaxValidationRetries(validation.isEnabled() ? validation.getMaxRetries() : 1);
-        }
-        if (budget.getMaxTokensPerCall() == defaults.getMaxTokensPerCall()) {
-            budget.setMaxTokensPerCall(maxTokens);
-        }
-    }
 
     @Data
     public static class SchemaConfig {
@@ -162,10 +128,6 @@ public class AgentConfigProperties {
 
     /**
      * Step 7.2 — single source of truth for all numeric agent-loop budgets.
-     * Existing deployments may continue to set {@code agent.validation.*} and
-     * {@code agent.max-tokens}; the legacy values are copied into this object
-     * by {@link AgentConfigProperties#applyLegacyBudgetDefaults()} when the
-     * new properties are left at their defaults.
      */
     @Data
     public static class BudgetConfig {
@@ -244,17 +206,6 @@ public class AgentConfigProperties {
          * Whether to validate generated code before committing.
          */
         private boolean enabled = true;
-
-        /**
-         * Maximum number of validation/correction iterations.
-         * If code fails validation, it will be sent back to AI for fixes up to this many times.
-         *
-         * @deprecated Step 7.2 — use {@link BudgetConfig#getMaxValidationRetries()}.
-         *             Kept for backwards compatibility; copied into BudgetConfig
-         *             by {@link AgentConfigProperties#applyLegacyBudgetDefaults()}.
-         */
-        @Deprecated
-        private int maxRetries = 3;
 
         /**
          * Maximum number of tool executions per validation cycle.

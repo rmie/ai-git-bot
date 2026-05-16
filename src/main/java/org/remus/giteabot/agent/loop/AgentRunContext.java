@@ -1,5 +1,6 @@
 package org.remus.giteabot.agent.loop;
 
+import lombok.Setter;
 import org.remus.giteabot.agent.session.AgentSession;
 
 import java.nio.file.Path;
@@ -19,6 +20,7 @@ public final class AgentRunContext {
     private final String repo;
     private final Long issueNumber;
     private final Path workspaceDir;
+    @Setter
     private String baseBranch;
 
     public AgentRunContext(AgentSession session, String owner, String repo,
@@ -37,6 +39,5 @@ public final class AgentRunContext {
     public Long issueNumber() { return issueNumber; }
     public Path workspaceDir() { return workspaceDir; }
     public String baseBranch() { return baseBranch; }
-    public void setBaseBranch(String baseBranch) { this.baseBranch = baseBranch; }
 }
 

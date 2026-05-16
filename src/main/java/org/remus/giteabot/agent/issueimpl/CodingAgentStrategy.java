@@ -119,8 +119,7 @@ public final class CodingAgentStrategy implements AgentStrategy {
         this.mcpOrchestrationService = mcpOrchestrationService;
         this.mcpToolCatalog = mcpToolCatalog;
         this.fetchContext = contextFetcher;
-        this.maxRetries = agentConfig.getValidation().isEnabled()
-                ? agentConfig.getValidation().getMaxRetries() : 1;
+        this.maxRetries =  agentConfig.getBudget().getMaxValidationRetries();
         this.maxToolRounds = agentConfig.getValidation().getMaxToolExecutions();
         this.maxContextRounds = agentConfig.getBudget().getMaxContextRounds();
     }
@@ -294,7 +293,7 @@ public final class CodingAgentStrategy implements AgentStrategy {
     }
 
     private static String asString(JsonNode node) {
-        return node.isTextual() ? node.asString() : node.toString();
+        return node.isString() ? node.asString() : node.toString();
     }
 
     /** Decide whether a tool request mutates the workspace or validates. */
