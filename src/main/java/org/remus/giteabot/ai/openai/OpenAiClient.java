@@ -25,7 +25,7 @@ import java.util.Locale;
  *
  * <p>Step 6: implements native function calling via {@code tools[]} +
  * {@code tool_calls}. Activation is gated by the per-integration
- * {@code use_legacy_tool_calling} switch (see {@link AiIntegration}).</p>
+ * {@code use_legacy_tool_calling} switch (see {@link org.remus.giteabot.admin.AiIntegration}).</p>
  */
 @Slf4j
 public class OpenAiClient extends AbstractAiClient {
