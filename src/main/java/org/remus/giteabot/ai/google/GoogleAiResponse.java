@@ -35,6 +35,13 @@ public class GoogleAiResponse {
     /**
      * Polymorphic response part. May carry plain {@code text} or, when the
      * model wants to invoke a tool (Step 6), a {@link #functionCall} block.
+     *
+     * <p>Gemini 3.x additionally returns a {@code thoughtSignature} alongside
+     * each function call. The API requires this signature to be echoed back
+     * verbatim when the call is replayed in the conversation history
+     * (otherwise the request fails with
+     * {@code "Function call is missing a thought_signature"}). The field is
+     * absent on older models.</p>
      */
     @Data
     @JsonIgnoreProperties(ignoreUnknown = true)
@@ -42,6 +49,8 @@ public class GoogleAiResponse {
         private String text;
         @JsonProperty("functionCall")
         private FunctionCall functionCall;
+        @JsonProperty("thoughtSignature")
+        private String thoughtSignature;
     }
 
     @Data

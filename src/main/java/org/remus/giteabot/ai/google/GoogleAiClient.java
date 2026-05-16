@@ -35,6 +35,14 @@ public class GoogleAiClient extends AbstractAiClient {
 
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
+    /**
+     * Key used in {@link ToolCall#providerMetadata()} to carry the Gemini 3.x
+     * {@code thoughtSignature} between turns. The signature must be replayed
+     * verbatim on every replayed function-call part or the API rejects the
+     * request with {@code "Function call is missing a thought_signature"}.
+     */
+    private static final String THOUGHT_SIGNATURE_KEY = "thoughtSignature";
+
     private final RestClient restClient;
     private final boolean nativeToolsEnabled;
     private final tools.jackson.databind.ObjectMapper jackson3 = AgentJackson.mapper();
@@ -176,6 +184,10 @@ public class GoogleAiClient extends AbstractAiClient {
                     parts.add(GoogleAiRequest.Part.builder().text(m.getContent()).build());
                 }
                 for (ToolCall call : m.getToolCalls()) {
+                    // Replay any Gemini 3.x thoughtSignature that the model
+                    // returned alongside this call — see ToolCall.providerMetadata.
+                    String thoughtSignature = call.providerMetadata() != null
+                            ? call.providerMetadata().get(THOUGHT_SIGNATURE_KEY) : null;
                     parts.add(GoogleAiRequest.Part.builder()
                             .functionCall(GoogleAiRequest.FunctionCall.builder()
                                     .name(call.name())
@@ -183,6 +195,7 @@ public class GoogleAiClient extends AbstractAiClient {
                                             ? jackson3.convertValue(call.args(), Map.class)
                                             : Map.of())
                                     .build())
+                            .thoughtSignature(thoughtSignature)
                             .build());
                 }
                 contents.add(GoogleAiRequest.Content.builder()
@@ -236,19 +249,34 @@ public class GoogleAiClient extends AbstractAiClient {
 
         StringBuilder text = new StringBuilder();
         List<ToolCall> calls = new ArrayList<>();
-        int idx = 0;
         for (GoogleAiResponse.Part part : candidate.getContent().getParts()) {
             if (part.getText() != null && !part.getText().isBlank()) {
                 text.append(part.getText());
             } else if (part.getFunctionCall() != null) {
                 Map<String, Object> args = part.getFunctionCall().getArgs() != null
                         ? part.getFunctionCall().getArgs() : new LinkedHashMap<>();
-                JsonNode argsNode = OBJECT_MAPPER.valueToTree(args);
                 tools.jackson.databind.JsonNode args3 = jackson3.valueToTree(args);
+                // Gemini's functionCall response does not carry a per-call id (unlike
+                // OpenAI / Anthropic). Synthesise one as "<name>:<random-suffix>" so
+                // callNameFor() can recover the function name from the prefix while
+                // the suffix stays globally unique across rounds. A plain incrementing
+                // counter would collide across turns (the loop creates a fresh
+                // ChatTurn per round) and surface as duplicate ids in issue comments.
+                String syntheticId = part.getFunctionCall().getName()
+                        + ":" + java.util.UUID.randomUUID().toString().substring(0, 8);
+                // Gemini 3.x attaches a thoughtSignature to every functionCall part
+                // and rejects subsequent requests that replay the call without it.
+                // Preserve it via the generic providerMetadata bag so buildToolContents
+                // can echo it back verbatim. Older models leave the field null and we
+                // simply skip the metadata.
+                Map<String, String> meta = part.getThoughtSignature() != null
+                        ? Map.of(THOUGHT_SIGNATURE_KEY, part.getThoughtSignature())
+                        : null;
                 calls.add(new ToolCall(
-                        part.getFunctionCall().getName() + ":" + (idx++),
+                        syntheticId,
                         part.getFunctionCall().getName(),
-                        args3));
+                        args3,
+                        meta));
             }
         }
         StopReason reason = mapStopReason(candidate.getFinishReason());

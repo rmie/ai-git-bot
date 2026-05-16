@@ -45,6 +45,11 @@ public class GoogleAiRequest {
     /**
      * Polymorphic part. Exactly one of {@link #text}, {@link #functionCall} or
      * {@link #functionResponse} should be populated.
+     *
+     * <p>{@link #thoughtSignature} is only set when replaying a Gemini 3.x
+     * {@code functionCall} from history — Gemini requires the original
+     * signature to be returned verbatim or it rejects the request with
+     * {@code "Function call is missing a thought_signature"}.</p>
      */
     @Data
     @Builder
@@ -55,6 +60,8 @@ public class GoogleAiRequest {
         private FunctionCall functionCall;
         @JsonProperty("functionResponse")
         private FunctionResponse functionResponse;
+        @JsonProperty("thoughtSignature")
+        private String thoughtSignature;
     }
 
     @Data
