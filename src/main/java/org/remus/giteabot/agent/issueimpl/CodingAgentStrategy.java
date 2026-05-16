@@ -272,22 +272,43 @@ public final class CodingAgentStrategy implements AgentStrategy {
         List<String> args = new ArrayList<>();
         JsonNode root = call.args();
         if (root != null && root.isObject()) {
-            // 1) varargs convention: a top-level "args" array.
-            JsonNode varargs = root.get("args");
-            if (varargs != null && varargs.isArray()) {
-                varargs.forEach(node -> args.add(asString(node)));
+            // MCP tools accept arbitrary provider-defined schemas (any field name).
+            // Flattening only known property names would silently drop all of them
+            // and the MCP server would reject the call with a parameter-validation
+            // error. Pass the full args object as a single JSON-encoded arg so
+            // McpOrchestrationService.parseArguments can turn it back into a Map.
+            if (McpTools.looksLikeMcpTool(call.name())) {
+                args.add(root.toString());
             } else {
-                // 2) Typed schema (write-file/patch-file/mkdir/delete-file/cat/branch-switcher):
-                //    flatten the known property order into positional args. We honour the
-                //    schema ordering documented in AgentNativeTools so the existing executors
-                //    keep working unchanged.
-                addIfPresent(root, "path", args);
-                addIfPresent(root, "branch", args);
-                addIfPresent(root, "content", args);
-                addIfPresent(root, "search", args);
-                addIfPresent(root, "replacement", args);
-                addIfPresent(root, "startLine", args);
-                addIfPresent(root, "endLine", args);
+                // 1) varargs convention: a top-level "args" array.
+                JsonNode varargs = root.get("args");
+                if (varargs != null && varargs.isArray()) {
+                    varargs.forEach(node -> args.add(asString(node)));
+                } else {
+                    // 2) Typed schema (write-file/patch-file/mkdir/delete-file/cat/branch-switcher):
+                    //    flatten the known property order into positional args. We honour the
+                    //    schema ordering documented in AgentNativeTools so the existing executors
+                    //    keep working unchanged.
+                    addIfPresent(root, "path", args);
+                    addIfPresent(root, "branch", args);
+                    addIfPresent(root, "content", args);
+                    addIfPresent(root, "search", args);
+                    addIfPresent(root, "replacement", args);
+                    addIfPresent(root, "startLine", args);
+                    addIfPresent(root, "endLine", args);
+                    // 3) Safety net: if the whitelist matched nothing but the args object
+                    //    actually carried fields, the model is either using a tool we don't
+                    //    recognise or a schema we haven't updated. Fall through to a JSON
+                    //    blob so the call still carries data and surface a warning so the
+                    //    schema drift gets noticed.
+                    if (args.isEmpty() && root.size() > 0) {
+                        log.warn("Tool '{}' called with unrecognised arg fields {} — "
+                                + "passing raw JSON. Update CodingAgentStrategy.toRequest if this tool "
+                                + "is supposed to be supported natively.",
+                                call.name(), fieldNames(root));
+                        args.add(root.toString());
+                    }
+                }
             }
         }
         return ImplementationPlan.ToolRequest.builder()
@@ -295,6 +316,12 @@ public final class CodingAgentStrategy implements AgentStrategy {
                 .tool(call.name())
                 .args(args)
                 .build();
+    }
+
+    private static List<String> fieldNames(JsonNode root) {
+        List<String> names = new ArrayList<>();
+        root.propertyNames().forEach(names::add);
+        return names;
     }
 
     private static void addIfPresent(JsonNode root, String field, List<String> out) {

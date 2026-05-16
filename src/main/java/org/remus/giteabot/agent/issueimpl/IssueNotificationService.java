@@ -2,6 +2,7 @@ package org.remus.giteabot.agent.issueimpl;
 
 import lombok.extern.slf4j.Slf4j;
 import org.remus.giteabot.agent.model.ImplementationPlan;
+import org.remus.giteabot.agent.shared.McpTools;
 import org.remus.giteabot.agent.validation.ToolExecutionService;
 import org.remus.giteabot.agent.validation.ToolResult;
 import org.remus.giteabot.repository.RepositoryApiClient;
@@ -138,17 +139,21 @@ public class IssueNotificationService {
 
         if (hasRequests) {
             // Split into context (silent read-only) and validation/mutation tools so the
-            // user can quickly see what's about to touch the workspace.
+            // user can quickly see what's about to touch the workspace. MCP tools
+            // (mcp:<server>:<tool>) are read-only lookups and belong in the context
+            // bucket, not in "Will run" alongside mvn/gradle/npm.
             List<ImplementationPlan.ToolRequest> contextTools = requests.stream()
-                    .filter(r -> toolExecutionService.isSilentTool(r.getTool())
+                    .filter(r -> (toolExecutionService.isSilentTool(r.getTool())
                             && !toolExecutionService.isFileTool(r.getTool()))
+                            || McpTools.looksLikeMcpTool(r.getTool()))
                     .toList();
             List<ImplementationPlan.ToolRequest> mutationTools = requests.stream()
                     .filter(r -> toolExecutionService.isFileTool(r.getTool()))
                     .toList();
             List<ImplementationPlan.ToolRequest> validationTools = requests.stream()
                     .filter(r -> !toolExecutionService.isSilentTool(r.getTool())
-                            && !toolExecutionService.isFileTool(r.getTool()))
+                            && !toolExecutionService.isFileTool(r.getTool())
+                            && !McpTools.looksLikeMcpTool(r.getTool()))
                     .toList();
 
             if (!contextTools.isEmpty()) {

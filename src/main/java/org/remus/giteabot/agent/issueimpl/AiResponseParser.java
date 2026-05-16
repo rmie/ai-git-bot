@@ -51,7 +51,12 @@ public class AiResponseParser {
 
         String jsonStr = extractJsonFromResponse(aiResponse);
         if (jsonStr == null) {
-            log.warn("Could not extract JSON from AI response");
+            // Native tool-calling mode legitimately produces many assistant
+            // responses without any embedded JSON plan (the structured intent
+            // lives in tool_calls instead). Logging at WARN spammed the log;
+            // keep it at DEBUG so legacy diagnostics are still available when
+            // operators explicitly enable debug for this class.
+            log.debug("Could not extract JSON from AI response");
             return null;
         }
 

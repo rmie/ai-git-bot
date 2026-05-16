@@ -666,11 +666,24 @@ public class IssueImplementationService {
             return null;
         }
         for (int i = messages.size() - 1; i >= 0; i--) {
-            if ("assistant".equals(messages.get(i).getRole())) {
-                ImplementationPlan p = responseParser.parseAiResponse(messages.get(i).getContent());
-                if (p != null) {
-                    return p;
-                }
+            AiMessage msg = messages.get(i);
+            if (!"assistant".equals(msg.getRole())) {
+                continue;
+            }
+            String content = msg.getContent();
+            // Skip messages that obviously cannot contain a JSON plan. In native
+            // tool-calling mode most assistant turns are plain reasoning text or
+            // pure tool_call envelopes — running the parser on them would only
+            // log "Could not extract JSON" warnings without ever returning a plan.
+            if (content == null || content.isBlank()) {
+                continue;
+            }
+            if (!content.contains("{")) {
+                continue;
+            }
+            ImplementationPlan p = responseParser.parseAiResponse(content);
+            if (p != null) {
+                return p;
             }
         }
         return null;
