@@ -234,6 +234,142 @@ These settings mainly affect the **coding agent** validation workflow:
 | `AGENT_VALIDATION_MAX_TOOL_EXECUTIONS` | `agent.validation.max-tool-executions` | `10` | Max total tool rounds per session |
 | `AGENT_VALIDATION_TOOL_TIMEOUT` | `agent.validation.tool-timeout-seconds` | `300` | Timeout for each tool command |
 | `AGENT_VALIDATION_AVAILABLE_TOOLS` | `agent.validation.available-tools` | `mvn,gradle,npm,...,dotnet` | Comma-separated list of available validation tools |
+| `AGENT_SCHEMA_ENFORCE` | `agent.schema.enforce` | `false` | Reject AI plan responses that fail JSON-Schema validation. When `false` (default) violations are only counted via the `agent.plan.schema_violations_total` Micrometer counter and the existing repair heuristics still run. See [JSON-Schema Validation](#json-schema-validation-step-5) below. |
+
+### JSON-Schema Validation (Step 5)
+
+Both agents return structured JSON plans. Since version 1.6 these plans are
+validated against the bundled schemas
+
+- `src/main/resources/agent/schemas/coding-plan.schema.json`
+- `src/main/resources/agent/schemas/writer-plan.schema.json`
+
+The validator runs in **observe-only mode by default**: violations are logged at
+WARN level (with the schema path and the first 500 characters of the offending
+payload) and counted as the
+`agent.plan.schema_violations_total{agent=coding|writer}` Micrometer counter
+exposed under `/actuator/prometheus`.
+
+Set `AGENT_SCHEMA_ENFORCE=true` (env) or `agent.schema.enforce=true`
+(properties) to switch to **enforce mode**. In enforce mode an invalid response
+is rejected, the agent loop falls back to the existing "no plan returned"
+handling and asks the model to retry. Enforce mode is intended for
+post-rollout once telemetry shows that the schemas accept all real-world
+responses without false positives.
+
+### Provider-native Function Calling (Step 6)
+
+> 💡 For an operator-facing knowledge base on **why** provider tool APIs
+> differ, which fallbacks and safety nets exist, and what to do when a
+> model misbehaves (including the **legacy tool-calling switch**), see
+> [TOOL_CALLING.md](TOOL_CALLING.md).
+
+`AiClient` exposes `chatWithTools(history, message, tools, systemPrompt,
+modelOverride, maxTokens) → ChatTurn` next to the textual `chat(...)` API.
+The result carries `assistantText`, structured `ToolCall`s (each with a
+provider-supplied `id`, `name` and `JsonNode args`) and a `StopReason`. The
+default implementation falls back to `chat(...)` so providers without native
+support behave exactly as before.
+
+| Provider | Native tool calling |
+|---|---|
+| Anthropic | ✅ `tools[]` + `tool_use`/`tool_result` content blocks |
+| OpenAI | ✅ `tools[]` + `tool_calls`/`tool_call_id` |
+| Google Gemini | ✅ `tools[].functionDeclarations` + `functionCall`/`functionResponse` |
+| Ollama | ✅ `tools[]` (OpenAI-compatible) on `/api/chat` |
+| llama.cpp | ❌ stays on `/completion` with GBNF; opt out — falls back to legacy chat path |
+
+Each AI integration carries a per-row toggle
+`use_legacy_tool_calling` (boolean, **default `true`** — legacy mode is the
+current default). The admin form (`/ai-integrations/new` and edit) exposes
+the **inverse** as a positively-phrased switch labelled "Enable
+experimental native tool calling" with a popover explaining both modes.
+When the operator leaves the switch off (default), the provider-specific
+factory passes `nativeToolsEnabled=false` to the client and
+`chatWithTools` automatically delegates to `chat(...)`. Native function
+calling is currently considered experimental and is expected to become
+the default once the upstream provider APIs stabilise further — see
+[TOOL_CALLING.md](TOOL_CALLING.md).
+
+#### AgentLoop integration
+
+`AgentStrategy` exposes three opt-in hooks:
+
+- `preferredToolMode()` returns `LEGACY` (default) or `NATIVE`.
+- `toolDescriptors()` returns the `ToolDescriptor`s the model may invoke.
+- `step(AgentRunContext, ChatTurn, int)` receives the structured turn; the
+  default delegates to the textual `step(...)` so existing strategies keep
+  working untouched.
+
+`AgentLoop` runs in `NATIVE` mode only when the strategy asks for it,
+the configured `AiClient.supportsNativeTools()` is `true` and at least one
+descriptor is supplied; otherwise it transparently falls back to the legacy
+text path.
+
+#### Telemetry
+
+The `AgentMetrics` Spring bean publishes three Micrometer meters under
+`/actuator/prometheus`:
+
+| Metric | Tags | Meaning |
+|---|---|---|
+| `agent.tool_call.mode_total` | `mode={native,legacy}`, `provider` | One increment per AI round. |
+| `agent.tool_call.parse_failures_total` | `provider` | Plan/tool-call parse failures (Step 7 hook). |
+| `agent.tool_call.latency_seconds` | `mode`, `provider` | Wall-clock per AI round. |
+
+`provider` is the lower-cased simple class name of the active client
+(`openaiclient`, `anthropicaiclient`, …).
+
+### Plan persistence, consolidated budgets and the optional Critic step (Step 7)
+
+#### Plan persistence
+
+The most recently parsed `ImplementationPlan` is now written through to the
+`agent_sessions` row by `AgentSessionService.recordPlan(...)` after every
+successful `AiResponseParser.parseAiResponse`. Three new columns store
+`last_plan_summary` (VARCHAR 2048), `last_plan_json` (CLOB / TEXT) and
+`last_plan_at` (TIMESTAMP). Downstream callers (PR-body generation, follow-up
+comments) read the plan in O(1) instead of walking the conversation history.
+A history-walk fallback remains for sessions created before Flyway migration
+`V10__step6_step7_schema_and_prompt_updates.sql`.
+
+#### Consolidated budget config
+
+All numeric loop budgets are now grouped under `agent.budget.*`:
+
+```yaml
+agent:
+  budget:
+    max-rounds: 10                          # AgentLoop hard cap
+    max-context-rounds: 5                   # pure context-fetch rounds
+    max-validation-retries: 3               # validation/correction iterations
+    max-context-tool-requests-per-round: 10 # ls/cat/find calls per AI turn
+    max-tokens-per-call: 16384              # passed to chat / chatWithTools
+```
+
+The legacy properties `agent.max-tokens` and `agent.validation.max-retries`
+are still honoured: a `@PostConstruct` hook copies them into the new
+`BudgetConfig` whenever its fields are still at their defaults, so existing
+deployments keep their previous behaviour without any config edits.
+
+#### Optional Critic / Reflection step
+
+Disabled by default. When enabled, an extra LLM call after successful
+validation reviews whether the actual diff really addresses the issue:
+
+```yaml
+agent:
+  critic:
+    enabled: false                       # opt-in
+    max-iterations: 1
+    require-approval-for: [LARGE_DIFF]   # informational, future use
+```
+
+The critic returns one of `APPROVE`, `ITERATE` or `ABORT`. With
+`enabled=false` (default) the helper short-circuits with `SKIPPED` and makes
+**no** AI call — verified in `CriticAgentTest#disabledNeverCallsAi`. The
+outcome is published as `agent.critic.outcome_total{outcome=…}` in
+Prometheus.
 
 ## AI-Driven Code Generation and Validation (Coding Agent)
 

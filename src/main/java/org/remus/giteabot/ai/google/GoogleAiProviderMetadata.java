@@ -67,7 +67,8 @@ public class GoogleAiProviderMetadata implements AiProviderMetadata {
                 integration.getMaxTokens(),
                 integration.getMaxDiffCharsPerChunk(),
                 integration.getMaxDiffChunks(),
-                integration.getRetryTruncatedChunkChars()
+                integration.getRetryTruncatedChunkChars(),
+                !integration.isUseLegacyToolCalling()
         );
     }
 }

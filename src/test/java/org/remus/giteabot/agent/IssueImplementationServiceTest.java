@@ -30,7 +30,6 @@ import java.util.Objects;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
@@ -87,13 +86,10 @@ class IssueImplementationServiceTest {
                 isNull(), isNull()))
                 .thenReturn(WorkspaceResult.success(FAKE_WORKSPACE));
 
-        // AI context response (no tool requests, just requestFiles)
-        String contextResponse = """
-                ```json
-                {"summary": "Need context", "requestFiles": []}
-                ```
-                """;
-        // AI implementation response with write-file + mvn
+        // AI implementation response with write-file + mvn (single loop call now —
+        // the previous "Step 1: which files do you need?" pre-loop turn was folded
+        // into the AgentLoop in 2026-05; the strategy still supports context-only
+        // rounds, but tests only need to stub the meaningful turns).
         String implResponse = """
                 ```json
                 {
@@ -106,7 +102,7 @@ class IssueImplementationServiceTest {
                 ```
                 """;
         when(aiClient.chat(anyList(), anyString(), anyString(), isNull(), anyInt()))
-                .thenReturn(contextResponse, implResponse);
+                .thenReturn(implResponse);
 
         // write-file is a file tool → executeFileTool
         when(toolExecutionService.isFileTool("write-file")).thenReturn(true);
@@ -149,9 +145,9 @@ class IssueImplementationServiceTest {
         // at least 2 comments posted
         verify(repositoryClient, atLeast(2)).postIssueComment(eq("testowner"), eq("testrepo"), eq(42L), anyString());
         ArgumentCaptor<String> promptCaptor = ArgumentCaptor.forClass(String.class);
-        verify(aiClient, times(2)).chat(anyList(), promptCaptor.capture(), anyString(), isNull(), anyInt());
+        verify(aiClient, times(1)).chat(anyList(), promptCaptor.capture(), anyString(), isNull(), anyInt());
         assertThat(promptCaptor.getAllValues().get(0)).contains("Please keep backward compatibility");
-        assertThat(promptCaptor.getAllValues().get(1)).contains("Also add a migration note");
+        assertThat(promptCaptor.getAllValues().get(0)).contains("Also add a migration note");
     }
 
     @Test
@@ -173,11 +169,6 @@ class IssueImplementationServiceTest {
                 isNull(), isNull()))
                 .thenReturn(WorkspaceResult.success(FAKE_WORKSPACE));
 
-        String contextResponse = """
-                ```json
-                {"summary": "Need context", "requestFiles": []}
-                ```
-                """;
         String implResponse = """
                 ```json
                 {
@@ -190,7 +181,7 @@ class IssueImplementationServiceTest {
                 ```
                 """;
         when(aiClient.chat(anyList(), anyString(), anyString(), isNull(), anyInt()))
-                .thenReturn(contextResponse, implResponse);
+                .thenReturn(implResponse);
         when(toolExecutionService.isFileTool("write-file")).thenReturn(true);
         when(toolExecutionService.isFileTool("mvn")).thenReturn(false);
         when(toolExecutionService.isContextTool("mvn")).thenReturn(false);
@@ -209,11 +200,9 @@ class IssueImplementationServiceTest {
         serviceWithBotUsername.handleIssueAssigned(payload);
 
         ArgumentCaptor<String> promptCaptor = ArgumentCaptor.forClass(String.class);
-        verify(aiClient, times(2)).chat(anyList(), promptCaptor.capture(), anyString(), isNull(), anyInt());
+        verify(aiClient, times(1)).chat(anyList(), promptCaptor.capture(), anyString(), isNull(), anyInt());
         assertThat(promptCaptor.getAllValues().get(0)).contains("Human clarification that must be implemented");
         assertThat(promptCaptor.getAllValues().get(0)).doesNotContain("I've been assigned to this issue");
-        assertThat(promptCaptor.getAllValues().get(1)).contains("Human clarification that must be implemented");
-        assertThat(promptCaptor.getAllValues().get(1)).doesNotContain("I've been assigned to this issue");
     }
 
     @Test
@@ -228,11 +217,6 @@ class IssueImplementationServiceTest {
                 isNull(), isNull()))
                 .thenReturn(WorkspaceResult.success(FAKE_WORKSPACE));
 
-        String contextResponse = """
-                ```json
-                {"summary": "Need context", "requestFiles": []}
-                ```
-                """;
         String failedPatchResponse = """
                 ```json
                 {
@@ -256,7 +240,7 @@ class IssueImplementationServiceTest {
                 ```
                 """;
         when(aiClient.chat(anyList(), anyString(), anyString(), isNull(), anyInt()))
-                .thenReturn(contextResponse, failedPatchResponse, fixedWriteResponse);
+                .thenReturn(failedPatchResponse, fixedWriteResponse);
 
         when(toolExecutionService.isFileTool("patch-file")).thenReturn(true);
         when(toolExecutionService.isFileTool("write-file")).thenReturn(true);
@@ -331,8 +315,6 @@ class IssueImplementationServiceTest {
 
         when(repositoryClient.getDefaultBranch("testowner", "testrepo")).thenReturn("main");
         when(repositoryClient.getRepositoryTree("testowner", "testrepo", "main"))
-                .thenReturn(List.of(Map.of("type", "blob", "path", "README.md")));
-        when(repositoryClient.getRepositoryTree("testowner", "testrepo", "develop"))
                 .thenReturn(List.of(Map.of("type", "blob", "path", "README.md")));
         when(promptService.getSystemPrompt("agent")).thenReturn("You are an agent");
         when(workspaceService.prepareWorkspace(eq("testowner"), eq("testrepo"), eq("main"),
@@ -466,11 +448,6 @@ class IssueImplementationServiceTest {
                 isNull(), isNull()))
                 .thenReturn(WorkspaceResult.success(FAKE_WORKSPACE));
 
-        String initialContextResponse = """
-                ```json
-                {"summary": "Need initial context", "requestFiles": []}
-                ```
-                """;
         String followUpContextResponse = """
                 ```json
                 {"summary": "Need pom", "requestFiles": ["pom.xml"]}
@@ -488,7 +465,7 @@ class IssueImplementationServiceTest {
                 ```
                 """;
         when(aiClient.chat(anyList(), anyString(), anyString(), isNull(), anyInt()))
-                .thenReturn(initialContextResponse, followUpContextResponse, implResponse);
+                .thenReturn(followUpContextResponse, implResponse);
 
         when(repositoryClient.getFileContent("testowner", "testrepo", "pom.xml", "release/1.x"))
                 .thenReturn("<project />");
@@ -546,11 +523,6 @@ class IssueImplementationServiceTest {
         when(workspaceService.prepareWorkspace(any(), any(), any(), any(), any()))
                 .thenReturn(WorkspaceResult.success(FAKE_WORKSPACE));
 
-        String contextResponse = """
-                ```json
-                {"summary": "Need context", "requestFiles": []}
-                ```
-                """;
         String implResponse = """
                 ```json
                 {
@@ -563,7 +535,7 @@ class IssueImplementationServiceTest {
                 ```
                 """;
         when(aiClient.chat(anyList(), anyString(), anyString(), isNull(), anyInt()))
-                .thenReturn(contextResponse, implResponse);
+                .thenReturn(implResponse);
 
         when(toolExecutionService.isFileTool("write-file")).thenReturn(true);
         when(toolExecutionService.isFileTool("mvn")).thenReturn(false);
@@ -600,11 +572,6 @@ class IssueImplementationServiceTest {
                 isNull(), isNull()))
                 .thenReturn(WorkspaceResult.success(FAKE_WORKSPACE));
 
-        String contextResponse = """
-                ```json
-                {"summary": "Need context", "requestFiles": []}
-                ```
-                """;
         String implResponse = """
                 ```json
                 {
@@ -618,7 +585,7 @@ class IssueImplementationServiceTest {
                 ```
                 """;
         when(aiClient.chat(anyList(), anyString(), anyString(), isNull(), anyInt()))
-                .thenReturn(contextResponse, implResponse);
+                .thenReturn(implResponse);
 
         when(mcpOrchestrationService.isMcpTool(any(McpToolCatalog.class), eq("mcp:github:list_issues"))).thenReturn(true);
         when(mcpOrchestrationService.executeTool(any(), any(), eq("mcp:github:list_issues"), anyList()))

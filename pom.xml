@@ -59,6 +59,27 @@
             <version>1.1.2</version>
         </dependency>
 
+        <!--
+            JSON-Schema validation for agent plan responses (Step 5).
+            Pinned to the same major version that the MCP SDK ships
+            transitively (mcp-json-jackson3 → networknt 3.x), since 3.x
+            introduced the com.networknt.schema.dialect.Dialects class
+            that MCP loads at runtime. The validator uses Jackson 3
+            (tools.jackson) — the same flavour the rest of the codebase
+            already depends on.
+        -->
+        <dependency>
+            <groupId>com.networknt</groupId>
+            <artifactId>json-schema-validator</artifactId>
+            <version>3.0.0</version>
+        </dependency>
+
+        <!-- Micrometer (transitive via actuator, declared explicitly for clarity). -->
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-core</artifactId>
+        </dependency>
+
         <!-- Spring Data JPA -->
         <dependency>
             <groupId>org.springframework.boot</groupId>

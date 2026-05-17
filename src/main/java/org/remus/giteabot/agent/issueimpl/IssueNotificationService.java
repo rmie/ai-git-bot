@@ -2,6 +2,7 @@ package org.remus.giteabot.agent.issueimpl;
 
 import lombok.extern.slf4j.Slf4j;
 import org.remus.giteabot.agent.model.ImplementationPlan;
+import org.remus.giteabot.agent.shared.McpTools;
 import org.remus.giteabot.agent.validation.ToolExecutionService;
 import org.remus.giteabot.agent.validation.ToolResult;
 import org.remus.giteabot.repository.RepositoryApiClient;
@@ -16,7 +17,7 @@ import java.util.List;
 public class IssueNotificationService {
 
     /** Maximum number of characters shown per tool argument in comments. */
-    private static final int MAX_ARG_DISPLAY_CHARS = 80;
+    private static final int MAX_ARG_DISPLAY_CHARS = 40;
 
     private final RepositoryApiClient repositoryClient;
     private final AiResponseParser responseParser;
@@ -103,6 +104,83 @@ public class IssueNotificationService {
 
         try {
             repositoryClient.postIssueComment(owner, repo, issueNumber, commentText);
+        } catch (Exception e) {
+            log.warn("Failed to post AI thinking comment on issue #{}: {}", issueNumber, e.getMessage());
+        }
+    }
+
+    /**
+     * Posts a "thinking" comment for a native-mode turn that may contain only
+     * tool_calls and no assistant text.  Always emits a comment (provided at
+     * least one tool was requested or the model produced reasoning text), so
+     * the user sees what the agent is about to do — even when the provider
+     * returns an empty assistant message together with native tool_calls.
+     *
+     * <p>Tool arguments are truncated by {@link #appendToolRequestLine} to
+     * {@value #MAX_ARG_DISPLAY_CHARS} characters so write-file/patch-file
+     * payloads (which may contain large or sensitive code blobs) are not
+     * dumped verbatim into the issue feed.</p>
+     */
+    public void postNativeToolPlanComment(String owner, String repo, Long issueNumber,
+                                          String assistantText,
+                                          List<ImplementationPlan.ToolRequest> requests) {
+        boolean hasText = assistantText != null && !assistantText.isBlank();
+        boolean hasRequests = requests != null && !requests.isEmpty();
+        if (!hasText && !hasRequests) {
+            return;
+        }
+
+        StringBuilder comment = new StringBuilder();
+        comment.append("🤖 **AI Agent Response**:\n\n");
+
+        if (hasText) {
+            comment.append(assistantText).append("\n\n");
+        }
+
+        if (hasRequests) {
+            // Split into context (silent read-only) and validation/mutation tools so the
+            // user can quickly see what's about to touch the workspace. MCP tools
+            // (mcp:<server>:<tool>) are read-only lookups and belong in the context
+            // bucket, not in "Will run" alongside mvn/gradle/npm.
+            List<ImplementationPlan.ToolRequest> contextTools = requests.stream()
+                    .filter(r -> (toolExecutionService.isSilentTool(r.getTool())
+                            && !toolExecutionService.isFileTool(r.getTool()))
+                            || McpTools.looksLikeMcpTool(r.getTool()))
+                    .toList();
+            List<ImplementationPlan.ToolRequest> mutationTools = requests.stream()
+                    .filter(r -> toolExecutionService.isFileTool(r.getTool()))
+                    .toList();
+            List<ImplementationPlan.ToolRequest> validationTools = requests.stream()
+                    .filter(r -> !toolExecutionService.isSilentTool(r.getTool())
+                            && !toolExecutionService.isFileTool(r.getTool())
+                            && !McpTools.looksLikeMcpTool(r.getTool()))
+                    .toList();
+
+            if (!contextTools.isEmpty()) {
+                comment.append("🔎 **Context lookups** (").append(contextTools.size()).append("):\n");
+                for (ImplementationPlan.ToolRequest req : contextTools) {
+                    appendToolRequestLine(comment, req);
+                }
+                comment.append("\n");
+            }
+            if (!mutationTools.isEmpty()) {
+                comment.append("✏️ **File changes** (").append(mutationTools.size()).append("):\n");
+                for (ImplementationPlan.ToolRequest req : mutationTools) {
+                    appendToolRequestLine(comment, req);
+                }
+                comment.append("\n");
+            }
+            if (!validationTools.isEmpty()) {
+                comment.append("🔧 **Will run** (").append(validationTools.size()).append("):\n");
+                for (ImplementationPlan.ToolRequest req : validationTools) {
+                    appendToolRequestLine(comment, req);
+                }
+                comment.append("\n");
+            }
+        }
+
+        try {
+            repositoryClient.postIssueComment(owner, repo, issueNumber, comment.toString().strip());
         } catch (Exception e) {
             log.warn("Failed to post AI thinking comment on issue #{}: {}", issueNumber, e.getMessage());
         }

@@ -32,6 +32,26 @@ public class OpenAiResponse {
     public static class Message {
         private String role;
         private String content;
+
+        /** Tool calls emitted by the assistant (Step 6, native function calling). */
+        @JsonProperty("tool_calls")
+        private List<ToolCallResponse> toolCalls;
+    }
+
+    @Data
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public static class ToolCallResponse {
+        private String id;
+        private String type;
+        private FunctionResponse function;
+    }
+
+    @Data
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public static class FunctionResponse {
+        private String name;
+        /** Stringified JSON arguments, per OpenAI's spec. */
+        private String arguments;
     }
 
     @Data

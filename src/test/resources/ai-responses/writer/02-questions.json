@@ -1,0 +1,8 @@
+{
+  "qualityAssessment": "Need more information to draft a meaningful issue.",
+  "clarifyingQuestions": [
+    "Which user role should see the new button?",
+    "Should the action be auditable?"
+  ],
+  "readyToCreate": false
+}

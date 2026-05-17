@@ -61,5 +61,16 @@ class OllamaClientTest {
         assertFalse(client.isPromptTooLongError(ex));
     }
 
+    @Test
+    void supportsNativeTools_defaultsToTrue() {
+        assertTrue(createClient().supportsNativeTools());
+    }
+
+    @Test
+    void supportsNativeTools_canBeDisabled() {
+        OllamaClient client = new OllamaClient(mock(RestClient.class),
+                "llama3.2:1b", 1024, 10, 2, 6, false);
+        assertFalse(client.supportsNativeTools());
+    }
 
 }

@@ -457,7 +457,6 @@ public class GitLabWebhookHandler {
         return payload;
     }
 
-    @SuppressWarnings("unchecked")
     private WebhookPayload.Repository translateRepository(Map<String, Object> project) {
         WebhookPayload.Repository repo = new WebhookPayload.Repository();
         repo.setId(toLong(project.get("id")));
@@ -491,8 +490,7 @@ public class GitLabWebhookHandler {
         if (gitlabState == null) return null;
         return switch (gitlabState) {
             case "opened" -> "open";
-            case "closed" -> "closed";
-            case "merged" -> "closed";
+            case "closed", "merged" -> "closed";
             default -> gitlabState;
         };
     }

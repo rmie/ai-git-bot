@@ -60,13 +60,29 @@ public class WriterPromptBuilder {
 
     public String buildClarifyingQuestionComment(WriterPlan plan) {
         StringBuilder sb = new StringBuilder("🤖 **AI Technical Writer**\n\n");
-        if (plan.getQualityAssessment() != null && !plan.getQualityAssessment().isBlank()) {
+        boolean hasAssessment = plan.getQualityAssessment() != null && !plan.getQualityAssessment().isBlank();
+        if (hasAssessment) {
             sb.append("**Quality assessment:** ").append(plan.getQualityAssessment()).append("\n\n");
         }
-        sb.append("I need the issue author to answer these questions before I can create the improved issue:\n\n");
-        for (String question : plan.getClarifyingQuestions()) {
-            sb.append("- ").append(question).append("\n");
+        List<String> questions = plan.getClarifyingQuestions();
+        if (questions != null && !questions.isEmpty()) {
+            sb.append("I need the issue author to answer these questions before I can create the improved issue:\n\n");
+            for (String question : questions) {
+                if (question == null || question.isBlank()) {
+                    continue;
+                }
+                sb.append("- ").append(question).append("\n");
+            }
+        } else if (!hasAssessment) {
+            // Neither structured questions nor free-form assessment: ask the
+            // author generically for more context so the comment is never empty.
+            sb.append("I do not yet have enough information to draft an improved issue. ")
+                    .append("Could you please add more context (acceptance criteria, intended user, ")
+                    .append("affected components, examples) and mention me again?\n");
         }
+        // If we have an assessment but no structured questions, the assessment
+        // itself typically already lists the open points — don't append a second
+        // boilerplate paragraph that would duplicate or contradict it.
         return sb.toString();
     }
 

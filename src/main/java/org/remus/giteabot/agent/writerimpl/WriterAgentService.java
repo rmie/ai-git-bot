@@ -2,15 +2,20 @@ package org.remus.giteabot.agent.writerimpl;
 
 import lombok.extern.slf4j.Slf4j;
 import org.remus.giteabot.agent.AgentErrorNotificationService;
-import org.remus.giteabot.agent.model.ImplementationPlan;
+import org.remus.giteabot.agent.loop.AgentBudget;
+import org.remus.giteabot.agent.loop.AgentLoop;
+import org.remus.giteabot.agent.loop.AgentRunContext;
 import org.remus.giteabot.agent.session.AgentSession;
 import org.remus.giteabot.agent.session.AgentSessionService;
+import org.remus.giteabot.agent.shared.BranchRefs;
+import org.remus.giteabot.agent.shared.BranchSwitcher;
+import org.remus.giteabot.agent.shared.SystemPromptAssembler;
+import org.remus.giteabot.agent.loop.ToolingMode;
+import org.remus.giteabot.agent.tools.AgentToolRouter;
 import org.remus.giteabot.agent.validation.ToolExecutionService;
-import org.remus.giteabot.agent.validation.ToolResult;
 import org.remus.giteabot.agent.validation.WorkspaceResult;
 import org.remus.giteabot.agent.validation.WorkspaceService;
 import org.remus.giteabot.ai.AiClient;
-import org.remus.giteabot.ai.AiMessage;
 import org.remus.giteabot.config.AgentConfigProperties;
 import org.remus.giteabot.config.PromptService;
 import org.remus.giteabot.gitea.model.WebhookPayload;
@@ -20,11 +25,8 @@ import org.remus.giteabot.mcp.McpToolPromptRenderer;
 import org.remus.giteabot.repository.RepositoryApiClient;
 import org.remus.giteabot.systemsettings.McpConfiguration;
 import org.springframework.dao.DataIntegrityViolationException;
-import tools.jackson.databind.ObjectMapper;
 
 import java.nio.file.Path;
-import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -33,26 +35,30 @@ import java.util.Optional;
 public class WriterAgentService {
 
     private static final String WRITER_PROMPT_NAME = "writer";
-    private static final int MAX_TOOL_ROUNDS = 5;
-    private static final int MAX_INITIAL_TREE_FILES = 100;
+    /**
+     * Default values, overridable via {@code AgentConfigProperties.writer.*}. They
+     * are kept as constants so unit tests that construct the service without a
+     * fully-populated config still get the historical behaviour.
+     */
+    private static final int DEFAULT_MAX_TOOL_ROUNDS = 5;
+    private static final int DEFAULT_MAX_INITIAL_TREE_FILES = 100;
 
     private final RepositoryApiClient repositoryClient;
     private final AiClient aiClient;
     private final PromptService promptService;
     private final AgentConfigProperties agentConfig;
     private final AgentSessionService sessionService;
-    private final ToolExecutionService toolExecutionService;
     private final WorkspaceService workspaceService;
     private final String writerAgentSystemPrompt;
     private final String botUsername;
-    private final McpOrchestrationService mcpOrchestrationService;
-    private final McpConfiguration mcpConfiguration;
     private final McpToolCatalog mcpToolCatalog;
     private final AgentErrorNotificationService errorNotificationService;
+    private final BranchSwitcher branchSwitcher;
+    private final AgentToolRouter toolRouter;
     private final WriterPromptBuilder promptBuilder = new WriterPromptBuilder();
     private final WriterResponseParser responseParser = new WriterResponseParser();
     private final McpToolPromptRenderer mcpToolPromptRenderer = new McpToolPromptRenderer();
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final SystemPromptAssembler systemPromptAssembler = new SystemPromptAssembler(mcpToolPromptRenderer);
 
     public WriterAgentService(RepositoryApiClient repositoryClient,
                               AiClient aiClient,
@@ -85,14 +91,14 @@ public class WriterAgentService {
         this.promptService = promptService;
         this.agentConfig = agentConfig;
         this.sessionService = sessionService;
-        this.toolExecutionService = toolExecutionService;
         this.workspaceService = workspaceService;
         this.writerAgentSystemPrompt = writerAgentSystemPrompt;
         this.botUsername = botUsername;
-        this.mcpOrchestrationService = mcpOrchestrationService;
-        this.mcpConfiguration = mcpConfiguration;
         this.mcpToolCatalog = mcpToolCatalog != null ? mcpToolCatalog : McpToolCatalog.empty();
         this.errorNotificationService = new AgentErrorNotificationService(repositoryClient);
+        this.branchSwitcher = new BranchSwitcher(toolExecutionService);
+        this.toolRouter = new AgentToolRouter(toolExecutionService, mcpOrchestrationService,
+                mcpConfiguration, this.mcpToolCatalog, repositoryClient);
     }
 
     public void handleIssueAssigned(WebhookPayload payload) {
@@ -144,7 +150,7 @@ public class WriterAgentService {
             }
             workspaceDir = wsResult.workspacePath();
             String treeContext = promptBuilder.buildTreeContext(
-                    repositoryClient.getRepositoryTree(owner, repo, baseBranch), MAX_INITIAL_TREE_FILES);
+                    repositoryClient.getRepositoryTree(owner, repo, baseBranch), maxInitialTreeFiles());
             runWriterLoop(session, owner, repo, issueNumber, workspaceDir,
                     promptBuilder.buildInitialPrompt(issueNumber, issueTitle, issueBody, treeContext));
         } catch (DataIntegrityViolationException e) {
@@ -230,170 +236,33 @@ public class WriterAgentService {
 
     private void runWriterLoop(AgentSession session, String owner, String repo,
                                Long issueNumber, Path workspaceDir, String userMessage) {
-        String systemPrompt = resolveWriterSystemPrompt();
-        String currentMessage = userMessage + "\n\n" + outputContract();
-        List<AiMessage> history = new ArrayList<>(sessionService.toAiMessages(session));
-        sessionService.addMessage(session, "user", currentMessage);
-
-        for (int round = 0; round <= MAX_TOOL_ROUNDS; round++) {
-            String aiResponse = aiClient.chat(history, currentMessage, systemPrompt, null, agentConfig.getMaxTokens());
-            sessionService.addMessage(session, "assistant", aiResponse);
-            WriterPlan plan = responseParser.parse(aiResponse);
-
-            if (plan.hasContextRequests() && round >= MAX_TOOL_ROUNDS) {
-                sessionService.setStatus(session, AgentSession.AgentSessionStatus.IN_PROGRESS);
-                repositoryClient.postIssueComment(owner, repo, issueNumber,
-                        "⚠️ **AI Technical Writer**: I need more context before I can continue. "
-                                + "Please add more details and mention me again.");
-                return;
-            }
-
-            if (plan.hasContextRequests() && round < MAX_TOOL_ROUNDS) {
-                List<ImplementationPlan.ToolRequest> contextRequests = buildContextRequests(plan);
-                BranchSwitchResult branchSwitch = applyRequestedBranchSwitch(
-                        workspaceDir, session.getBranchName(), contextRequests, issueNumber);
-                if (branchSwitch.selectedBranch() != null
-                        && !branchSwitch.selectedBranch().equals(session.getBranchName())) {
-                    sessionService.setBranchName(session, branchSwitch.selectedBranch());
-                }
-                List<ToolResult> results = executeTools(owner, repo, issueNumber, workspaceDir,
-                        branchSwitch.remainingToolRequests());
-                history.add(AiMessage.builder().role("user").content(currentMessage).build());
-                history.add(AiMessage.builder().role("assistant").content(aiResponse).build());
-                currentMessage = promptBuilder.buildToolFeedback(branchSwitch.remainingToolRequests(), results);
-                sessionService.addMessage(session, "user", currentMessage);
-                continue;
-            }
-
-            if (plan.hasQuestions() || !plan.isReadyToCreate()) {
-                sessionService.setStatus(session, AgentSession.AgentSessionStatus.IN_PROGRESS);
-                repositoryClient.postIssueComment(owner, repo, issueNumber,
-                        promptBuilder.buildClarifyingQuestionComment(plan));
-                return;
-            }
-
-            Long createdIssueNumber = repositoryClient.createIssue(owner, repo,
-                    "AI Created Issue: " + session.getIssueTitle(),
-                    promptBuilder.buildIssueBody(issueNumber, plan));
-            if (createdIssueNumber == null) {
-                sessionService.setStatus(session, AgentSession.AgentSessionStatus.FAILED);
-                repositoryClient.postIssueComment(owner, repo, issueNumber,
-                        "⚠️ **AI Technical Writer**: I drafted the improved issue, but creating it failed. "
-                                + "Please check the repository provider response and try again.");
-                return;
-            }
-            sessionService.setGeneratedIssueNumber(session, createdIssueNumber);
-            repositoryClient.postIssueComment(owner, repo, issueNumber,
-                    "🤖 **AI Technical Writer**: Created improved issue #" + createdIssueNumber
-                            + " from this discussion.");
-            return;
-        }
+        WriterAgentStrategy strategy = new WriterAgentStrategy(
+                resolveWriterSystemPrompt(),
+                promptBuilder,
+                responseParser,
+                sessionService,
+                repositoryClient,
+                branchSwitcher,
+                toolRouter,
+                mcpToolCatalog,
+                maxToolRounds());
+        // The historic loop ran for-each `round in 0..maxToolRounds` (inclusive), i.e. one extra
+        // iteration beyond the context-round limit so the AI gets a chance to produce a
+        // terminal answer after exhausting context. Mirror that by setting the loop's hard
+        // cap to maxToolRounds + 1.
+        AgentBudget budget = new AgentBudget(
+                maxToolRounds() + 1, maxToolRounds(), 0, agentConfig.getBudget().getMaxTokensPerCall());
+        AgentLoop loop = new AgentLoop(aiClient, sessionService, budget);
+        AgentRunContext ctx = new AgentRunContext(
+                session, owner, repo, issueNumber, workspaceDir, session.getBranchName());
+        loop.run(ctx, userMessage + "\n\n" + outputContract(), strategy);
     }
 
-    private List<ImplementationPlan.ToolRequest> buildContextRequests(WriterPlan plan) {
-        List<ImplementationPlan.ToolRequest> requests = new ArrayList<>();
-        if (plan.getRequestTools() != null) {
-            requests.addAll(plan.getRequestTools());
-        }
-        if (plan.getRequestFiles() != null) {
-            int idx = 1;
-            for (String file : plan.getRequestFiles()) {
-                requests.add(ImplementationPlan.ToolRequest.builder()
-                        .id("writer-file-" + idx)
-                        .tool("cat")
-                        .args(List.of(file))
-                        .build());
-                idx++;
-            }
-        }
-        return requests;
+    private String normalizeBranchRef(String ref) {
+        return BranchRefs.normalize(ref);
     }
 
-    private BranchSwitchResult applyRequestedBranchSwitch(Path workspaceDir,
-                                                          String baseBranch,
-                                                          List<ImplementationPlan.ToolRequest> toolRequests,
-                                                          Long issueNumber) {
-        if (toolRequests == null || toolRequests.isEmpty()) {
-            return new BranchSwitchResult(baseBranch, List.of());
-        }
-        String selectedBranch = baseBranch;
-        boolean switched = false;
-        List<ImplementationPlan.ToolRequest> remaining = new ArrayList<>();
-        for (ImplementationPlan.ToolRequest toolRequest : toolRequests) {
-            if (toolRequest == null || toolRequest.getTool() == null || toolRequest.getTool().isBlank()) {
-                continue;
-            }
-            if ("branch-switcher".equalsIgnoreCase(toolRequest.getTool()) && !switched) {
-                ToolResult result = toolExecutionService.executeContextTool(
-                        workspaceDir, "branch-switcher", toolRequest.getArgs());
-                String switchedBranch = extractSwitchedBranch(result);
-                if (switchedBranch != null && !switchedBranch.isBlank()) {
-                    selectedBranch = switchedBranch;
-                    switched = true;
-                    log.info("Switched writer workspace/context branch to '{}' for issue #{}",
-                            selectedBranch, issueNumber);
-                } else {
-                    log.warn("Writer branch switch request failed for issue #{}: {}",
-                            issueNumber, describeToolFailure(result));
-                }
-                continue;
-            }
-            if ("branch-switcher".equalsIgnoreCase(toolRequest.getTool())) {
-                log.info("Ignoring additional writer branch-switcher request for issue #{}", issueNumber);
-                continue;
-            }
-            remaining.add(toolRequest);
-        }
-        return new BranchSwitchResult(selectedBranch, remaining);
-    }
 
-    private List<ToolResult> executeTools(String owner, String repo, Long issueNumber,
-                                          Path workspaceDir,
-                                          List<ImplementationPlan.ToolRequest> requests) {
-        List<ToolResult> results = new ArrayList<>();
-        for (ImplementationPlan.ToolRequest request : requests) {
-            String tool = request.getTool() != null ? request.getTool().strip().toLowerCase() : "";
-            List<String> args = request.getArgs() != null ? request.getArgs() : List.of();
-            try {
-                if ("get-issue".equals(tool)) {
-                    Long requestedIssue = parseIssueNumber(args, issueNumber);
-                    results.add(new ToolResult(true, 0,
-                            toJson(curateIssue(repositoryClient.getIssueDetails(owner, repo, requestedIssue))), ""));
-                } else if ("search-issues".equals(tool)) {
-                    String query = firstArgOrDefault(args, "");
-                    results.add(new ToolResult(true, 0,
-                            toJson(repositoryClient.searchIssues(owner, repo, query).stream()
-                                    .limit(10)
-                                    .map(this::curateIssue)
-                                    .toList()), ""));
-                } else if (isMcpTool(request.getTool())) {
-                    results.add(mcpOrchestrationService.executeTool(mcpConfiguration, mcpToolCatalog,
-                            request.getTool(), args));
-                } else if (toolExecutionService.isContextTool(tool)) {
-                    results.add(toolExecutionService.executeContextTool(workspaceDir, tool, args));
-                } else {
-                    results.add(new ToolResult(false, -1, "",
-                            "Writer tool '" + request.getTool() + "' is not available. Available tools: get-issue, "
-                                    + "search-issues, " + String.join(", ", toolExecutionService.getAvailableContextTools())));
-                }
-            } catch (Exception e) {
-                results.add(new ToolResult(false, -1, "", e.getMessage()));
-            }
-        }
-        return results;
-    }
-
-    private Long parseIssueNumber(List<String> args, Long defaultIssueNumber) {
-        String value = firstArgOrDefault(args, null);
-        if (value == null || value.isBlank()) {
-            return defaultIssueNumber;
-        }
-        return Long.parseLong(value);
-    }
-
-    private String firstArgOrDefault(List<String> args, String defaultValue) {
-        return args == null || args.isEmpty() ? defaultValue : args.getFirst();
-    }
 
     private boolean isIssueAuthor(String owner, String repo, Long issueNumber, WebhookPayload payload) {
         String commenter = payload.getComment() != null && payload.getComment().getUser() != null
@@ -449,43 +318,6 @@ public class WriterAgentService {
         return null;
     }
 
-    private Map<String, Object> curateIssue(Map<String, Object> issue) {
-        Map<String, Object> curated = new LinkedHashMap<>();
-        copyIfPresent(issue, curated, "number");
-        copyIfPresent(issue, curated, "title");
-        copyIfPresent(issue, curated, "body");
-        copyIfPresent(issue, curated, "state");
-        copyIfPresent(issue, curated, "url");
-        copyIfPresent(issue, curated, "html_url");
-        copyUser(issue, curated, "user");
-        copyUser(issue, curated, "author");
-        return curated;
-    }
-
-    private void copyIfPresent(Map<String, Object> source, Map<String, Object> target, String key) {
-        Object value = source.get(key);
-        if (value != null) {
-            target.put(key, value);
-        }
-    }
-
-    private void copyUser(Map<String, Object> source, Map<String, Object> target, String key) {
-        Object value = source.get(key);
-        if (value instanceof Map<?, ?> userMap) {
-            String identity = extractUserIdentity(userMap);
-            if (identity != null) {
-                target.put(key, Map.of("login", identity));
-            }
-        }
-    }
-
-    private String toJson(Object value) {
-        try {
-            return objectMapper.writeValueAsString(value);
-        } catch (Exception e) {
-            return String.valueOf(value);
-        }
-    }
 
     private String resolveBaseBranch(String owner, String repo, WebhookPayload payload, AgentSession session) {
         if (session.getBranchName() != null && !session.getBranchName().isBlank()) {
@@ -502,7 +334,14 @@ public class WriterAgentService {
         } else {
             basePrompt = promptService.getSystemPrompt(WRITER_PROMPT_NAME);
         }
-        return basePrompt + mcpToolPromptRenderer.render(mcpToolCatalog);
+        // Drive the prompt mode purely off the configured client (i.e. the operator's
+        // `use_legacy_tool_calling` toggle). The writer strategy advertises native
+        // function-calling whenever the client supports it, so the prompt and the
+        // transport stay in sync.
+        ToolingMode mode = (aiClient != null && aiClient.supportsNativeTools())
+                ? ToolingMode.NATIVE : ToolingMode.LEGACY;
+        return systemPromptAssembler.assemble(basePrompt, mcpToolCatalog, mode,
+                org.remus.giteabot.agent.shared.SystemPromptAssembler.PromptKind.WRITER_AGENT);
     }
 
     private String outputContract() {
@@ -532,45 +371,6 @@ public class WriterAgentService {
                 """.formatted(mcpToolPromptRenderer.render(mcpToolCatalog));
     }
 
-    private String normalizeBranchRef(String ref) {
-        if (ref == null || ref.isBlank()) {
-            return null;
-        }
-        if (ref.startsWith("refs/heads/")) {
-            return ref.substring("refs/heads/".length());
-        }
-        return ref;
-    }
-
-    private String extractSwitchedBranch(ToolResult result) {
-        if (result == null || !result.success() || result.output() == null) {
-            return null;
-        }
-        String prefix = "Switched workspace branch to:";
-        int idx = result.output().indexOf(prefix);
-        if (idx < 0) {
-            return null;
-        }
-        return normalizeBranchRef(result.output().substring(idx + prefix.length()).trim());
-    }
-
-    private String describeToolFailure(ToolResult result) {
-        if (result == null) {
-            return "unknown tool failure";
-        }
-        if (result.error() != null && !result.error().isBlank()) {
-            return result.error();
-        }
-        if (result.output() != null && !result.output().isBlank()) {
-            return result.output();
-        }
-        return "tool returned no details";
-    }
-
-    private boolean isMcpTool(String toolName) {
-        return mcpOrchestrationService != null && mcpOrchestrationService.isMcpTool(mcpToolCatalog, toolName);
-    }
-
     private void handleWriterFailure(AgentSession session, String owner, String repo,
                                      Long issueNumber, AgentSession.AgentSessionStatus targetStatus,
                                      Exception e) {
@@ -582,7 +382,19 @@ public class WriterAgentService {
                 "Please try again or mention me again with any additional context.", e);
     }
 
-    private record BranchSwitchResult(String selectedBranch,
-                                      List<ImplementationPlan.ToolRequest> remainingToolRequests) {
+    private int maxToolRounds() {
+        if (agentConfig == null || agentConfig.getWriter() == null) {
+            return DEFAULT_MAX_TOOL_ROUNDS;
+        }
+        int configured = agentConfig.getWriter().getMaxToolRounds();
+        return configured > 0 ? configured : DEFAULT_MAX_TOOL_ROUNDS;
+    }
+
+    private int maxInitialTreeFiles() {
+        if (agentConfig == null || agentConfig.getWriter() == null) {
+            return DEFAULT_MAX_INITIAL_TREE_FILES;
+        }
+        int configured = agentConfig.getWriter().getMaxInitialTreeFiles();
+        return configured > 0 ? configured : DEFAULT_MAX_INITIAL_TREE_FILES;
     }
 }
