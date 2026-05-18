@@ -11,13 +11,14 @@ import org.remus.giteabot.agent.writerimpl.WriterAgentService;
 import org.remus.giteabot.ai.AiClient;
 import org.remus.giteabot.config.AgentConfigProperties;
 import org.remus.giteabot.config.PromptService;
-import org.remus.giteabot.config.ReviewConfigProperties;
 import org.remus.giteabot.gitea.model.WebhookPayload;
 import org.remus.giteabot.mcp.McpOrchestrationService;
 import org.remus.giteabot.mcp.McpToolCatalog;
+import org.remus.giteabot.prworkflow.PrWorkflowOrchestrator;
+import org.remus.giteabot.prworkflow.review.CodeReviewServiceFactory;
+import org.remus.giteabot.prworkflow.review.ReviewWorkflow;
 import org.remus.giteabot.repository.RepositoryApiClient;
 import org.remus.giteabot.review.CodeReviewService;
-import org.remus.giteabot.session.SessionService;
 import org.remus.giteabot.systemsettings.BotToolSelectionService;
 import org.remus.giteabot.systemsettings.McpToolSelectionService;
 import org.springframework.scheduling.annotation.Async;
@@ -42,9 +43,7 @@ public class BotWebhookService {
     private final AiClientFactory aiClientFactory;
     private final GiteaClientFactory giteaClientFactory;
     private final PromptService promptService;
-    private final SessionService sessionService;
     private final AgentConfigProperties agentConfig;
-    private final ReviewConfigProperties reviewConfig;
     private final AgentSessionService agentSessionService;
     private final ToolExecutionService toolExecutionService;
     private final ToolCatalog toolCatalog;
@@ -53,13 +52,13 @@ public class BotWebhookService {
     private final McpOrchestrationService mcpOrchestrationService;
     private final McpToolSelectionService mcpToolSelectionService;
     private final BotToolSelectionService botToolSelectionService;
+    private final PrWorkflowOrchestrator prWorkflowOrchestrator;
+    private final CodeReviewServiceFactory codeReviewServiceFactory;
 
     public BotWebhookService(AiClientFactory aiClientFactory,
                              GiteaClientFactory giteaClientFactory,
                              PromptService promptService,
-                             SessionService sessionService,
                              AgentConfigProperties agentConfig,
-                             ReviewConfigProperties reviewConfig,
                              AgentSessionService agentSessionService,
                              ToolExecutionService toolExecutionService,
                              ToolCatalog toolCatalog,
@@ -67,13 +66,13 @@ public class BotWebhookService {
                               BotService botService,
                               McpOrchestrationService mcpOrchestrationService,
                               McpToolSelectionService mcpToolSelectionService,
-                              BotToolSelectionService botToolSelectionService) {
+                              BotToolSelectionService botToolSelectionService,
+                              PrWorkflowOrchestrator prWorkflowOrchestrator,
+                              CodeReviewServiceFactory codeReviewServiceFactory) {
         this.aiClientFactory = aiClientFactory;
         this.giteaClientFactory = giteaClientFactory;
         this.promptService = promptService;
-        this.sessionService = sessionService;
         this.agentConfig = agentConfig;
-        this.reviewConfig = reviewConfig;
         this.agentSessionService = agentSessionService;
         this.toolExecutionService = toolExecutionService;
         this.toolCatalog = toolCatalog;
@@ -82,11 +81,14 @@ public class BotWebhookService {
         this.mcpOrchestrationService = mcpOrchestrationService;
         this.mcpToolSelectionService = mcpToolSelectionService;
         this.botToolSelectionService = botToolSelectionService;
+        this.prWorkflowOrchestrator = prWorkflowOrchestrator;
+        this.codeReviewServiceFactory = codeReviewServiceFactory;
     }
 
     /**
-     * Reviews a pull request using the bot's specific AI and Git integrations.
-     * Delegates to {@link CodeReviewService#reviewPullRequest(WebhookPayload, String)}.
+     * Reviews a pull request via the {@link PrWorkflowOrchestrator}, which
+     * dispatches to the {@link ReviewWorkflow} (and, in future milestones,
+     * any other workflows enabled for the bot).
      */
     @Async
     public void reviewPullRequest(Bot bot, WebhookPayload payload) {
@@ -95,14 +97,7 @@ public class BotWebhookService {
             return;
         }
         try {
-            RepositoryApiClient repositoryClient = giteaClientFactory.getApiClient(bot.getGitIntegration());
-            boolean reviewed = createCodeReviewService(bot, repositoryClient).reviewPullRequest(payload, null);
-            if (reviewed && bot.getGitIntegration() != null) {
-                String owner = payload.getRepository().getOwner().getLogin();
-                String repo = payload.getRepository().getName();
-                Long prNumber = payload.getPullRequest().getNumber();
-                repositoryClient.postReviewAction(owner, repo, prNumber, bot.getGitIntegration().getPostReviewAction());
-            }
+            prWorkflowOrchestrator.run(bot, payload, ReviewWorkflow.KEY);
         } catch (Exception e) {
             log.error("[Bot '{}'] Failed to review PR: {}", bot.getName(), e.getMessage(), e);
             botService.recordError(bot, e.getMessage());
@@ -353,23 +348,13 @@ public class BotWebhookService {
     }
 
     /**
-     * Creates a per-bot {@link CodeReviewService} using the bot's AI and Git integrations.
+     * Creates a per-bot {@link CodeReviewService} via the shared
+     * {@link CodeReviewServiceFactory}. Used by the non-review webhook
+     * handlers (bot commands, inline comments, review submissions, PR-closed)
+     * that have not yet been extracted into their own {@code PrWorkflow}.
      */
     private CodeReviewService createCodeReviewService(Bot bot) {
-        return createCodeReviewService(bot, giteaClientFactory.getApiClient(bot.getGitIntegration()));
-    }
-
-    private CodeReviewService createCodeReviewService(Bot bot, RepositoryApiClient repoClient) {
-        AiClient aiClient = getAiClient(bot);
-        if (bot.getSystemPrompt() == null) {
-            throw new IllegalStateException("Bot must have a system prompt assigned");
-        }
-        if (bot.getSystemPrompt().getId() == null) {
-            throw new IllegalStateException("Bot system prompt must be persisted");
-        }
-        String systemPromptKey = "system-prompt:" + bot.getSystemPrompt().getId();
-        return new CodeReviewService(repoClient, aiClient, sessionService, bot.getUsername(),
-                reviewConfig, systemPromptKey, bot.getSystemPrompt().getReviewSystemPrompt());
+        return codeReviewServiceFactory.create(bot);
     }
 
     /**
