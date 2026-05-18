@@ -134,9 +134,96 @@ public class SecurityScanWorkflow implements PrWorkflow {
 ```
 
 That is enough — the registry picks the bean up via Spring DI, and the
-orchestrator can invoke it via `orchestrator.run(bot, payload, "security-scan")`.
-In M2 a UI will allow operators to opt bots into this new workflow; until
-then it is only callable from code/tests.
+orchestrator can invoke it via `orchestrator.run(bot, payload, "security-scan")`
+or — once enabled in a `WorkflowConfiguration` (see below) — automatically as
+part of `orchestrator.runAll(bot, payload)`.
+
+## Workflow configurations (M2)
+
+Operators decide **which** `PrWorkflow`s run for a given bot via reusable
+**workflow configurations**. A configuration is an ordered whitelist of
+workflow keys plus per-key tuning parameters; the same configuration can be
+shared by many bots.
+
+### Data model
+
+```mermaid
+erDiagram
+    bots ||--o| workflow_configurations : "uses (nullable FK)"
+    workflow_configurations ||--|{ workflow_selections : "enabled workflows"
+
+    workflow_configurations {
+        BIGINT id PK
+        VARCHAR name UK
+        BOOLEAN default_entry
+        TIMESTAMP created_at
+        TIMESTAMP updated_at
+    }
+    workflow_selections {
+        BIGINT id PK
+        BIGINT workflow_configuration_id FK
+        VARCHAR workflow_key
+        TEXT params_json
+    }
+```
+
+Tables are created by `V14__workflow_configurations.sql` (H2 + PostgreSQL).
+The unique constraint `(workflow_configuration_id, workflow_key)` prevents
+duplicate entries within the same configuration.
+
+### Services
+
+| Class | Role |
+|---|---|
+| `WorkflowConfiguration` / `WorkflowSelection` | JPA entities under `org.remus.giteabot.prworkflow.config`. |
+| `WorkflowConfigurationService` | CRUD + clone, guards the `defaultEntry` (cannot be renamed, deleted or lose its flag) and blocks deletion while bots still reference the configuration. |
+| `WorkflowSelectionService` | Add/remove/update selections; validates `params_json` against the workflow's `paramsSchema()` via `WorkflowParamsValidator`; exposes `enabledWorkflowKeys(configurationId)` in deterministic alphabetical order. |
+| `DefaultWorkflowConfigurationInitializer` | `ApplicationRunner` that on every startup (a) creates the `Default` configuration if missing, (b) additively enables every newly registered `REVIEW`-category workflow, and (c) backfills bots whose `workflow_configuration_id` is still null. Workflows with `category != REVIEW` are **never** auto-enabled — operators must opt in explicitly. |
+
+### Orchestrator dispatch
+
+`BotWebhookService.reviewPullRequest(...)` no longer asks for a specific
+workflow key; it delegates to:
+
+```java
+prWorkflowOrchestrator.runAll(bot, payload);
+```
+
+`runAll(...)` resolves the bot's configuration (falling back to `ReviewWorkflow`
+alone if `bot.workflowConfiguration` is null), iterates the enabled keys in
+deterministic order and invokes each `PrWorkflow` sequentially. One failing
+workflow does **not** abort the remaining ones — every invocation is wrapped
+by `run(bot, payload, key)`, so its terminal status is persisted independently
+in `pr_workflow_runs`.
+
+Unregistered workflow keys (e.g. an entry persisted before a workflow bean was
+removed) are logged with `WARN` and skipped.
+
+### Admin UI
+
+Three touchpoints, all reusing the existing table-plus-modal pattern:
+
+1. **System settings → Workflow configurations**
+   (`/system-settings/workflow-configurations/`):
+   list, add, edit, clone, delete. The edit page exposes a sub-page
+   `…/{id}/workflows` for selecting which workflow keys are enabled and
+   editing their `params_json` against the workflow's `paramsSchema()`.
+2. **Bots → New / Edit bot**: a **Workflow Configuration** dropdown plus a
+   **Details** modal that loads `…/{id}/selected-workflows` (JSON) to show
+   the enabled workflow keys without leaving the bot form. New bots default
+   to the `Default` configuration.
+3. **System settings overview**: the new entry appears next to MCP and tool
+   configurations.
+
+### Upgrade behaviour
+
+- The Flyway migration only adds the column `bots.workflow_configuration_id`
+  as nullable — it does **not** backfill existing rows.
+- On the first startup after upgrade, `DefaultWorkflowConfigurationInitializer`
+  creates the `Default` row and assigns it to every bot whose
+  `workflow_configuration_id` is still null. The log line
+  `Backfilled N bot(s) to the default workflow configuration` confirms the
+  one-time migration.
 
 ## See also
 

@@ -1,10 +1,17 @@
 package org.remus.giteabot.systemsettings;
 
 import lombok.extern.slf4j.Slf4j;
+import org.remus.giteabot.prworkflow.config.WorkflowConfigurationService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.ModelAttribute;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.ResponseBody;
 import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 
 import java.util.List;
@@ -20,17 +27,20 @@ public class SystemSettingsController {
     private final McpToolSelectionService mcpToolSelectionService;
     private final BotToolConfigurationService botToolConfigurationService;
     private final BotToolSelectionService botToolSelectionService;
+    private final WorkflowConfigurationService workflowConfigurationService;
 
     public SystemSettingsController(SystemPromptService systemPromptService,
                                     McpConfigurationService mcpConfigurationService,
                                     McpToolSelectionService mcpToolSelectionService,
                                     BotToolConfigurationService botToolConfigurationService,
-                                    BotToolSelectionService botToolSelectionService) {
+                                    BotToolSelectionService botToolSelectionService,
+                                    WorkflowConfigurationService workflowConfigurationService) {
         this.systemPromptService = systemPromptService;
         this.mcpConfigurationService = mcpConfigurationService;
         this.mcpToolSelectionService = mcpToolSelectionService;
         this.botToolConfigurationService = botToolConfigurationService;
         this.botToolSelectionService = botToolSelectionService;
+        this.workflowConfigurationService = workflowConfigurationService;
     }
 
     @GetMapping
@@ -38,6 +48,7 @@ public class SystemSettingsController {
         model.addAttribute("systemPrompts", systemPromptService.findAll());
         model.addAttribute("mcpConfigurations", mcpConfigurationService.findAll());
         model.addAttribute("botToolConfigurations", botToolConfigurationService.findAll());
+        model.addAttribute("workflowConfigurations", workflowConfigurationService.findAll());
         model.addAttribute("activeNav", "system-settings");
         return "system-settings/list";
     }

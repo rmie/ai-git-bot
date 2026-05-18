@@ -1,6 +1,5 @@
 package org.remus.giteabot.prworkflow;
 
-import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
@@ -26,14 +25,8 @@ import java.util.Optional;
 public class PrWorkflowRegistry {
 
     private final Map<String, PrWorkflow> workflowsByKey = new LinkedHashMap<>();
-    private final List<PrWorkflow> workflows;
 
     public PrWorkflowRegistry(List<PrWorkflow> workflows) {
-        this.workflows = workflows;
-    }
-
-    @PostConstruct
-    void index() {
         Map<String, PrWorkflow> indexed = new LinkedHashMap<>();
         Map<String, String> seenLowercaseKeys = new HashMap<>();
         for (PrWorkflow workflow : workflows) {

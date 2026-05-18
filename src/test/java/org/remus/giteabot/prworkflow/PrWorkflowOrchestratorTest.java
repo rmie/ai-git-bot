@@ -8,6 +8,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.remus.giteabot.admin.Bot;
 import org.remus.giteabot.gitea.model.WebhookPayload;
+import org.remus.giteabot.prworkflow.config.WorkflowSelectionService;
 
 import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
@@ -40,8 +41,8 @@ class PrWorkflowOrchestratorTest {
 
     private PrWorkflowOrchestrator newOrchestrator(PrWorkflow... workflows) {
         PrWorkflowRegistry registry = new PrWorkflowRegistry(List.of(workflows));
-        registry.index();
-        return new PrWorkflowOrchestrator(registry, runService, metrics, lockManager);
+        return new PrWorkflowOrchestrator(registry, runService, metrics, lockManager,
+                org.mockito.Mockito.mock(WorkflowSelectionService.class));
     }
 
     private static WebhookPayload payloadFor(String owner, String repo, long prNumber) {
@@ -208,7 +209,7 @@ class PrWorkflowOrchestratorTest {
             return stubRun(nextRunId.getAndIncrement(), PrWorkflowRunStatus.RUNNING);
         });
         when(runService.complete(anyLong(), any(), any()))
-                .thenAnswer(inv -> stubRun((Long) inv.getArgument(0), PrWorkflowRunStatus.SUCCESS));
+                .thenAnswer(inv -> stubRun(inv.getArgument(0), PrWorkflowRunStatus.SUCCESS));
 
         PrWorkflow w = stubWorkflow("review", ctx -> WorkflowResult.success("ok"));
         orchestrator = newOrchestrator(w);

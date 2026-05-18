@@ -1,6 +1,8 @@
 package org.remus.giteabot.admin;
 
 import lombok.extern.slf4j.Slf4j;
+import org.remus.giteabot.prworkflow.config.WorkflowConfiguration;
+import org.remus.giteabot.prworkflow.config.WorkflowConfigurationService;
 import org.remus.giteabot.systemsettings.BotToolConfiguration;
 import org.remus.giteabot.systemsettings.BotToolConfigurationService;
 import org.remus.giteabot.systemsettings.BotToolSelectionService;
@@ -12,7 +14,13 @@ import org.remus.giteabot.systemsettings.SystemPromptService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.ModelAttribute;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.ResponseBody;
 import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 
 import java.util.List;
@@ -31,6 +39,7 @@ public class BotController {
     private final McpToolSelectionService mcpToolSelectionService;
     private final BotToolConfigurationService botToolConfigurationService;
     private final BotToolSelectionService botToolSelectionService;
+    private final WorkflowConfigurationService workflowConfigurationService;
 
     public BotController(BotService botService,
                          AiIntegrationService aiIntegrationService,
@@ -39,7 +48,8 @@ public class BotController {
                          McpConfigurationService mcpConfigurationService,
                          McpToolSelectionService mcpToolSelectionService,
                          BotToolConfigurationService botToolConfigurationService,
-                         BotToolSelectionService botToolSelectionService) {
+                         BotToolSelectionService botToolSelectionService,
+                         WorkflowConfigurationService workflowConfigurationService) {
         this.botService = botService;
         this.aiIntegrationService = aiIntegrationService;
         this.gitIntegrationService = gitIntegrationService;
@@ -48,6 +58,7 @@ public class BotController {
         this.mcpToolSelectionService = mcpToolSelectionService;
         this.botToolConfigurationService = botToolConfigurationService;
         this.botToolSelectionService = botToolSelectionService;
+        this.workflowConfigurationService = workflowConfigurationService;
     }
 
     @GetMapping
@@ -63,6 +74,7 @@ public class BotController {
         Bot bot = new Bot();
         systemPromptService.findDefault().ifPresent(bot::setSystemPrompt);
         botToolConfigurationService.findDefault().ifPresent(bot::setToolConfiguration);
+        workflowConfigurationService.findDefault().ifPresent(bot::setWorkflowConfiguration);
         model.addAttribute("bot", bot);
         addFormAttributes(model);
         return "bots/form";
@@ -89,6 +101,7 @@ public class BotController {
                         @RequestParam Long systemPromptId,
                         @RequestParam(required = false) Long mcpConfigurationId,
                         @RequestParam Long toolConfigurationId,
+                        @RequestParam(required = false) Long workflowConfigurationId,
                         Model model,
                         RedirectAttributes redirectAttributes) {
         try {
@@ -105,12 +118,20 @@ public class BotController {
             }
             BotToolConfiguration toolConfiguration = botToolConfigurationService.findById(toolConfigurationId)
                     .orElseThrow(() -> new IllegalArgumentException("Tool configuration not found"));
+            WorkflowConfiguration workflowConfiguration;
+            if (workflowConfigurationId != null) {
+                workflowConfiguration = workflowConfigurationService.findById(workflowConfigurationId)
+                        .orElseThrow(() -> new IllegalArgumentException("Workflow configuration not found"));
+            } else {
+                workflowConfiguration = workflowConfigurationService.findDefault().orElse(null);
+            }
 
             bot.setAiIntegration(aiIntegration);
             bot.setGitIntegration(gitIntegration);
             bot.setSystemPrompt(systemPrompt);
             bot.setMcpConfiguration(mcpConfiguration);
             bot.setToolConfiguration(toolConfiguration);
+            bot.setWorkflowConfiguration(workflowConfiguration);
             botService.save(bot);
             redirectAttributes.addFlashAttribute("success", "Bot saved successfully");
         } catch (Exception e) {
@@ -129,6 +150,7 @@ public class BotController {
         model.addAttribute("systemPrompts", systemPrompts);
         model.addAttribute("mcpConfigurations", mcpConfigurationService.findAll());
         model.addAttribute("toolConfigurations", botToolConfigurationService.findAll());
+        model.addAttribute("workflowConfigurations", workflowConfigurationService.findAll());
         model.addAttribute("botTypes", BotType.values());
         model.addAttribute("activeNav", "bots");
     }

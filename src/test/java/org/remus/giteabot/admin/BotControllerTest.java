@@ -1,7 +1,16 @@
 package org.remus.giteabot.admin;
 
 import org.junit.jupiter.api.Test;
-import org.remus.giteabot.systemsettings.*;
+import org.remus.giteabot.prworkflow.config.WorkflowConfigurationService;
+import org.remus.giteabot.systemsettings.BotToolConfiguration;
+import org.remus.giteabot.systemsettings.BotToolConfigurationService;
+import org.remus.giteabot.systemsettings.BotToolSelectionRow;
+import org.remus.giteabot.systemsettings.BotToolSelectionService;
+import org.remus.giteabot.systemsettings.McpConfiguration;
+import org.remus.giteabot.systemsettings.McpConfigurationService;
+import org.remus.giteabot.systemsettings.McpToolSelectionRow;
+import org.remus.giteabot.systemsettings.McpToolSelectionService;
+import org.remus.giteabot.systemsettings.SystemPromptService;
 import org.springframework.http.ResponseEntity;
 
 import java.util.List;
@@ -26,7 +35,8 @@ class BotControllerTest {
                 mcpConfigurationService,
                 mcpToolSelectionService,
                 botToolConfigurationService,
-                botToolSelectionService);
+                botToolSelectionService,
+                mock(WorkflowConfigurationService.class));
     }
 
     @Test

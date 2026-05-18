@@ -3,10 +3,14 @@ package org.remus.giteabot.prworkflow;
 import lombok.extern.slf4j.Slf4j;
 import org.remus.giteabot.admin.Bot;
 import org.remus.giteabot.gitea.model.WebhookPayload;
+import org.remus.giteabot.prworkflow.config.WorkflowSelectionService;
+import org.remus.giteabot.prworkflow.review.ReviewWorkflow;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Coordinates one invocation of a registered {@link PrWorkflow}.
@@ -36,15 +40,62 @@ public class PrWorkflowOrchestrator {
     private final PrWorkflowRunService runService;
     private final PrWorkflowMetrics metrics;
     private final PrWorkflowRunLockManager lockManager;
+    private final WorkflowSelectionService workflowSelectionService;
 
     public PrWorkflowOrchestrator(PrWorkflowRegistry registry,
                                   PrWorkflowRunService runService,
                                   PrWorkflowMetrics metrics,
-                                  PrWorkflowRunLockManager lockManager) {
+                                  PrWorkflowRunLockManager lockManager,
+                                  WorkflowSelectionService workflowSelectionService) {
         this.registry = registry;
         this.runService = runService;
         this.metrics = metrics;
         this.lockManager = lockManager;
+        this.workflowSelectionService = workflowSelectionService;
+    }
+
+    /**
+     * Runs <em>all</em> workflows enabled for the given bot in stable order
+     * (lexicographic by {@code PrWorkflow.key()}). Bots without an explicit
+     * {@link org.remus.giteabot.prworkflow.config.WorkflowConfiguration} fall
+     * back to the legacy single-workflow behaviour ({@link ReviewWorkflow}).
+     *
+     * <p>Workflows are invoked sequentially; one failing workflow does not
+     * abort the remaining ones (each call is wrapped by {@link #run}).</p>
+     *
+     * @return the list of terminal {@link PrWorkflowRun} rows, one per
+     *         invoked workflow (skipping unregistered keys with a warning)
+     */
+    public List<PrWorkflowRun> runAll(Bot bot, WebhookPayload payload) {
+        if (bot == null) {
+            throw new IllegalArgumentException("bot must not be null");
+        }
+        List<String> workflowKeys;
+        if (bot.getWorkflowConfiguration() != null) {
+            workflowKeys = workflowSelectionService.enabledWorkflowKeys(
+                    bot.getWorkflowConfiguration().getId());
+        } else {
+            workflowKeys = List.of(ReviewWorkflow.KEY);
+        }
+        if (workflowKeys.isEmpty()) {
+            log.debug("[Bot '{}'] No workflows enabled — skipping orchestrator", bot.getName());
+            return List.of();
+        }
+        List<PrWorkflowRun> runs = new ArrayList<>(workflowKeys.size());
+        for (String key : workflowKeys) {
+            if (registry.find(key).isEmpty()) {
+                log.warn("[Bot '{}'] Skipping unregistered workflow key '{}'", bot.getName(), key);
+                continue;
+            }
+            try {
+                runs.add(run(bot, payload, key));
+            } catch (RuntimeException e) {
+                log.error("[Bot '{}'] Workflow '{}' failed: {}", bot.getName(), key, e.getMessage(), e);
+                // Don't abort remaining workflows — the per-workflow run row already
+                // carries the FAILED status thanks to run(...).
+            }
+        }
+        return runs;
     }
 
     /**

@@ -37,6 +37,19 @@ public interface PrWorkflow {
     PrWorkflowCategory category();
 
     /**
+     * Declarative description of the parameters the workflow accepts. Used by
+     * the M2 workflow-configuration UI to render per-workflow form fields and
+     * to validate persisted {@code params_json} before a run.
+     *
+     * <p>The default implementation returns
+     * {@link WorkflowParamsSchema#empty()} — appropriate for workflows like
+     * {@code ReviewWorkflow} that do not expose any tunables.</p>
+     */
+    default WorkflowParamsSchema paramsSchema() {
+        return WorkflowParamsSchema.empty();
+    }
+
+    /**
      * Executes the workflow for the given context. Must not throw checked
      * exceptions; runtime exceptions are caught by
      * {@link PrWorkflowOrchestrator} and recorded as a {@code FAILED} run.
