@@ -87,8 +87,8 @@ public class BotWebhookService {
 
     /**
      * Reviews a pull request via the {@link PrWorkflowOrchestrator}, which
-     * dispatches to the {@link ReviewWorkflow} (and, in future milestones,
-     * any other workflows enabled for the bot).
+     * dispatches to the {@link ReviewWorkflow} (and, in M2+, any other
+     * workflows enabled for the bot via its {@code WorkflowConfiguration}).
      */
     @Async
     public void reviewPullRequest(Bot bot, WebhookPayload payload) {
@@ -97,9 +97,9 @@ public class BotWebhookService {
             return;
         }
         try {
-            prWorkflowOrchestrator.run(bot, payload, ReviewWorkflow.KEY);
+            prWorkflowOrchestrator.runAll(bot, payload);
         } catch (Exception e) {
-            log.error("[Bot '{}'] Failed to review PR: {}", bot.getName(), e.getMessage(), e);
+            log.error("[Bot '{}'] Failed to run PR workflows: {}", bot.getName(), e.getMessage(), e);
             botService.recordError(bot, e.getMessage());
         }
     }

@@ -1,6 +1,7 @@
 package org.remus.giteabot.systemsettings;
 
 import org.junit.jupiter.api.Test;
+import org.remus.giteabot.prworkflow.config.WorkflowConfigurationService;
 import org.springframework.ui.ConcurrentModel;
 import org.springframework.web.servlet.mvc.support.RedirectAttributesModelMap;
 
@@ -22,7 +23,8 @@ class SystemSettingsControllerTest {
                                                    BotToolConfigurationService botToolConfigurationService,
                                                    BotToolSelectionService botToolSelectionService) {
         return new SystemSettingsController(systemPromptService, mcpConfigurationService,
-                mcpToolSelectionService, botToolConfigurationService, botToolSelectionService);
+                mcpToolSelectionService, botToolConfigurationService, botToolSelectionService,
+                mock(WorkflowConfigurationService.class));
     }
 
     @Test

@@ -16,7 +16,6 @@ class PrWorkflowRegistryTest {
         PrWorkflow review = stub("review", PrWorkflowCategory.REVIEW);
         PrWorkflow e2e = stub("e2e-test", PrWorkflowCategory.TESTING);
         PrWorkflowRegistry registry = new PrWorkflowRegistry(List.of(review, e2e));
-        registry.index();
 
         assertSame(review, registry.require("review"));
         assertSame(e2e, registry.require("e2e-test"));
@@ -26,31 +25,30 @@ class PrWorkflowRegistryTest {
 
     @Test
     void rejectsBlankKey() {
-        PrWorkflowRegistry registry = new PrWorkflowRegistry(List.of(stub("", PrWorkflowCategory.REVIEW)));
-        IllegalStateException ex = assertThrows(IllegalStateException.class, registry::index);
+        IllegalStateException ex = assertThrows(IllegalStateException.class,
+                () -> new PrWorkflowRegistry(List.of(stub("", PrWorkflowCategory.REVIEW))));
         assertTrue(ex.getMessage().contains("blank"));
     }
 
     @Test
     void rejectsNonLowercaseKey() {
-        PrWorkflowRegistry registry = new PrWorkflowRegistry(List.of(stub("Review", PrWorkflowCategory.REVIEW)));
-        IllegalStateException ex = assertThrows(IllegalStateException.class, registry::index);
+        IllegalStateException ex = assertThrows(IllegalStateException.class,
+                () -> new PrWorkflowRegistry(List.of(stub("Review", PrWorkflowCategory.REVIEW))));
         assertTrue(ex.getMessage().contains("kebab-case"));
     }
 
     @Test
     void rejectsDuplicateKey() {
-        PrWorkflowRegistry registry = new PrWorkflowRegistry(List.of(
-                stub("review", PrWorkflowCategory.REVIEW),
-                stub("review", PrWorkflowCategory.REVIEW)));
-        IllegalStateException ex = assertThrows(IllegalStateException.class, registry::index);
+        IllegalStateException ex = assertThrows(IllegalStateException.class,
+                () -> new PrWorkflowRegistry(List.of(
+                        stub("review", PrWorkflowCategory.REVIEW),
+                        stub("review", PrWorkflowCategory.REVIEW))));
         assertTrue(ex.getMessage().contains("Duplicate"));
     }
 
     @Test
     void requireThrowsForUnknownKey() {
         PrWorkflowRegistry registry = new PrWorkflowRegistry(List.of(stub("review", PrWorkflowCategory.REVIEW)));
-        registry.index();
         assertThrows(IllegalArgumentException.class, () -> registry.require("does-not-exist"));
     }
 
@@ -65,4 +63,3 @@ class PrWorkflowRegistryTest {
         };
     }
 }
-

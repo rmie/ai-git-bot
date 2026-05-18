@@ -1,8 +1,20 @@
 package org.remus.giteabot.admin;
 
-import jakarta.persistence.*;
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.ManyToOne;
+import jakarta.persistence.PrePersist;
+import jakarta.persistence.PreUpdate;
+import jakarta.persistence.Table;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import org.remus.giteabot.prworkflow.config.WorkflowConfiguration;
 import org.remus.giteabot.systemsettings.BotToolConfiguration;
 import org.remus.giteabot.systemsettings.McpConfiguration;
 import org.remus.giteabot.systemsettings.SystemPrompt;
@@ -42,6 +54,18 @@ public class Bot {
     @ManyToOne(optional = false)
     @JoinColumn(name = "bot_tool_configuration_id", nullable = false)
     private BotToolConfiguration toolConfiguration;
+
+    /**
+     * Reusable workflow whitelist (M2). Nullable for backwards compatibility:
+     * a bot without an explicit {@link WorkflowConfiguration} behaves as if
+     * it referenced the auto-bootstrapped {@code Default} configuration
+     * (which always has at least the legacy {@code review} workflow enabled).
+     * Existing rows are backfilled to the default by Flyway migration
+     * {@code V15__workflow_configurations_default.sql}.
+     */
+    @ManyToOne
+    @JoinColumn(name = "workflow_configuration_id")
+    private WorkflowConfiguration workflowConfiguration;
 
     private String webhookSecret;
 
