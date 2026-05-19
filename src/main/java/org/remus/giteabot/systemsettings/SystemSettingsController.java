@@ -1,6 +1,7 @@
 package org.remus.giteabot.systemsettings;
 
 import lombok.extern.slf4j.Slf4j;
+import org.remus.giteabot.prworkflow.config.DeploymentTargetService;
 import org.remus.giteabot.prworkflow.config.WorkflowConfigurationService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Controller;
@@ -28,19 +29,22 @@ public class SystemSettingsController {
     private final BotToolConfigurationService botToolConfigurationService;
     private final BotToolSelectionService botToolSelectionService;
     private final WorkflowConfigurationService workflowConfigurationService;
+    private final DeploymentTargetService deploymentTargetService;
 
     public SystemSettingsController(SystemPromptService systemPromptService,
                                     McpConfigurationService mcpConfigurationService,
                                     McpToolSelectionService mcpToolSelectionService,
                                     BotToolConfigurationService botToolConfigurationService,
                                     BotToolSelectionService botToolSelectionService,
-                                    WorkflowConfigurationService workflowConfigurationService) {
+                                    WorkflowConfigurationService workflowConfigurationService,
+                                    DeploymentTargetService deploymentTargetService) {
         this.systemPromptService = systemPromptService;
         this.mcpConfigurationService = mcpConfigurationService;
         this.mcpToolSelectionService = mcpToolSelectionService;
         this.botToolConfigurationService = botToolConfigurationService;
         this.botToolSelectionService = botToolSelectionService;
         this.workflowConfigurationService = workflowConfigurationService;
+        this.deploymentTargetService = deploymentTargetService;
     }
 
     @GetMapping
@@ -49,6 +53,7 @@ public class SystemSettingsController {
         model.addAttribute("mcpConfigurations", mcpConfigurationService.findAll());
         model.addAttribute("botToolConfigurations", botToolConfigurationService.findAll());
         model.addAttribute("workflowConfigurations", workflowConfigurationService.findAll());
+        model.addAttribute("deploymentTargets", deploymentTargetService.findAll());
         model.addAttribute("activeNav", "system-settings");
         return "system-settings/list";
     }

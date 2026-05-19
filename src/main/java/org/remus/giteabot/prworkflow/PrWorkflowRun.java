@@ -72,6 +72,33 @@ public class PrWorkflowRun {
     @Column(name = "finished_at")
     private Instant finishedAt;
 
+    /**
+     * Preview URL surfaced once the deployment strategy reports the
+     * environment is ready. Populated either synchronously by
+     * {@code StaticPreviewUrlStrategy} or asynchronously through
+     * {@code POST /api/workflow-callback/{runId}/{secret}}.
+     */
+    @Column(name = "preview_url", length = 2048)
+    private String previewUrl;
+
+    /**
+     * Random per-run secret used to HMAC-verify inbound callbacks. Generated
+     * by {@link PrWorkflowRunService} when the run is started and exposed to
+     * the deployment strategy as part of {@code DeploymentRequest}; never
+     * surfaced in the admin UI or logs.
+     */
+    @Column(name = "callback_secret", length = 128)
+    private String callbackSecret;
+
+    /**
+     * Opaque JSON returned by a deployment strategy's {@code trigger()} so
+     * later {@code poll()} / {@code teardown()} invocations can locate their
+     * own state. The bot never inspects the content — it is round-tripped
+     * verbatim back into the strategy.
+     */
+    @Column(name = "deployment_handle_json", columnDefinition = "TEXT")
+    private String deploymentHandleJson;
+
     @OneToMany(mappedBy = "run", cascade = CascadeType.ALL, orphanRemoval = true)
     @OrderBy("stepOrder ASC")
     @ToString.Exclude

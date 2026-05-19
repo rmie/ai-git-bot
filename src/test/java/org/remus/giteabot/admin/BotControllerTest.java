@@ -36,7 +36,8 @@ class BotControllerTest {
                 mcpToolSelectionService,
                 botToolConfigurationService,
                 botToolSelectionService,
-                mock(WorkflowConfigurationService.class));
+                mock(WorkflowConfigurationService.class),
+                mock(org.remus.giteabot.prworkflow.config.DeploymentTargetService.class));
     }
 
     @Test

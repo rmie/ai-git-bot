@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<body>
+<div th:replace="~{layout :: layout('Deployment target', ~{::pageContent})}">
+    <div th:fragment="pageContent">
+
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <h2>
+                <i class="bi bi-cloud-upload"></i>
+                <span th:if="${deploymentTarget.id == null}">New deployment target</span>
+                <span th:if="${deploymentTarget.id != null}">Edit deployment target</span>
+            </h2>
+            <a th:href="@{/system-settings}" class="btn btn-outline-secondary">
+                <i class="bi bi-arrow-left"></i> Back to System settings
+            </a>
+        </div>
+
+        <div th:if="${error}" class="alert alert-danger" th:text="${error}"></div>
+
+        <div class="card mb-4">
+            <div class="card-body">
+                <h6 class="card-title"><i class="bi bi-link-45deg"></i> Callback URL pattern</h6>
+                <p class="small mb-2">
+                    Asynchronous strategies (e.g. <code>WEBHOOK</code>) must call back to the bot
+                    on this URL when the preview environment is ready. The <code>{runId}</code> and
+                    <code>{secret}</code> placeholders are filled in per request and embedded in the
+                    outbound webhook payload as <code>callbackUrl</code>.
+                </p>
+                <code th:text="${callbackUrlPattern}"></code>
+                <div class="form-text" th:if="${#strings.contains(callbackUrlPattern, '{publicBaseUrl}')}">
+                    Set the <code>ai-git-bot.public-base-url</code> property (e.g.
+                    <code>https://bot.acme.io</code>) so the bot can hand out a fully-qualified URL.
+                </div>
+            </div>
+        </div>
+
+        <form th:action="@{/system-settings/deployment-targets/save}" method="post"
+              th:object="${deploymentTarget}">
+            <input type="hidden" th:field="*{id}"/>
+
+            <div class="mb-3">
+                <label class="form-label">Name</label>
+                <input type="text" class="form-control" th:field="*{name}" required maxlength="255"/>
+                <div class="form-text">Unique identifier shown in the bot form dropdown.</div>
+            </div>
+
+            <div class="mb-3">
+                <label class="form-label">Strategy</label>
+                <select class="form-select" th:field="*{strategyType}" id="strategyType">
+                    <option th:each="type : ${strategyTypes}"
+                            th:value="${type.name()}"
+                            th:text="${type.name()}"></option>
+                </select>
+            </div>
+
+            <div class="mb-3">
+                <label class="form-label">Preview URL template</label>
+                <input type="text" class="form-control" th:field="*{previewUrlTemplate}"
+                       placeholder="https://pr-{prNumber}.preview.example.com" maxlength="1024"/>
+                <div class="form-text">
+                    Optional. Required by <code>STATIC</code>; informational for <code>WEBHOOK</code>.
+                    Placeholders: <code>{prNumber}</code>, <code>{sha}</code>, <code>{branch}</code>.
+                </div>
+            </div>
+
+            <div class="mb-3">
+                <label class="form-label">Timeout (seconds)</label>
+                <input type="number" class="form-control" th:field="*{timeoutSeconds}" min="5" max="3600"/>
+                <div class="form-text">Maximum time the orchestrator waits for the strategy / callback.</div>
+            </div>
+
+            <div class="mb-3">
+                <label class="form-label">Strategy config (JSON)</label>
+                <textarea class="form-control font-monospace" rows="8" th:field="*{configJson}"
+                          placeholder='{ "webhookUrl": "...", "sharedSecret": "..." }'></textarea>
+                <div class="form-text">
+                    <strong>WEBHOOK</strong>: <code>{ "webhookUrl": "&lt;url&gt;", "sharedSecret": "&lt;hex&gt;", "headers": { ... } }</code>.<br/>
+                    <strong>STATIC</strong>: <code>{ "healthcheckPath": "/healthz", "expectedStatus": 200, "intervalSeconds": 5, "extraHeaders": { ... } }</code>.<br/>
+                    See <a href="../../../doc/PR_WORKFLOWS.md" target="_blank">doc/PR_WORKFLOWS.md → Deployment targets</a> for the full schema.
+                </div>
+            </div>
+
+            <div class="d-flex gap-2">
+                <button type="submit" class="btn btn-primary">
+                    <i class="bi bi-save"></i> Save
+                </button>
+                <a th:href="@{/system-settings}" class="btn btn-outline-secondary">Cancel</a>
+                <form th:if="${deploymentTarget.id != null}"
+                      th:action="@{/system-settings/deployment-targets/{id}/delete(id=${deploymentTarget.id})}"
+                      method="post" class="ms-auto"
+                      onsubmit="return confirm('Delete this deployment target?');">
+                    <button type="submit" class="btn btn-outline-danger">
+                        <i class="bi bi-trash"></i> Delete
+                    </button>
+                </form>
+            </div>
+        </form>
+
+    </div>
+</div>
+</body>
+</html>
+

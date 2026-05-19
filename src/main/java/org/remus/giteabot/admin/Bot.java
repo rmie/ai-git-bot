@@ -14,6 +14,7 @@ import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import org.remus.giteabot.prworkflow.config.DeploymentTarget;
 import org.remus.giteabot.prworkflow.config.WorkflowConfiguration;
 import org.remus.giteabot.systemsettings.BotToolConfiguration;
 import org.remus.giteabot.systemsettings.McpConfiguration;
@@ -66,6 +67,16 @@ public class Bot {
     @ManyToOne
     @JoinColumn(name = "workflow_configuration_id")
     private WorkflowConfiguration workflowConfiguration;
+
+    /**
+     * Optional deployment target (M3). Workflows that need a per-PR preview
+     * environment (e.g. {@code E2ETestWorkflow} from M4) consult this FK;
+     * when it is {@code null} those workflows abort cleanly with an
+     * explanatory PR comment instead of running blind.
+     */
+    @ManyToOne
+    @JoinColumn(name = "deployment_target_id")
+    private DeploymentTarget deploymentTarget;
 
     private String webhookSecret;
 

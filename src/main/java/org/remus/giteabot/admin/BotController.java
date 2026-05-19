@@ -1,6 +1,8 @@
 package org.remus.giteabot.admin;
 
 import lombok.extern.slf4j.Slf4j;
+import org.remus.giteabot.prworkflow.config.DeploymentTarget;
+import org.remus.giteabot.prworkflow.config.DeploymentTargetService;
 import org.remus.giteabot.prworkflow.config.WorkflowConfiguration;
 import org.remus.giteabot.prworkflow.config.WorkflowConfigurationService;
 import org.remus.giteabot.systemsettings.BotToolConfiguration;
@@ -40,6 +42,7 @@ public class BotController {
     private final BotToolConfigurationService botToolConfigurationService;
     private final BotToolSelectionService botToolSelectionService;
     private final WorkflowConfigurationService workflowConfigurationService;
+    private final DeploymentTargetService deploymentTargetService;
 
     public BotController(BotService botService,
                          AiIntegrationService aiIntegrationService,
@@ -49,7 +52,8 @@ public class BotController {
                          McpToolSelectionService mcpToolSelectionService,
                          BotToolConfigurationService botToolConfigurationService,
                          BotToolSelectionService botToolSelectionService,
-                         WorkflowConfigurationService workflowConfigurationService) {
+                         WorkflowConfigurationService workflowConfigurationService,
+                         DeploymentTargetService deploymentTargetService) {
         this.botService = botService;
         this.aiIntegrationService = aiIntegrationService;
         this.gitIntegrationService = gitIntegrationService;
@@ -59,6 +63,7 @@ public class BotController {
         this.botToolConfigurationService = botToolConfigurationService;
         this.botToolSelectionService = botToolSelectionService;
         this.workflowConfigurationService = workflowConfigurationService;
+        this.deploymentTargetService = deploymentTargetService;
     }
 
     @GetMapping
@@ -102,6 +107,7 @@ public class BotController {
                         @RequestParam(required = false) Long mcpConfigurationId,
                         @RequestParam Long toolConfigurationId,
                         @RequestParam(required = false) Long workflowConfigurationId,
+                        @RequestParam(required = false) Long deploymentTargetId,
                         Model model,
                         RedirectAttributes redirectAttributes) {
         try {
@@ -132,6 +138,12 @@ public class BotController {
             bot.setMcpConfiguration(mcpConfiguration);
             bot.setToolConfiguration(toolConfiguration);
             bot.setWorkflowConfiguration(workflowConfiguration);
+            DeploymentTarget deploymentTarget = null;
+            if (deploymentTargetId != null) {
+                deploymentTarget = deploymentTargetService.findById(deploymentTargetId)
+                        .orElseThrow(() -> new IllegalArgumentException("Deployment target not found"));
+            }
+            bot.setDeploymentTarget(deploymentTarget);
             botService.save(bot);
             redirectAttributes.addFlashAttribute("success", "Bot saved successfully");
         } catch (Exception e) {
@@ -151,6 +163,7 @@ public class BotController {
         model.addAttribute("mcpConfigurations", mcpConfigurationService.findAll());
         model.addAttribute("toolConfigurations", botToolConfigurationService.findAll());
         model.addAttribute("workflowConfigurations", workflowConfigurationService.findAll());
+        model.addAttribute("deploymentTargets", deploymentTargetService.findAll());
         model.addAttribute("botTypes", BotType.values());
         model.addAttribute("activeNav", "bots");
     }

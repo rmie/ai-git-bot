@@ -152,6 +152,22 @@
                             </div>
                         </div>
 
+                        <div class="col-12">
+                            <label for="deploymentTargetId" class="form-label">Deployment Target <span class="text-muted">(optional)</span></label>
+                            <select class="form-select" id="deploymentTargetId" name="deploymentTargetId">
+                                <option value="">(none — preview-aware workflows will be skipped)</option>
+                                <option th:each="deploymentTarget : ${deploymentTargets}"
+                                        th:value="${deploymentTarget.id}"
+                                        th:text="${deploymentTarget.name + ' [' + deploymentTarget.strategyType + ']'}"
+                                        th:selected="${bot.deploymentTarget != null and bot.deploymentTarget.id == deploymentTarget.id}">
+                                </option>
+                            </select>
+                            <div class="form-text">
+                                Per-PR preview environment used by workflows that need a live deployment (e.g. E2E tests). Manage targets under
+                                <a th:href="@{/system-settings/deployment-targets}">System settings → Deployment targets</a>.
+                            </div>
+                        </div>
+
                         <div class="col-md-6">
                             <div class="form-check form-switch mt-3">
                                 <input class="form-check-input" type="checkbox" id="enabled"

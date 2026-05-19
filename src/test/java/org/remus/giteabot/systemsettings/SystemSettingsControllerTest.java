@@ -24,7 +24,8 @@ class SystemSettingsControllerTest {
                                                    BotToolSelectionService botToolSelectionService) {
         return new SystemSettingsController(systemPromptService, mcpConfigurationService,
                 mcpToolSelectionService, botToolConfigurationService, botToolSelectionService,
-                mock(WorkflowConfigurationService.class));
+                mock(WorkflowConfigurationService.class),
+                mock(org.remus.giteabot.prworkflow.config.DeploymentTargetService.class));
     }
 
     @Test
