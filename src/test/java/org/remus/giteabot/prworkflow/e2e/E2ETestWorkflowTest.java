@@ -323,12 +323,6 @@ class E2ETestWorkflowTest {
         final java.util.Map<Long, PrTestSuite> entities = new java.util.LinkedHashMap<>();
         private long sequence = 1;
 
-        @Override public java.util.Optional<PrTestSuite> findByRunId(Long runId) {
-            return entities.values().stream().filter(s -> runId.equals(s.getRunId())).findFirst();
-        }
-        @Override public java.util.List<PrTestSuite> findByPrNumberOrderByCreatedAtDesc(Long prNumber) {
-            return entities.values().stream().filter(s -> prNumber.equals(s.getPrNumber())).toList();
-        }
         @Override public java.util.List<PrTestSuite> findByPrNumberAndLifecycleMode(Long prNumber, SuiteLifecycleMode m) {
             return entities.values().stream()
                     .filter(s -> prNumber.equals(s.getPrNumber()) && s.getLifecycleMode() == m)

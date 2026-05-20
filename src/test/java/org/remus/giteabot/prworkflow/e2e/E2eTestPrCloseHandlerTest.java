@@ -166,12 +166,6 @@ class E2eTestPrCloseHandlerTest {
 
         void add(PrTestSuite s) { entities.put(s.getId(), s); }
 
-        @Override public Optional<PrTestSuite> findByRunId(Long runId) {
-            return entities.values().stream().filter(s -> runId.equals(s.getRunId())).findFirst();
-        }
-        @Override public List<PrTestSuite> findByPrNumberOrderByCreatedAtDesc(Long prNumber) {
-            return new ArrayList<>(entities.values());
-        }
         @Override public List<PrTestSuite> findByPrNumberAndLifecycleMode(Long prNumber,
                                                                          SuiteLifecycleMode mode) {
             return entities.values().stream()
