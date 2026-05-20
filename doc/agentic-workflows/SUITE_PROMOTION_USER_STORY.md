@@ -165,10 +165,6 @@ base branch (repository default branch) and the target directory
 
 ## 8. Out of scope (deliberately deferred)
 
-- **Nightly GC** for stale `offer-as-pr` / `promote-on-merge` rows
-  whose follow-up PR has long since closed — currently kept
-  indefinitely for dashboard correlation; a `@Scheduled` job will be
-  added when DB size becomes a real concern.
 - **Cross-PR de-duplication** of identical specs (the same `login.spec.ts`
   being regenerated for every PR). The conflict-suffix policy handles
   this safely but does not deduplicate semantically.

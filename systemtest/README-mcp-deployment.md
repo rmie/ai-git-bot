@@ -3,7 +3,7 @@
 End-to-end recipe demonstrating `MCPDeploymentStrategy` — the bot drives a
 per-PR preview deploy by calling regular MCP tools on a server you
 control. Companion to
-[`doc/refactoring/MCP_DEPLOYMENT_USER_STORY.md`](../doc/refactoring/MCP_DEPLOYMENT_USER_STORY.md)
+[`doc/agentic-workflows/MCP_DEPLOYMENT_USER_STORY.md`](../doc/agentic-workflows/MCP_DEPLOYMENT_USER_STORY.md)
 (the *why*) and
 [`doc/MCP_SERVER_HANDLING.md` § 6](../doc/MCP_SERVER_HANDLING.md#6-exposing-deployment-style-tools-m5)
 (the *protocol*).

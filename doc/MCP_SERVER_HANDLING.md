@@ -116,15 +116,15 @@ This keeps issue threads readable while still allowing technical traceability in
 </details>
 
 
-## 6) Exposing Deployment-Style Tools (M5)
+## 6) Exposing Deployment-Style Tools
 
-Since the **M5** release the bot can use any MCP server as a *deployment
+The bot can use any MCP server as a *deployment
 target* — the `MCPDeploymentStrategy` lets a PR workflow trigger, observe
 and tear down per-PR preview environments by calling regular MCP tools on
 an already configured server.
 
 > **Why would I want this?** See
-> [`doc/refactoring/MCP_DEPLOYMENT_USER_STORY.md`](refactoring/MCP_DEPLOYMENT_USER_STORY.md)
+> [`doc/agentic-workflows/MCP_DEPLOYMENT_USER_STORY.md`](agentic-workflows/MCP_DEPLOYMENT_USER_STORY.md)
 > for a concrete persona-driven story + benefits matrix, and
 > [`systemtest/README-mcp-deployment.md`](../systemtest/README-mcp-deployment.md)
 > for a 2-minute laptop reproduction (`docker compose -f

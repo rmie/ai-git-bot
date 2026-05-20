@@ -1,22 +1,21 @@
-# Extending PR Review with Agentic Workflows
+# Agentic PR Workflows — Concept &amp; Architecture
 
-> **Status: original design sketch — most of M1 – M6 is now shipped.**
-> Originally written 2026-05-18 as a forward-looking concept.
-> Kept in the repository as **historical design context**: the SPI
-> shapes, naming, and overall layering described here closely match
-> what ended up being implemented. For the **current, authoritative**
-> view see:
-> - [`PR_REVIEW_AGENTIC_WORKFLOWS_IMPLEMENTATION.md`](PR_REVIEW_AGENTIC_WORKFLOWS_IMPLEMENTATION.md) — milestone-by-milestone progress, what each iteration actually delivered.
-> - [`README.md`](./README.md) — milestone status table and version history.
-> - [`../PR_WORKFLOWS.md`](../PR_WORKFLOWS.md), [`../PR_WORKFLOWS_E2E.md`](../PR_WORKFLOWS_E2E.md), [`../PR_WORKFLOWS_CI_ACTIONS.md`](../PR_WORKFLOWS_CI_ACTIONS.md) — operator-facing recipes.
->
-> Treat the rest of this document as the *original intent*, not a spec of current behavior. Where wording diverges from the shipped product, the implementation docs above win.
->
-> Target version (as originally written): AI-Git-Bot ≥ 1.7
-> Related documents: [ARCHITECTURE.md](../ARCHITECTURE.md), [AGENT.md](../AGENT.md),
+This document is the conceptual reference for the agentic PR-workflow
+subsystem of AI-Git-Bot: the **`PrWorkflow`** SPI, the
+**`DeploymentTarget`** abstraction, the data model, the four deployment
+strategies, the `e2e-test` workflow, and the way the three E2E agents
+plug into the existing `AgentLoop` infrastructure.
+
+It is the *why* and the *what* — the *how it's wired up in code* lives
+in [`INTERNALS.md`](INTERNALS.md), the operator-facing recipes live in
+[`../PR_WORKFLOWS.md`](../PR_WORKFLOWS.md) /
+[`../PR_WORKFLOWS_E2E.md`](../PR_WORKFLOWS_E2E.md) /
+[`../PR_WORKFLOWS_CI_ACTIONS.md`](../PR_WORKFLOWS_CI_ACTIONS.md), and a
+folder-level index lives in [`README.md`](./README.md).
+
+> Related: [ARCHITECTURE.md](../ARCHITECTURE.md), [AGENT.md](../AGENT.md),
 > [BOT_TOOL_CONFIGURATIONS.md](../BOT_TOOL_CONFIGURATIONS.md),
-> [MCP_SERVER_HANDLING.md](../MCP_SERVER_HANDLING.md),
-> [PR_REVIEW_AGENTIC_WORKFLOWS_IMPLEMENTATION.md](PR_REVIEW_AGENTIC_WORKFLOWS_IMPLEMENTATION.md).
+> [MCP_SERVER_HANDLING.md](../MCP_SERVER_HANDLING.md).
 
 ## 1. Motivation and Goal
 
@@ -497,43 +496,26 @@ and telemetry work without extra effort.
 | Data protection for preview env vs. test data | Hint in the UI; workflow param `useSyntheticData`; MCP tool `seed-test-data` (optional). |
 | Parallel workflow runs per PR (race) | DB constraint `unique(botId, prNumber, workflowKey, status in RUNNING/WAITING)` + cancel-on-resync. |
 
-## 12. Roadmap proposal
+## 12. Summary
 
-Incremental, individually shippable releases (detailed task lists in
-[PR_REVIEW_AGENTIC_WORKFLOWS_IMPLEMENTATION.md](PR_REVIEW_AGENTIC_WORKFLOWS_IMPLEMENTATION.md)):
-
-- **M1 — Foundation (1–2 weeks):** `PrWorkflow` interface, registry, refactor
-  the existing review into `ReviewWorkflow`. *No UX change.*
-- **M2 — Workflow configurations UI (1 week):** CRUD UI, bot assignment, default.
-- **M3 — Deployment targets (1–2 weeks):** `WebhookTriggerStrategy` +
-  `StaticPreviewUrlStrategy` + callback endpoints.
-- **M4 — E2E test workflow MVP (2–3 weeks):** `TestPlannerAgent` +
-  `TestAuthorAgent` + `TestRunnerAgent`, built-in tool `pr-test-run`
-  (Playwright local), `PrTestSuite`/`PrTestCase` persistence.
-- **M5 — MCP integration (1 week):** `MCPDeploymentStrategy` + recommended
-  Playwright MCP configuration template.
-- **M6 — CI action strategy (1 week):** GitHub/Gitea/GitLab action dispatch.
-- **M7 — Suite promotion workflow (optional, 1 week):** `offer-as-pr` and
-  `promote-on-merge`.
-
-## 13. Summary
-
-- We introduce **`PrWorkflow`** as a generic, registrable extension of the PR
-  path. The current review becomes the first workflow → zero risk for existing
-  bots.
+- **`PrWorkflow`** is a generic, registrable extension of the PR path.
+  The classic review runs as the first workflow (`ReviewWorkflow`) → zero
+  risk for existing bots.
 - The first concrete new workflow is **`e2e-test`**, modelled as three
-  cooperating agents (`Planner`, `Author`, `Runner`) on the existing agent loop
-  infrastructure.
-- **Deployment** is not done by us, but abstracted via four interchangeable
-  **`DeploymentTarget` strategies**; the recommended default is "webhook
-  trigger + callback" because it fits into any existing CI.
-- The **test suite lives per PR** and can optionally be promoted into the repo
-  via a follow-up PR.
+  cooperating agents (`Planner`, `Author`, `Runner`) on the existing
+  agent-loop infrastructure.
+- **Deployment** is not done by the bot itself — it is abstracted via
+  four interchangeable **`DeploymentTarget`** strategies (`STATIC`,
+  `WEBHOOK`, `MCP`, `CI_ACTION`); operators pick the one that fits the
+  CI / platform world they already live in.
+- The **test suite lives per PR** and can optionally be promoted into
+  the repository via a follow-up PR or a direct commit (see
+  [`SUITE_PROMOTION_USER_STORY.md`](./SUITE_PROMOTION_USER_STORY.md)).
 - The UI stays true to the existing pattern (three small new areas:
-  workflow configurations, deployment targets, workflow runs) and introduces
+  workflow configurations, deployment targets, workflow runs) and adds
   two optional dropdowns on the bot form.
-- Existing market solutions (Copilot Workspace, GitLab Duo, Qodo, Aider/Sweep,
-  Playwright MCP) provide building blocks, but no complete solution with our
-  multi-provider/multi-LLM gateway focus — exactly where the added value of
-  this extension lies.
+- Existing market solutions (Copilot Workspace, GitLab Duo, Qodo,
+  Aider/Sweep, Playwright MCP) provide building blocks, but no complete
+  solution with our multi-provider / multi-LLM gateway focus — exactly
+  where the added value of this feature lies.
 

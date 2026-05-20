@@ -1,39 +1,29 @@
-# PR Workflows: E2E Tests (M4)
-
-The `E2ETestWorkflow` is the first non-review workflow shipped on top of the
-M1–M3 platform. It runs after a pull request is opened or synchronised and
-follows the four-stage pipeline described in
-[`PR_REVIEW_AGENTIC_WORKFLOWS.md`](./refactoring/PR_REVIEW_AGENTIC_WORKFLOWS.md):
-
+# PR Workflows: E2E Tests
+The `E2ETestWorkflow` is the non-review workflow shipped on top of the
+agentic PR-workflow platform. It runs after a pull request is opened or
+synchronised and follows the four-stage pipeline described in
+[`CONCEPT_AND_ARCHITECTURE.md`](./agentic-workflows/CONCEPT_AND_ARCHITECTURE.md):
 ```
 plan → deploy → author → run → comment
 ```
-
-> **Status — M4 wave 2 ✅ shipped (iterations 1 – 4).** The full
-> agentic pipeline (planner → author → runner) is wired through
-> `PlaywrightTestSuiteRunner`. Operators drive it via the seeded
-> `Full-stack QA` workflow configuration (Flyway `V18`), the two
-> slash commands `@bot rerun-tests` and `@bot regenerate-tests
-> [feedback]`, and PR-close teardown that honours
-> `SuiteLifecycleMode.EPHEMERAL`. The sample app under
-> `systemtest/sample-e2e-app/` is in place, all four repository
-> providers ship a per-provider implementation of
-> `attachPullRequestArtifact` (GitLab uploads, Gitea issue assets,
-> Bitbucket downloads; GitHub keeps the inline default — see below),
-> and the `regenerate-tests` feedback is threaded into the planner's
-> user message via `PrWorkflowContext.hints`. The composite
-> WireMock-based end-to-end system test is intentionally deferred — the
-> existing per-component tests cover all building blocks. For the
-> per-release regression-test counts see the version history in
-> [`doc/refactoring/README.md`](./refactoring/README.md).
-
+The full agentic pipeline (planner → author → runner) is wired through
+`PlaywrightTestSuiteRunner`. Operators drive it via the seeded
+`Full-stack QA` workflow configuration, the two slash commands
+`@bot rerun-tests` and `@bot regenerate-tests [feedback]`, and PR-close
+teardown that honours `SuiteLifecycleMode`. All four repository providers
+implement `attachPullRequestArtifact` (GitLab uploads, Gitea issue
+assets, Bitbucket downloads; GitHub keeps the inline default — see
+below); operator feedback from `regenerate-tests` is threaded into the
+planner's user message via `PrWorkflowContext.hints`.
+> 📸 *Screenshot placeholder — example E2E run comment on a PR*
+> `doc/screenshots/prworkflow/pr-comment-e2e-report.png` (TODO)
 ## Enabling the workflow on a bot
 
 1. Make sure the bot has a **deployment target** configured under
    *System settings → Deployment targets* (see [`PR_WORKFLOWS.md`](./PR_WORKFLOWS.md)
    for the available strategies — `STATIC`, `WEBHOOK`, `MCP`, and
    `CI_ACTION`, all shipped; cross-reference the persona-driven
-   walk-throughs under [`doc/refactoring/`](./refactoring/README.md) if
+   walk-throughs under [`doc/agentic-workflows/`](./agentic-workflows/README.md) if
    you're unsure which one to pick). Without a target the workflow
    aborts immediately and posts a clearly labelled skip-comment.
 2. Open the bot's *Workflow configuration*. Either pick the **seeded

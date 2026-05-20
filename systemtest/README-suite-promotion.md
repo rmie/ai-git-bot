@@ -2,7 +2,7 @@
 
 End-to-end recipe demonstrating the three M7 "non-ephemeral" lifecycle
 modes on a real Gitea instance. Companion to
-[`doc/refactoring/SUITE_PROMOTION_USER_STORY.md`](../doc/refactoring/SUITE_PROMOTION_USER_STORY.md)
+[`doc/agentic-workflows/SUITE_PROMOTION_USER_STORY.md`](../doc/agentic-workflows/SUITE_PROMOTION_USER_STORY.md)
 (the *why*) and
 [`doc/PR_WORKFLOWS_E2E.md` § Suite lifecycle modes](../doc/PR_WORKFLOWS_E2E.md#suite-lifecycle-modes-m7)
 (the per-mode protocol).

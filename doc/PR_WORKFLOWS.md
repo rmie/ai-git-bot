@@ -1,9 +1,7 @@
 # PR Workflows
 
-> **Status:** introduced in milestone **M1** of the
-> [PR-Review Agentic Workflows](refactoring/PR_REVIEW_AGENTIC_WORKFLOWS.md) effort.
-> M1 + M2 available since AI-Git-Bot **1.7.0-preview1**;
-> M3 (Deployment targets + callback channel) available since **1.7.0-preview2**.
+> The PR-workflow subsystem is part of every AI-Git-Bot release since
+> **1.7.0**. Conceptual overview: [`agentic-workflows/CONCEPT_AND_ARCHITECTURE.md`](agentic-workflows/CONCEPT_AND_ARCHITECTURE.md).
 
 The PR-review path is now built on a small, pluggable Service Provider
 Interface called **`PrWorkflow`**. Every pull-request webhook event passes
@@ -23,7 +21,7 @@ flowchart LR
     Webhook["UnifiedWebhookController"] --> BWS["BotWebhookService"]
     BWS --> Orchestrator["PrWorkflowOrchestrator"]
     Orchestrator --> Registry["PrWorkflowRegistry"]
-    Registry --> Review["ReviewWorkflow<br/>(M1 — only workflow)"]
+    Registry --> Review["ReviewWorkflow"]
     Orchestrator --> RunSvc["PrWorkflowRunService"]
     RunSvc --> Runs[("pr_workflow_runs")]
     RunSvc --> Steps[("pr_workflow_steps")]
@@ -51,9 +49,9 @@ stateDiagram-v2
     [*] --> RUNNING: PrWorkflowRunService.start(...)
     RUNNING --> SUCCESS: WorkflowResult.success / .skipped
     RUNNING --> FAILED: exception / WorkflowResult.failed
-    RUNNING --> WAITING_DEPLOY: WorkflowResult.waitingDeploy (M3+)
+    RUNNING --> WAITING_DEPLOY: WorkflowResult.waitingDeploy
     RUNNING --> CANCELLED: superseded by newer run for same PR
-    WAITING_DEPLOY --> RUNNING: deployment callback (M3+)
+    WAITING_DEPLOY --> RUNNING: deployment callback
     WAITING_DEPLOY --> CANCELLED: superseded by newer run for same PR
 ```
 
@@ -112,7 +110,7 @@ Two Micrometer meters are exposed at `/actuator/prometheus`:
 | `prworkflow.run_total` | `workflow`, `status` | One increment per terminal run. |
 | `prworkflow.run_duration_seconds` | `workflow` | Wall-clock duration of one terminal run. |
 
-A Grafana dashboard is planned for milestone M4.
+A reference Grafana dashboard ships under `doc/observability/` for these meters.
 
 ## Writing a new workflow
 
@@ -139,7 +137,7 @@ orchestrator can invoke it via `orchestrator.run(bot, payload, "security-scan")`
 or — once enabled in a `WorkflowConfiguration` (see below) — automatically as
 part of `orchestrator.runAll(bot, payload)`.
 
-## Workflow configurations (M2)
+## Workflow configurations
 
 Operators decide **which** `PrWorkflow`s run for a given bot via reusable
 **workflow configurations**. A configuration is an ordered whitelist of
@@ -227,10 +225,10 @@ Three touchpoints, all reusing the existing table-plus-modal pattern:
   migrations run, every existing bot keeps behaving exactly as before
   (running only the `review` workflow); no startup-time Java code is involved.
 
-## Deployment targets (M3)
+## Deployment targets
 
 Workflows that need a per-PR preview environment (e.g. the `E2ETestWorkflow`
-in M4) do not deploy anything themselves — they delegate to an
+such as `E2ETestWorkflow`) do not deploy anything themselves — they delegate to an
 operator-managed **deployment target** that wraps a pluggable
 `DeploymentStrategy`. Four strategies ship today:
 
@@ -238,8 +236,8 @@ operator-managed **deployment target** that wraps a pluggable
 |---|---|---|
 | `WEBHOOK` | yes | Bot POSTs a signed JSON envelope to a CI job (Jenkins, GitLab pipeline trigger, GitHub `repository_dispatch`, Argo CD). The CI side calls back when the preview URL is ready. |
 | `STATIC`  | no  | Provider already auto-provisions a per-PR preview (Vercel, Netlify, Render, GitLab review apps). The bot expands a URL template, optionally probes a `/healthz` until reachable, then proceeds synchronously. |
-| `MCP` (M5) | no  | Internal platform MCP server already exposes deploy / status / teardown tools. The bot calls them like any other MCP tool and polls via the status tool. See [MCP_SERVER_HANDLING.md → Exposing deployment tools](MCP_SERVER_HANDLING.md#6-exposing-deployment-style-tools-m5). |
-| `CI_ACTION` (M6) | yes (poller-driven) | Bot dispatches the Git host's native CI (GitHub Actions, Gitea Actions, GitLab CI, Bitbucket Pipelines) using the existing integration token. A scheduled poller drives the run forward; workflows may additionally POST to the bot's `callbackUrl` to expose a dynamic preview URL. See [PR_WORKFLOWS_CI_ACTIONS.md](PR_WORKFLOWS_CI_ACTIONS.md). |
+| `MCP` | no  | Internal platform MCP server already exposes deploy / status / teardown tools. The bot calls them like any other MCP tool and polls via the status tool. See [MCP_SERVER_HANDLING.md → Exposing deployment tools](MCP_SERVER_HANDLING.md#6-exposing-deployment-style-tools). |
+| `CI_ACTION` | yes (poller-driven) | Bot dispatches the Git host's native CI (GitHub Actions, Gitea Actions, GitLab CI, Bitbucket Pipelines) using the existing integration token. A scheduled poller drives the run forward; workflows may additionally POST to the bot's `callbackUrl` to expose a dynamic preview URL. See [PR_WORKFLOWS_CI_ACTIONS.md](PR_WORKFLOWS_CI_ACTIONS.md). |
 
 ### Lifecycle
 
@@ -292,7 +290,7 @@ X-AI-Bot-Run-Id:   {runId}
 the placeholders `{prNumber}`, `{sha}` and `{branch}`. Set
 `"healthcheckPath": ""` to skip the readiness probe entirely.
 
-**`MCP`** (M5)
+**`MCP`**
 ```json
 {
   "mcpConfigurationId": 7,
@@ -403,19 +401,19 @@ the next webhook re-sync picks it up, but production multi-instance
 deployments should run a sticky load balancer (or move the notifier to
 Redis pub/sub).
 
-### Upgrade behaviour (M3)
+### Upgrade behaviour
 
 `V16__deployment_targets.sql` adds the `deployment_targets` table, the
 nullable `bots.deployment_target_id` FK, and three new columns on
 `pr_workflow_runs` (`preview_url`, `callback_secret`,
 `deployment_handle_json`). Existing bots come up with no deployment target;
-the only impact is that preview-aware workflows (none ship in M3) are
+the only impact is that preview-aware workflows are
 skipped with a clear PR comment until an operator wires one up.
 
 ## See also
 
-- [Concept & architecture](refactoring/PR_REVIEW_AGENTIC_WORKFLOWS.md)
-- [Implementation plan (M1–M7)](refactoring/PR_REVIEW_AGENTIC_WORKFLOWS_IMPLEMENTATION.md)
+- [Concept & architecture](agentic-workflows/CONCEPT_AND_ARCHITECTURE.md)
+- [Implementation plan (M1–M7)](agentic-workflows/INTERNALS.md)
 - [Webhook recipes for CI systems](PR_WORKFLOWS_WEBHOOK_RECIPES.md)
 - [ARCHITECTURE.md](ARCHITECTURE.md) — overall system design
 - [AGENT.md](AGENT.md) — coding/writer agents reused by future PR workflows

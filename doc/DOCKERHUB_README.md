@@ -15,7 +15,7 @@ AI-Git-Bot turns those chores into **repeatable, automated workflows** that run 
 | 🧪 **Writing regression E2E tests** for the bug you just fixed | The **Full-stack QA** workflow plans, authors, deploys, and runs Playwright tests per PR, posts the report as a comment, and tears the environment down on PR close. |
 | 🛠️ **Implementing boring follow-up issues** (rename, dep bump, small refactor) | A **coding bot** reads the source, drafts the change in a workspace, validates with the project's own build tooling (Maven / Gradle / npm / Go / Cargo / .NET), and opens a PR. |
 | 🔁 **Re-running tests / regenerating coverage** when something flaked | `@bot rerun-tests` re-executes the suite; `@bot regenerate-tests <feedback>` re-plans the suite with operator hints. |
-| 🧹 **Tearing down stale preview environments** | The PR-close lifecycle hook calls the deployment target's `teardown` action (webhook, MCP tool, static no-op, or — planned M6 — a CI workflow dispatch). |
+| 🧹 **Tearing down stale preview environments** | The PR-close lifecycle hook calls the deployment target's `teardown` action (webhook, MCP tool, static no-op, or a CI workflow dispatch via the `CI_ACTION` strategy). |
 
 > **Pick the chore that hurts most. Wire one bot. Done.** Every workflow is opt-in per bot — nothing changes for repos you don't touch.
 
@@ -36,10 +36,10 @@ The Full-stack QA workflow needs a per-PR environment to test against. Teams alr
 
 | Strategy | Best for | Concrete user story |
 |---|---|---|
-| **`STATIC`** ✅ | Vercel / Netlify / GitLab review apps / Render — anything already creating preview-per-PR at a predictable URL. | [Marco the Frontend Lead](https://github.com/tmseidel/ai-git-bot/blob/main/doc/refactoring/STATIC_DEPLOYMENT_USER_STORY.md) |
-| **`WEBHOOK`** ✅ | Jenkins / TeamCity / scripts behind a firewall — anywhere you can `curl` an HMAC-signed callback back to the bot. | [Priya the DevOps Engineer](https://github.com/tmseidel/ai-git-bot/blob/main/doc/refactoring/WEBHOOK_DEPLOYMENT_USER_STORY.md) |
-| **`MCP`** ✅ | Internal platform teams already exposing deploy/status/teardown over MCP — zero extra services, single whitelist, no inbound callback. | [Alex the Platform Engineer](https://github.com/tmseidel/ai-git-bot/blob/main/doc/refactoring/MCP_DEPLOYMENT_USER_STORY.md) (laptop reproduction: `systemtest/docker-compose-mcp-deployment.yml`) |
-| **`CI_ACTION`** ✅ | Provider-native CI (GitHub Actions / GitLab CI / Bitbucket Pipelines / Gitea Actions) — dispatched via existing repo credentials, no new secrets. | [Sam the SRE](https://github.com/tmseidel/ai-git-bot/blob/main/doc/refactoring/CI_ACTION_DEPLOYMENT_USER_STORY.md) — operator recipes: [`doc/PR_WORKFLOWS_CI_ACTIONS.md`](https://github.com/tmseidel/ai-git-bot/blob/main/doc/PR_WORKFLOWS_CI_ACTIONS.md) (shipped M6) |
+| **`STATIC`** ✅ | Vercel / Netlify / GitLab review apps / Render — anything already creating preview-per-PR at a predictable URL. | [Marco the Frontend Lead](https://github.com/tmseidel/ai-git-bot/blob/main/doc/agentic-workflows/STATIC_DEPLOYMENT_USER_STORY.md) |
+| **`WEBHOOK`** ✅ | Jenkins / TeamCity / scripts behind a firewall — anywhere you can `curl` an HMAC-signed callback back to the bot. | [Priya the DevOps Engineer](https://github.com/tmseidel/ai-git-bot/blob/main/doc/agentic-workflows/WEBHOOK_DEPLOYMENT_USER_STORY.md) |
+| **`MCP`** ✅ | Internal platform teams already exposing deploy/status/teardown over MCP — zero extra services, single whitelist, no inbound callback. | [Alex the Platform Engineer](https://github.com/tmseidel/ai-git-bot/blob/main/doc/agentic-workflows/MCP_DEPLOYMENT_USER_STORY.md) (laptop reproduction: `systemtest/docker-compose-mcp-deployment.yml`) |
+| **`CI_ACTION`** ✅ | Provider-native CI (GitHub Actions / GitLab CI / Bitbucket Pipelines / Gitea Actions) — dispatched via existing repo credentials, no new secrets. | [Sam the SRE](https://github.com/tmseidel/ai-git-bot/blob/main/doc/agentic-workflows/CI_ACTION_DEPLOYMENT_USER_STORY.md) — operator recipes: [`doc/PR_WORKFLOWS_CI_ACTIONS.md`](https://github.com/tmseidel/ai-git-bot/blob/main/doc/PR_WORKFLOWS_CI_ACTIONS.md) |
 
 ## Quick Start
 
@@ -188,7 +188,7 @@ Built-in health check runs every 30s with a 30s start period.
 - [Architecture](https://github.com/tmseidel/ai-git-bot/blob/main/doc/ARCHITECTURE.md)
 - [Agent Documentation](https://github.com/tmseidel/ai-git-bot/blob/main/doc/AGENT.md)
 - [PR Workflows guide](https://github.com/tmseidel/ai-git-bot/blob/main/doc/PR_WORKFLOWS.md) — review / E2E / deployment targets / slash commands
-- [PR Workflows roadmap + user stories](https://github.com/tmseidel/ai-git-bot/blob/main/doc/refactoring/README.md) — persona-driven stories for `STATIC` / `WEBHOOK` / `MCP` / `CI_ACTION`
+- [PR Workflows roadmap + user stories](https://github.com/tmseidel/ai-git-bot/blob/main/doc/agentic-workflows/README.md) — persona-driven stories for `STATIC` / `WEBHOOK` / `MCP` / `CI_ACTION`
 - [MCP Server Handling](https://github.com/tmseidel/ai-git-bot/blob/main/doc/MCP_SERVER_HANDLING.md)
 - [Gitea Setup Guide](https://github.com/tmseidel/ai-git-bot/blob/main/doc/GITEA_SETUP.md)
 - [GitHub Setup Guide](https://github.com/tmseidel/ai-git-bot/blob/main/doc/GITHUB_SETUP.md)

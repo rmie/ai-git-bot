@@ -1,7 +1,6 @@
 # PR Workflows — `CI_ACTION` Deployment Strategy
 
-> Status: shipped in **AI-Git-Bot 1.7.0** (milestone M6 of the PR-review
-> agentic workflows refactor). Companion document to
+> Companion document to
 > [`PR_WORKFLOWS.md`](./PR_WORKFLOWS.md) and
 > [`PR_WORKFLOWS_WEBHOOK_RECIPES.md`](./PR_WORKFLOWS_WEBHOOK_RECIPES.md).
 >
@@ -41,7 +40,7 @@ Choose `CI_ACTION` when **all** of the following hold:
 
 Pick `WEBHOOK` instead if you ship your deploys from a CI system the bot
 doesn't natively speak (Jenkins, CircleCI, Drone, Concourse, …). See
-[`WEBHOOK_DEPLOYMENT_USER_STORY.md`](./refactoring/WEBHOOK_DEPLOYMENT_USER_STORY.md)
+[`WEBHOOK_DEPLOYMENT_USER_STORY.md`](./agentic-workflows/WEBHOOK_DEPLOYMENT_USER_STORY.md)
 for that path.
 
 ---
@@ -291,9 +290,9 @@ Deployment-target config:
 * [`PR_WORKFLOWS.md`](./PR_WORKFLOWS.md) — overall deployment-target model.
 * [`PR_WORKFLOWS_WEBHOOK_RECIPES.md`](./PR_WORKFLOWS_WEBHOOK_RECIPES.md) —
   same level of detail for the `WEBHOOK` strategy.
-* [`refactoring/CI_ACTION_DEPLOYMENT_USER_STORY.md`](./refactoring/CI_ACTION_DEPLOYMENT_USER_STORY.md)
+* [`agentic-workflows/CI_ACTION_DEPLOYMENT_USER_STORY.md`](./agentic-workflows/CI_ACTION_DEPLOYMENT_USER_STORY.md)
   — stakeholder rationale (Sam the SRE).
-* [`refactoring/PR_REVIEW_AGENTIC_WORKFLOWS_IMPLEMENTATION.md` § M6](./refactoring/PR_REVIEW_AGENTIC_WORKFLOWS_IMPLEMENTATION.md)
+* [`agentic-workflows/INTERNALS.md` § M6](./agentic-workflows/INTERNALS.md)
   — implementation plan & acceptance criteria.
 
 

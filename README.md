@@ -25,7 +25,7 @@ Every team has a list of *"we know we should be doing this"* engineering chores.
 | 🧪 **Writing regression E2E tests** for the bug you just fixed | "We'll add a test later" — and we never do. Manual QA is repeated for every PR. | Assign a deployment target + the `Full-stack QA` workflow → the bot **plans, authors, deploys, and runs** Playwright tests per PR, posts the report as a PR comment, and tears the environment down on close. |
 | 🛠️ **Implementing the boring follow-up issues** (rename, dependency bump, small refactor) | They pile up; senior engineers don't want them; juniors get blocked on them. | Assign an issue to a **coding bot** — it reads the source, drafts the change in a workspace, validates with the project's own build tooling (Maven / Gradle / npm / Go / Cargo / .NET), and opens a PR. |
 | 🔁 **Re-running tests / regenerating coverage** when something flaked | Engineer manually re-runs locally, copies the report, pastes a screenshot. | `@bot rerun-tests` re-executes the existing suite; `@bot regenerate-tests <feedback>` re-plans the suite with operator hints. |
-| 🧹 **Tearing down stale preview environments** | Forgotten PR previews accumulate, burn cluster budget, leak data. | PR-close lifecycle hook calls the deployment target's `teardown` action — webhook, MCP tool, static no-op, or (planned M6) a CI workflow dispatch. |
+| 🧹 **Tearing down stale preview environments** | Forgotten PR previews accumulate, burn cluster budget, leak data. | PR-close lifecycle hook calls the deployment target's `teardown` action — webhook, MCP tool, static no-op, or a CI workflow dispatch (the `CI_ACTION` strategy). |
 
 > **Pick the chore that hurts most this quarter. Wire one bot. Done. The other workflows are opt-in per bot — nothing changes for repos you don't touch.**
 
@@ -37,14 +37,14 @@ Every team has a list of *"we know we should be doing this"* engineering chores.
 
 Each workflow is a **first-class, named PR workflow** you can enable per bot via the admin UI. They all run through the same orchestrator (`PrWorkflowOrchestrator`) so they share session memory, audit logs, slash-command dispatch, and tool whitelisting.
 
-| Workflow | Triggered by | What it produces | Status |
-|---|---|---|---|
-| **Review** | PR opened with bot as reviewer, or bot re-requested | Inline + summary review comments, chunked for large diffs | ✅ shipped |
-| **Issue → Code (coding agent)** | Issue assigned to a *coding* bot | A pull request implementing the change | ✅ shipped |
-| **Issue → Better Issue (writer agent)** | Issue assigned to a *writer* bot | A structured `AI Created Issue` with acceptance criteria | ✅ shipped |
-| **Interactive Q&A** | `@bot` mention in any PR or inline review comment | Threaded reply with file/diff context | ✅ shipped |
-| **Full-stack QA (E2E tests)** | PR opened on a bot with an `e2e-test` workflow + deployment target | Generated Playwright suite, run report posted to PR, environment torn down on PR close | ✅ shipped |
-| **Suite promotion** | Operator opts in per suite | A follow-up PR that "graduates" a generated suite into the repo | ✅ shipped (M7) |
+| Workflow | Triggered by | What it produces |
+|---|---|---|
+| **Review** | PR opened with bot as reviewer, or bot re-requested | Inline + summary review comments, chunked for large diffs  |
+| **Issue → Code (coding agent)** | Issue assigned to a *coding* bot | A pull request implementing the change  |
+| **Issue → Better Issue (writer agent)** | Issue assigned to a *writer* bot | A structured `AI Created Issue` with acceptance criteria  |
+| **Interactive Q&A** | `@bot` mention in any PR or inline review comment | Threaded reply with file/diff context  |
+| **Full-stack QA (E2E tests)** | PR opened on a bot with an `e2e-test` workflow + deployment target | Generated Playwright suite, run report posted to PR, environment torn down on PR close  |
+| **Suite promotion** | Operator opts in per suite | A follow-up PR that "graduates" a generated suite into the repo ([see user story](doc/agentic-workflows/SUITE_PROMOTION_USER_STORY.md)) |
 
 > See the [PR Workflows guide](doc/PR_WORKFLOWS.md) and [Agent documentation](doc/AGENT.md) for the operator-facing details.
 
@@ -52,14 +52,14 @@ Each workflow is a **first-class, named PR workflow** you can enable per bot via
 
 The **Full-stack QA** workflow needs a per-PR environment to test against. Different teams already have *very* different deploy pipelines — so the bot ships a small **`DeploymentStrategy` SPI** with four interchangeable implementations. Pick the one that matches the world your team already lives in:
 
-| Strategy | Best for | Concrete user story | Status |
-|---|---|---|---|
-| **`STATIC`** | Vercel / Netlify / GitLab review apps / Render — anything that already creates a preview-per-PR at a predictable URL. | [Marco the Frontend Lead](doc/refactoring/STATIC_DEPLOYMENT_USER_STORY.md) | ✅ shipped (M3) |
-| **`WEBHOOK`** | Jenkins / TeamCity / scripts behind a corporate firewall — anywhere you can `curl` an HMAC-signed callback back to the bot. | [Priya the DevOps Engineer](doc/refactoring/WEBHOOK_DEPLOYMENT_USER_STORY.md) | ✅ shipped (M3) |
-| **`MCP`** | Internal platform teams already exposing deploy/status/teardown over MCP — zero extra services, single whitelist, no inbound callback. | [Alex the Platform Engineer](doc/refactoring/MCP_DEPLOYMENT_USER_STORY.md) (laptop reproduction: `systemtest/docker-compose-mcp-deployment.yml`) | ✅ shipped (M5) |
-| **`CI_ACTION`** | Provider-native CI (GitHub Actions / GitLab CI / Bitbucket Pipelines / Gitea Actions) — dispatched via existing repo credentials, zero new secrets. | [Sam the SRE](doc/refactoring/CI_ACTION_DEPLOYMENT_USER_STORY.md) (operator recipes: [`doc/PR_WORKFLOWS_CI_ACTIONS.md`](doc/PR_WORKFLOWS_CI_ACTIONS.md); laptop reproduction: `systemtest/docker-compose-ci-action.yml`) | ✅ shipped (M6) |
+| Strategy | Best for | Concrete user story |
+|---|---|---|
+| **`STATIC`** | Vercel / Netlify / GitLab review apps / Render — anything that already creates a preview-per-PR at a predictable URL. | [Marco the Frontend Lead](doc/agentic-workflows/STATIC_DEPLOYMENT_USER_STORY.md)  |
+| **`WEBHOOK`** | Jenkins / TeamCity / scripts behind a corporate firewall — anywhere you can `curl` an HMAC-signed callback back to the bot. | [Priya the DevOps Engineer](doc/agentic-workflows/WEBHOOK_DEPLOYMENT_USER_STORY.md)  |
+| **`MCP`** | Internal platform teams already exposing deploy/status/teardown over MCP — zero extra services, single whitelist, no inbound callback. | [Alex the Platform Engineer](doc/agentic-workflows/MCP_DEPLOYMENT_USER_STORY.md) (laptop reproduction: `systemtest/docker-compose-mcp-deployment.yml`)  |
+| **`CI_ACTION`** | Provider-native CI (GitHub Actions / GitLab CI / Bitbucket Pipelines / Gitea Actions) — dispatched via existing repo credentials, zero new secrets. | [Sam the SRE](doc/agentic-workflows/CI_ACTION_DEPLOYMENT_USER_STORY.md) (operator recipes: [`doc/PR_WORKFLOWS_CI_ACTIONS.md`](doc/PR_WORKFLOWS_CI_ACTIONS.md); laptop reproduction: `systemtest/docker-compose-ci-action.yml`)  |
 
-> The full **roadmap, milestones, and design rationale** for the agentic PR workflows live under [`doc/refactoring/`](doc/refactoring/README.md).
+> The full **feature documentation** for the agentic PR workflows — concept, architecture, persona-driven user stories, internals — lives under [`doc/agentic-workflows/`](doc/agentic-workflows/README.md).
 
 ## ✍️ The two agent personas in detail
 

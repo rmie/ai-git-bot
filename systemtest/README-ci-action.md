@@ -2,7 +2,7 @@
 
 > Companion to [`doc/PR_WORKFLOWS_CI_ACTIONS.md`](../doc/PR_WORKFLOWS_CI_ACTIONS.md)
 > (operator recipe) and
-> [`doc/refactoring/CI_ACTION_DEPLOYMENT_USER_STORY.md`](../doc/refactoring/CI_ACTION_DEPLOYMENT_USER_STORY.md)
+> [`doc/agentic-workflows/CI_ACTION_DEPLOYMENT_USER_STORY.md`](../doc/agentic-workflows/CI_ACTION_DEPLOYMENT_USER_STORY.md)
 > (persona / benefits). This file is the runnable counterpart that lets
 > you actually see `CiActionTriggerStrategy` + `CiActionPoller` move a
 > deployment from `WAITING_DEPLOY` → `READY` (or → `FAILED`) on your
@@ -168,7 +168,7 @@ contract.
 ### 8. Re-dispatch semantics
 
 Per the resolution to design question #3 in
-[`CI_ACTION_DEPLOYMENT_USER_STORY.md` § 8](../doc/refactoring/CI_ACTION_DEPLOYMENT_USER_STORY.md),
+[`CI_ACTION_DEPLOYMENT_USER_STORY.md` § 8](../doc/agentic-workflows/CI_ACTION_DEPLOYMENT_USER_STORY.md),
 `@bot rerun-tests` re-enters `E2ETestWorkflow` which calls
 `trigger(...)` again — i.e. the mock receives a fresh dispatch with a
 new `run id`, and the poller picks up the new handle. Verify in

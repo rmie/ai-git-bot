@@ -1,12 +1,8 @@
 # M6 — `CI_ACTION` Deployment: concrete user story & benefits
 
-> **Status:** ✅ shipped in AI-Git-Bot 1.7.0. This document captures the
-> user story the milestone targeted; for the operator-facing recipes see
-> [`doc/PR_WORKFLOWS_CI_ACTIONS.md`](../PR_WORKFLOWS_CI_ACTIONS.md).
->
 > **Audience:** stakeholders / SREs asking *"why would I pick
 > `CiActionTriggerStrategy` over `WEBHOOK`, `STATIC`, or `MCP`?"*
-> **Companion:** [PR_REVIEW_AGENTIC_WORKFLOWS_IMPLEMENTATION.md § M6](./PR_REVIEW_AGENTIC_WORKFLOWS_IMPLEMENTATION.md)
+> **Companion:** [INTERNALS.md § M6](./INTERNALS.md)
 > for the engineering tasks and acceptance criteria.
 
 ---
@@ -95,7 +91,7 @@ With only `WEBHOOK` and `STATIC` shipped, Sam's options are:
       `WorkflowRunStatusMappingTest`, and per-provider
       `*ApiClientArtifactUploadTest` extensions. For the exact
       regression-test count at the time of release see the version
-      history in [`doc/refactoring/README.md`](./README.md).
+      history in [`doc/agentic-workflows/README.md`](./README.md).
 
 ---
 

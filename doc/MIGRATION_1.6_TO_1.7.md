@@ -90,12 +90,12 @@ Create a deployment target only if you want to run the `e2e-test`
 workflow or future deployment-aware workflows. Recipes:
 
 - **`WEBHOOK`** — your existing Jenkins/TeamCity/script:
-  [`WEBHOOK_DEPLOYMENT_USER_STORY.md`](./refactoring/WEBHOOK_DEPLOYMENT_USER_STORY.md)
+  [`WEBHOOK_DEPLOYMENT_USER_STORY.md`](./agentic-workflows/WEBHOOK_DEPLOYMENT_USER_STORY.md)
   and [`PR_WORKFLOWS_WEBHOOK_RECIPES.md`](./PR_WORKFLOWS_WEBHOOK_RECIPES.md).
 - **`STATIC`** — Vercel/Netlify/Render-style review apps:
-  [`STATIC_DEPLOYMENT_USER_STORY.md`](./refactoring/STATIC_DEPLOYMENT_USER_STORY.md).
+  [`STATIC_DEPLOYMENT_USER_STORY.md`](./agentic-workflows/STATIC_DEPLOYMENT_USER_STORY.md).
 - **`MCP`** — internal platform MCP server:
-  [`MCP_DEPLOYMENT_USER_STORY.md`](./refactoring/MCP_DEPLOYMENT_USER_STORY.md)
+  [`MCP_DEPLOYMENT_USER_STORY.md`](./agentic-workflows/MCP_DEPLOYMENT_USER_STORY.md)
   and [`MCP_SERVER_HANDLING.md` § 6](./MCP_SERVER_HANDLING.md).
 - **`CI_ACTION`** — GitHub Actions / Gitea Actions / GitLab CI /
   Bitbucket Pipelines: [`PR_WORKFLOWS_CI_ACTIONS.md`](./PR_WORKFLOWS_CI_ACTIONS.md).
@@ -181,9 +181,9 @@ configuration changes.
 
 ## 7. Useful pointers
 
-- Concept + architecture: [`refactoring/PR_REVIEW_AGENTIC_WORKFLOWS.md`](./refactoring/PR_REVIEW_AGENTIC_WORKFLOWS.md)
-- Implementation plan: [`refactoring/PR_REVIEW_AGENTIC_WORKFLOWS_IMPLEMENTATION.md`](./refactoring/PR_REVIEW_AGENTIC_WORKFLOWS_IMPLEMENTATION.md)
-- Per-feature user stories: `refactoring/*_USER_STORY.md`
+- Concept + architecture: [`agentic-workflows/CONCEPT_AND_ARCHITECTURE.md`](./agentic-workflows/CONCEPT_AND_ARCHITECTURE.md)
+- Implementation plan: [`agentic-workflows/INTERNALS.md`](./agentic-workflows/INTERNALS.md)
+- Per-feature user stories: `agentic-workflows/*_USER_STORY.md`
 - Operator recipes: `PR_WORKFLOWS*.md`
 - Systemtest walkthroughs: `../systemtest/README-*.md`
 
