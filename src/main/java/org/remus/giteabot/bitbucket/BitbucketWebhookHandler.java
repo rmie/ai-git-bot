@@ -123,13 +123,11 @@ public class BitbucketWebhookHandler {
 
     // ---- Bitbucket → WebhookPayload translation ----
 
-    @SuppressWarnings("unchecked")
     WebhookPayload translatePayload(String eventKey, Map<String, Object> raw) {
         return switch (eventKey) {
             case "pullrequest:created", "pullrequest:open" -> translatePullRequestEvent(raw, "opened");
             case "pullrequest:updated" -> translatePullRequestEvent(raw, "synchronized");
-            case "pullrequest:fulfilled", "pullrequest:merged" -> translatePullRequestEvent(raw, "closed");
-            case "pullrequest:rejected", "pullrequest:declined" -> translatePullRequestEvent(raw, "closed");
+            case "pullrequest:fulfilled", "pullrequest:merged", "pullrequest:rejected", "pullrequest:declined" -> translatePullRequestEvent(raw, "closed");
             case "pullrequest:comment_created" -> translatePullRequestCommentEvent(raw);
             default -> null;
         };

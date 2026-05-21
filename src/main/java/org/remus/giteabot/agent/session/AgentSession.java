@@ -17,6 +17,8 @@ import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 import org.remus.giteabot.session.ConversationMessage;
 
 import java.time.Instant;
@@ -94,6 +96,29 @@ public class AgentSession {
     @JoinColumn(name = "agent_session_id")
     private Set<ConversationMessage> messages = new HashSet<>();
 
+    /**
+     * Step 7.1 — short summary of the most recently parsed implementation plan,
+     * persisted so PR-body / follow-up comment generation no longer needs to
+     * re-parse the conversation history.
+     */
+    @Column(name = "last_plan_summary", length = 2048)
+    private String lastPlanSummary;
+
+    /**
+     * Step 7.1 — raw JSON of the most recently parsed implementation plan.
+     * <p>Mapped via {@link SqlTypes#LONG32VARCHAR} (rather than {@code @Lob})
+     * so PostgreSQL produces a plain {@code text} column instead of an
+     * {@code oid}/Large-Object, matching the Flyway migration (V10).
+     */
+    @JdbcTypeCode(SqlTypes.LONG32VARCHAR)
+    @Column(name = "last_plan_json")
+    private String lastPlanJson;
+
+    /**
+     * Step 7.1 — timestamp at which {@link #lastPlanJson} was recorded.
+     */
+    @Column(name = "last_plan_at")
+    private Instant lastPlanAt;
 
     @Column(nullable = false, updatable = false)
     private Instant createdAt;

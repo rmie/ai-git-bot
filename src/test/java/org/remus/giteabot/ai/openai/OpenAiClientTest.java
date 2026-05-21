@@ -61,4 +61,17 @@ class OpenAiClientTest {
         assertFalse(client.isPromptTooLongError(ex));
     }
 
+    @Test
+    void supportsNativeTools_defaultsToTrue() {
+        OpenAiClient client = createClient();
+        assertTrue(client.supportsNativeTools());
+    }
+
+    @Test
+    void supportsNativeTools_canBeDisabled() {
+        OpenAiClient client = new OpenAiClient(mock(RestClient.class), "gpt-4o", 1024,
+                10, 2, 6, false);
+        assertFalse(client.supportsNativeTools());
+    }
+
 }

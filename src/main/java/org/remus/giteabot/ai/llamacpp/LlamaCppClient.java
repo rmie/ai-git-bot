@@ -95,11 +95,9 @@ public class LlamaCppClient extends AbstractAiClient {
      * Builds a chat prompt using ChatML format (used by Qwen, Mistral, etc.)
      */
     private String buildChatPrompt(String systemPrompt, String userMessage) {
-        StringBuilder sb = new StringBuilder();
-        sb.append("<|im_start|>system\n").append(systemPrompt).append("<|im_end|>\n");
-        sb.append("<|im_start|>user\n").append(userMessage).append("<|im_end|>\n");
-        sb.append("<|im_start|>assistant\n");
-        return sb.toString();
+        return "<|im_start|>system\n" + systemPrompt + "<|im_end|>\n" +
+                "<|im_start|>user\n" + userMessage + "<|im_end|>\n" +
+                "<|im_start|>assistant\n";
     }
 
     /**

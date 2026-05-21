@@ -1,0 +1,16 @@
+{
+  "summary": "Added Hello World feature",
+  "branchName": "ai-agent/hello-world",
+  "runTools": [
+    {
+      "id": "tool-1",
+      "tool": "patch-file",
+      "args": ["src/main/java/Hello.java", "@@\n+ public class Hello {}\n"]
+    },
+    {
+      "id": "tool-2",
+      "tool": "mvn",
+      "args": ["-B", "test"]
+    }
+  ]
+}

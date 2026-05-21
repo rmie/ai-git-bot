@@ -30,13 +30,12 @@ class AiClientFactoryTest {
     @Mock
     private AiIntegrationService aiIntegrationService;
 
-    private AiProviderRegistry providerRegistry;
     private AiClientFactory aiClientFactory;
 
     @BeforeEach
     void setUp() {
         // Create real provider registry with all providers
-        providerRegistry = new AiProviderRegistry(List.of(
+        AiProviderRegistry providerRegistry = new AiProviderRegistry(List.of(
                 new AnthropicProviderMetadata(),
                 new OpenAiProviderMetadata(),
                 new GoogleAiProviderMetadata(),

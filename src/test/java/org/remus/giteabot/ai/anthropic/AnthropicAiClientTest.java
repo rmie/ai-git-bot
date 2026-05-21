@@ -7,7 +7,6 @@ import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestClient;
 
 import java.nio.charset.StandardCharsets;
-import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
@@ -46,6 +45,19 @@ class AnthropicAiClientTest {
                 StandardCharsets.UTF_8);
 
         assertFalse(client.isPromptTooLongError(ex));
+    }
+
+    @Test
+    void supportsNativeTools_defaultsToTrue() {
+        AnthropicAiClient client = createClient();
+        assertTrue(client.supportsNativeTools());
+    }
+
+    @Test
+    void supportsNativeTools_canBeDisabled() {
+        AnthropicAiClient client = new AnthropicAiClient(mock(RestClient.class),
+                "claude-sonnet-4-20250514", 1024, 10, 2, 6, false);
+        assertFalse(client.supportsNativeTools());
     }
 
 }

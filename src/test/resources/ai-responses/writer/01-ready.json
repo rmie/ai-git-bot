@@ -1,0 +1,10 @@
+{
+  "qualityAssessment": "Issue is well-defined and ready to be turned into a real ticket.",
+  "clarifyingQuestions": [],
+  "revisedIssueDraft": "## Summary\nAdd dark mode toggle to the dashboard.\n\n## Acceptance criteria\n- Toggle persisted in localStorage\n- Defaults to system preference",
+  "assumptions": ["Bootstrap 5 is already on the page"],
+  "openQuestions": [],
+  "readyToCreate": true,
+  "requestFiles": [],
+  "requestTools": []
+}

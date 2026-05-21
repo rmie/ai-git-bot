@@ -22,8 +22,8 @@ import org.remus.giteabot.mcp.McpToolCatalog;
 import org.remus.giteabot.repository.RepositoryApiClient;
 import org.remus.giteabot.session.SessionService;
 import org.remus.giteabot.systemsettings.McpConfiguration;
-import org.remus.giteabot.systemsettings.SystemPrompt;
 import org.remus.giteabot.systemsettings.McpToolSelectionService;
+import org.remus.giteabot.systemsettings.SystemPrompt;
 import org.springframework.dao.DataIntegrityViolationException;
 
 import java.nio.file.Path;
@@ -34,6 +34,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.startsWith;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
@@ -56,20 +57,53 @@ class BotWebhookServiceTest {
     @Mock private BotService botService;
     @Mock private McpOrchestrationService mcpOrchestrationService;
     @Mock private McpToolSelectionService mcpToolSelectionService;
+    @Mock private org.remus.giteabot.systemsettings.BotToolSelectionService botToolSelectionService;
     @Mock private RepositoryApiClient repositoryApiClient;
     @Mock private AiClient aiClient;
+    @Mock private org.remus.giteabot.prworkflow.PrWorkflowOrchestrator prWorkflowOrchestrator;
+    @Mock private org.remus.giteabot.prworkflow.review.CodeReviewServiceFactory codeReviewServiceFactory;
+    @Mock private org.remus.giteabot.prworkflow.e2e.E2eTestPrCloseHandler e2eTestPrCloseHandler;
+    @Mock private org.remus.giteabot.prworkflow.e2e.E2eTestSlashCommandHandler e2eTestSlashCommandHandler;
 
     private BotWebhookService botWebhookService;
 
     @BeforeEach
     void setUp() {
+        // Real catalog – classification taxonomy is no longer mocked through TES.
+        org.remus.giteabot.agent.tools.ToolCatalog toolCatalog =
+                new org.remus.giteabot.agent.tools.ToolCatalog(new AgentConfigProperties());
         botWebhookService = new BotWebhookService(aiClientFactory, giteaClientFactory,
-                promptService, sessionService, agentConfig, new ReviewConfigProperties(),
-                agentSessionService, toolExecutionService, workspaceService, botService,
-                mcpOrchestrationService, mcpToolSelectionService);
+                promptService, agentConfig,
+                agentSessionService, toolExecutionService, toolCatalog, workspaceService, botService,
+                mcpOrchestrationService, mcpToolSelectionService, botToolSelectionService,
+                prWorkflowOrchestrator, codeReviewServiceFactory, e2eTestPrCloseHandler,
+                e2eTestSlashCommandHandler);
         lenient().when(mcpOrchestrationService.discoverTools(any())).thenReturn(McpToolCatalog.empty());
         lenient().when(mcpToolSelectionService.filterCatalogForPrompt(any(), any()))
                 .thenAnswer(invocation -> invocation.getArgument(1));
+        // Built-in tool whitelist: tests don't exercise the gating layer, so return
+        // null (= unrestricted) to keep the historic test surface.
+        lenient().when(botToolSelectionService.allowedBuiltinTools(any())).thenReturn(null);
+        // M1: the CodeReviewService construction was extracted into
+        // CodeReviewServiceFactory. Reproduce the legacy behaviour (real
+        // CodeReviewService built from mocked AI/Git/session deps) here so
+        // the existing handlePrComment / handleBotCommand routing tests
+        // keep observing the same downstream side-effects on `sessionService`.
+        lenient().when(codeReviewServiceFactory.create(any(Bot.class)))
+                .thenAnswer(invocation -> {
+                    Bot b = invocation.getArgument(0);
+                    return new org.remus.giteabot.review.CodeReviewService(
+                            repositoryApiClient, aiClient, sessionService,
+                            b.getUsername(), new ReviewConfigProperties(),
+                            "system-prompt:" + b.getSystemPrompt().getId(),
+                            b.getSystemPrompt().getReviewSystemPrompt());
+                });
+        // Step 7.2 — provide a real BudgetConfig so production code that reads
+        // agentConfig.getBudget().getMaxTokensPerCall() does not NPE on the mock.
+        AgentConfigProperties.BudgetConfig budget = new AgentConfigProperties.BudgetConfig();
+        budget.setMaxTokensPerCall(4096);
+        lenient().when(agentConfig.getBudget()).thenReturn(budget);
+        lenient().when(agentConfig.getCritic()).thenReturn(new AgentConfigProperties.CriticConfig());
     }
 
     // ---- isBotUser tests ----
@@ -218,8 +252,7 @@ class BotWebhookServiceTest {
                 .thenReturn(WorkspaceResult.success(Path.of("/tmp/writer-test-workspace")));
         when(repositoryApiClient.getRepositoryTree("Test", "my-repo", "main")).thenReturn(java.util.List.of());
         when(agentSessionService.toAiMessages(session)).thenReturn(java.util.List.of());
-        when(agentConfig.getMaxTokens()).thenReturn(4096);
-        when(aiClient.chat(any(), any(), eq("Writer prompt"), any(), eq(4096))).thenReturn("""
+        when(aiClient.chat(any(), any(), startsWith("Writer prompt"), any(), eq(4096))).thenReturn("""
                 {"qualityAssessment":"Missing acceptance criteria","revisedIssueDraft":"## Goal\\nDo something testable","assumptions":[],"openQuestions":[],"readyToCreate":true}
                 """);
         when(repositoryApiClient.createIssue(eq("Test"), eq("my-repo"), eq("AI Created Issue: Vague issue"), any()))
@@ -251,8 +284,7 @@ class BotWebhookServiceTest {
                 .thenReturn(WorkspaceResult.success(Path.of("/tmp/writer-test-workspace")));
         when(repositoryApiClient.getRepositoryTree("Test", "my-repo", "main")).thenReturn(java.util.List.of());
         when(agentSessionService.toAiMessages(session)).thenReturn(java.util.List.of());
-        when(agentConfig.getMaxTokens()).thenReturn(4096);
-        when(aiClient.chat(any(), any(), eq("Writer prompt"), any(), eq(4096))).thenReturn("""
+        when(aiClient.chat(any(), any(), startsWith("Writer prompt"), any(), eq(4096))).thenReturn("""
                 Now I have enough context. Let me look at the exact filtering logic in the webhook handlers.
 
                 {"qualityAssessment":"Missing acceptance criteria","revisedIssueDraft":"## Goal\\nDo something testable","assumptions":[],"openQuestions":[],"readyToCreate":true}
@@ -359,8 +391,7 @@ class BotWebhookServiceTest {
                 .thenReturn(WorkspaceResult.success(workspace));
         when(repositoryApiClient.getRepositoryTree("Test", "my-repo", "main")).thenReturn(java.util.List.of());
         when(agentSessionService.toAiMessages(session)).thenReturn(java.util.List.of());
-        when(agentConfig.getMaxTokens()).thenReturn(4096);
-        when(aiClient.chat(any(), any(), eq("Writer prompt"), any(), eq(4096)))
+        when(aiClient.chat(any(), any(), startsWith("Writer prompt"), any(), eq(4096)))
                 .thenReturn("""
                         {"qualityAssessment":"Needs repo context","requestTools":[{"id":"1","tool":"branch-switcher","args":["develop"]},{"id":"2","tool":"cat","args":["README.md"]}],"readyToCreate":false}
                         """)
@@ -369,7 +400,6 @@ class BotWebhookServiceTest {
                         """);
         when(toolExecutionService.executeContextTool(workspace, "branch-switcher", java.util.List.of("develop")))
                 .thenReturn(new ToolResult(true, 0, "Switched workspace branch to: develop", ""));
-        when(toolExecutionService.isContextTool("cat")).thenReturn(true);
         when(toolExecutionService.executeContextTool(workspace, "cat", java.util.List.of("README.md")))
                 .thenReturn(new ToolResult(true, 0, "README contents", ""));
         when(repositoryApiClient.createIssue(eq("Test"), eq("my-repo"), eq("AI Created Issue: Vague issue"), any()))
@@ -422,8 +452,7 @@ class BotWebhookServiceTest {
                 .thenReturn(WorkspaceResult.success(Path.of("/tmp/writer-test-workspace")));
         when(repositoryApiClient.getRepositoryTree("Test", "my-repo", "main")).thenReturn(java.util.List.of());
         when(agentSessionService.toAiMessages(session)).thenReturn(java.util.List.of());
-        when(agentConfig.getMaxTokens()).thenReturn(4096);
-        when(aiClient.chat(any(), any(), eq("Writer prompt"), any(), eq(4096))).thenReturn("""
+        when(aiClient.chat(any(), any(), startsWith("Writer prompt"), any(), eq(4096))).thenReturn("""
                 {"qualityAssessment":"Missing acceptance criteria","revisedIssueDraft":"## Goal\\nDo something testable","assumptions":[],"openQuestions":[],"readyToCreate":true}
                 """);
         when(repositoryApiClient.createIssue(eq("Test"), eq("my-repo"), eq("AI Created Issue: Vague issue"), any()))
@@ -456,8 +485,7 @@ class BotWebhookServiceTest {
                 .thenReturn(WorkspaceResult.success(Path.of("/tmp/writer-test-workspace")));
         when(repositoryApiClient.getRepositoryTree("Test", "my-repo", "main")).thenReturn(java.util.List.of());
         when(agentSessionService.toAiMessages(session)).thenReturn(java.util.List.of());
-        when(agentConfig.getMaxTokens()).thenReturn(4096);
-        when(aiClient.chat(any(), any(), eq("Writer prompt"), any(), eq(4096)))
+        when(aiClient.chat(any(), any(), startsWith("Writer prompt"), any(), eq(4096)))
                 .thenThrow(new RuntimeException("simulated loop failure"));
 
         botWebhookService.handleIssueAssigned(bot, payload);
@@ -486,8 +514,7 @@ class BotWebhookServiceTest {
                 .thenReturn(WorkspaceResult.success(Path.of("/tmp/writer-test-workspace")));
         when(repositoryApiClient.getRepositoryTree("Test", "my-repo", "main")).thenReturn(java.util.List.of());
         when(agentSessionService.toAiMessages(session)).thenReturn(java.util.List.of());
-        when(agentConfig.getMaxTokens()).thenReturn(4096);
-        when(aiClient.chat(any(), any(), eq("Writer prompt"), any(), eq(4096))).thenReturn("""
+        when(aiClient.chat(any(), any(), startsWith("Writer prompt"), any(), eq(4096))).thenReturn("""
                 {"qualityAssessment":"Missing target behavior","clarifyingQuestions":["What should happen?"],"readyToCreate":false}
                 """);
 
@@ -522,11 +549,9 @@ class BotWebhookServiceTest {
                 .thenReturn(WorkspaceResult.success(workspace));
         when(repositoryApiClient.getRepositoryTree("Test", "my-repo", "main")).thenReturn(java.util.List.of());
         when(agentSessionService.toAiMessages(session)).thenReturn(java.util.List.of());
-        when(agentConfig.getMaxTokens()).thenReturn(4096);
-        when(aiClient.chat(any(), any(), eq("Writer prompt"), any(), eq(4096)))
+        when(aiClient.chat(any(), any(), startsWith("Writer prompt"), any(), eq(4096)))
                 .thenReturn(contextRequest, contextRequest, contextRequest,
                         contextRequest, contextRequest, contextRequest);
-        when(toolExecutionService.isContextTool("cat")).thenReturn(true);
         when(toolExecutionService.executeContextTool(workspace, "cat", java.util.List.of("README.md")))
                 .thenReturn(new ToolResult(true, 0, "README contents", ""));
 
@@ -564,10 +589,8 @@ class BotWebhookServiceTest {
                 .thenReturn(WorkspaceResult.success(workspace));
         when(repositoryApiClient.getRepositoryTree("Test", "my-repo", "main")).thenReturn(java.util.List.of());
         when(agentSessionService.toAiMessages(session)).thenReturn(java.util.List.of());
-        when(agentConfig.getMaxTokens()).thenReturn(4096);
-        when(aiClient.chat(any(), any(), eq("Writer prompt"), any(), eq(4096)))
+        when(aiClient.chat(any(), any(), startsWith("Writer prompt"), any(), eq(4096)))
                 .thenReturn(contextRequest, contextRequest, contextRequest, contextRequest, finalResponse);
-        when(toolExecutionService.isContextTool("cat")).thenReturn(true);
         when(toolExecutionService.executeContextTool(workspace, "cat", java.util.List.of("README.md")))
                 .thenReturn(new ToolResult(true, 0, "README contents", ""));
         when(repositoryApiClient.createIssue(eq("Test"), eq("my-repo"), eq("AI Created Issue: Vague issue"), any()))
@@ -600,8 +623,7 @@ class BotWebhookServiceTest {
         when(workspaceService.prepareWorkspace(eq("Test"), eq("my-repo"), eq("main"), any(), any()))
                 .thenReturn(WorkspaceResult.success(Path.of("/tmp/writer-test-workspace")));
         when(agentSessionService.toAiMessages(session)).thenReturn(java.util.List.of());
-        when(agentConfig.getMaxTokens()).thenReturn(4096);
-        when(aiClient.chat(any(), any(), eq("Writer prompt"), any(), eq(4096)))
+        when(aiClient.chat(any(), any(), startsWith("Writer prompt"), any(), eq(4096)))
                 .thenThrow(new RuntimeException("follow-up failure"));
 
         botWebhookService.handleIssueComment(bot, payload);
@@ -821,10 +843,6 @@ class BotWebhookServiceTest {
         return owner;
     }
 
-    /** Overload kept for backward-compat with the existing tests above. */
-    private Bot createBot(String name, String username) {
-        return createBot(name, username, false);
-    }
 
     private AgentSession agentSession(String owner, String repo, long issueNumber) {
         AgentSession s = new AgentSession(owner, repo, issueNumber, "test issue");

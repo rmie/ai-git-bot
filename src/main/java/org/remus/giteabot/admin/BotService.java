@@ -1,6 +1,7 @@
 package org.remus.giteabot.admin;
 
 import lombok.extern.slf4j.Slf4j;
+import org.remus.giteabot.systemsettings.BotToolConfigurationRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -15,9 +16,12 @@ import java.util.UUID;
 public class BotService {
 
     private final BotRepository botRepository;
+    private final BotToolConfigurationRepository botToolConfigurationRepository;
 
-    public BotService(BotRepository botRepository) {
+    public BotService(BotRepository botRepository,
+                      BotToolConfigurationRepository botToolConfigurationRepository) {
         this.botRepository = botRepository;
+        this.botToolConfigurationRepository = botToolConfigurationRepository;
     }
 
     @Transactional(readOnly = true)
@@ -41,6 +45,24 @@ public class BotService {
         }
         if (bot.getBotType() == BotType.WRITER) {
             bot.setAgentEnabled(false);
+        }
+        if (bot.getToolConfiguration() == null) {
+            // Defensive fallback for callers that bypass the BotController
+            // (integration tests, scripts): assign the Default tool
+            // configuration so the mandatory FK is always satisfied. The
+            // Default row and its initial built-in tool selections are
+            // created by Flyway migration V12.
+            botToolConfigurationRepository.findByDefaultEntryTrue()
+                    .ifPresent(bot::setToolConfiguration);
+        }
+        if (bot.getToolConfiguration() == null) {
+            // Fail fast with a clear domain error rather than letting the
+            // NOT NULL / FK constraint surface as an opaque
+            // DataIntegrityViolationException at flush time.
+            throw new IllegalStateException(
+                    "No tool configuration assigned and no default tool configuration exists. "
+                            + "Ensure Flyway migration V12 has run, or assign a BotToolConfiguration "
+                            + "explicitly before saving the bot.");
         }
         return botRepository.save(bot);
     }

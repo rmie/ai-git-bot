@@ -1,6 +1,7 @@
 package org.remus.giteabot.agent.validation;
 
 import lombok.extern.slf4j.Slf4j;
+import org.remus.giteabot.agent.tools.ToolCatalog;
 import org.remus.giteabot.config.AgentConfigProperties;
 import org.springframework.stereotype.Service;
 
@@ -23,8 +24,11 @@ import java.util.stream.Stream;
 /**
  * Executes external tools (e.g. build / test commands) requested by the AI agent.
  * <p>
- * The list of allowed tools is configured via
- * {@link AgentConfigProperties.ValidationConfig#getAvailableTools()}.
+ * Pure executor: classification of tool names lives in {@link ToolCatalog}
+ * and callers that need it should inject the catalog directly. This service
+ * no longer exposes {@code is*Tool} / {@code getAvailable*Tools} forwarders —
+ * having two ways to ask the same question was the root cause of duplicated
+ * taxonomy lists across the codebase.
  */
 @Slf4j
 @Service
@@ -37,89 +41,22 @@ public class ToolExecutionService {
     private static final int DEFAULT_GIT_LOG_LIMIT = 10;
     private static final long MAX_TEXT_FILE_SIZE_BYTES = 1_000_000;
     private static final Pattern SIMPLE_BRANCH_NAME_PATTERN = Pattern.compile("[A-Za-z0-9._\\-/]+");
-    // Includes branch-switcher although it mutates workspace state; it is still executed in the
-    // context phase because it affects which branch subsequent context reads should target.
-    private static final List<String> AVAILABLE_CONTEXT_TOOLS = List.of(
-            "rg", "ripgrep", "grep", "find", "cat", "git-log", "git-blame", "tree", "branch-switcher");
-    /** File-modification tools — run in the workspace but results are NOT posted as public comments. */
-    private static final List<String> AVAILABLE_FILE_TOOLS = List.of(
-            "write-file", "patch-file", "mkdir", "delete-file");
 
     private final AgentConfigProperties agentConfig;
+    private final ToolCatalog catalog;
 
-    public ToolExecutionService(AgentConfigProperties agentConfig) {
+    public ToolExecutionService(AgentConfigProperties agentConfig, ToolCatalog catalog) {
         this.agentConfig = agentConfig;
+        this.catalog = catalog;
     }
 
     /**
-     * Returns the list of tools that the AI agent is allowed to invoke.
-     */
-    public List<String> getAvailableTools() {
-        return agentConfig.getValidation().getAvailableTools();
-    }
-
-    /**
-     * Returns the repository exploration tools the AI can use before coding.
-     */
-    public List<String> getAvailableContextTools() {
-        return AVAILABLE_CONTEXT_TOOLS;
-    }
-
-    /**
-     * Returns the file-modification tools the AI can use to create/patch/delete files
-     * in the workspace. Results go back to the AI but are NOT posted as public comments.
-     */
-    public List<String> getAvailableFileTools() {
-        return AVAILABLE_FILE_TOOLS;
-    }
-
-    /**
-     * Returns {@code true} if the given tool name belongs to the read-only context tools
-     * (e.g. {@code cat}, {@code rg}) whose results should not be posted as issue comments.
-     */
-    public boolean isContextTool(String tool) {
-        return AVAILABLE_CONTEXT_TOOLS.contains(tool != null ? tool.strip().toLowerCase() : "");
-    }
-
-    /**
-     * Returns {@code true} if the given tool is a file-modification tool
-     * (write-file, patch-file, mkdir, delete-file).
-     */
-    public boolean isFileTool(String tool) {
-        return AVAILABLE_FILE_TOOLS.contains(tool != null ? tool.strip().toLowerCase() : "");
-    }
-
-    /**
-     * Returns {@code true} if the tool result should NOT be posted as a public issue comment.
-     * Both context tools and file tools are "silent".
-     */
-    public boolean isSilentTool(String tool) {
-        return isContextTool(tool) || isFileTool(tool);
-    }
-    /**
-     * Returns {@code true} if the given tool is a configured validation tool
-     * (i.e. listed in {@link AgentConfigProperties.ValidationConfig#getAvailableTools()},
-     * e.g. {@code mvn}, {@code gradle}, {@code npm}).
-     * <p>
-     * This is the authoritative check for "does this tool count as validation?".
-     * Using {@code !isSilentTool} is <em>not</em> equivalent: a tool could be unknown
-     * to all three categories, and silently falling into the "validation" bucket would
-     * produce incorrect pass/fail semantics.
-     */
-    public boolean isValidationTool(String tool) {
-        return getAvailableTools().contains(tool != null ? tool.strip().toLowerCase() : "");
-    }
-
-    /**
-     * Executes a tool command in the given workspace directory.
-     *
-     * @param workspaceDir The workspace directory
-     * @param tool         The tool to execute (must be in {@link #getAvailableTools()})
-     * @param arguments    The arguments to pass to the tool
-     * @return The execution result
+     * Executes a configured validation tool (mvn, gradle, …) in the given
+     * workspace directory. Rejects tools not in
+     * {@link ToolCatalog#validationToolNames()}.
      */
     public ToolResult executeTool(Path workspaceDir, String tool, List<String> arguments) {
-        List<String> availableTools = getAvailableTools();
+        List<String> availableTools = catalog.validationToolNames();
         if (!availableTools.contains(tool)) {
             return new ToolResult(false, -1,
                     "Tool '" + tool + "' is not available. Available tools: "
@@ -146,10 +83,10 @@ public class ToolExecutionService {
      */
     public ToolResult executeContextTool(Path workspaceDir, String tool, List<String> arguments) {
         String normalizedTool = tool != null ? tool.strip().toLowerCase() : "";
-        if (!AVAILABLE_CONTEXT_TOOLS.contains(normalizedTool)) {
+        if (!catalog.contextToolNames().contains(normalizedTool)) {
             return new ToolResult(false, -1, "",
                     "Repository tool '" + tool + "' is not available. Available tools: "
-                            + String.join(", ", AVAILABLE_CONTEXT_TOOLS));
+                            + String.join(", ", catalog.contextToolNames()));
         }
 
         return switch (normalizedTool) {
@@ -243,16 +180,16 @@ public class ToolExecutionService {
      * public issue comments.
      *
      * @param workspaceDir The workspace directory (cloned repo root)
-     * @param tool         One of the {@link #AVAILABLE_FILE_TOOLS}
+     * @param tool         One of {@link ToolCatalog#fileToolNames()}
      * @param arguments    Tool-specific arguments
      * @return The execution result
      */
     public ToolResult executeFileTool(Path workspaceDir, String tool, List<String> arguments) {
         String normalizedTool = tool != null ? tool.strip().toLowerCase() : "";
-        if (!AVAILABLE_FILE_TOOLS.contains(normalizedTool)) {
+        if (!catalog.fileToolNames().contains(normalizedTool)) {
             return new ToolResult(false, -1, "",
                     "File tool '" + tool + "' is not available. Available file tools: "
-                            + String.join(", ", AVAILABLE_FILE_TOOLS));
+                            + String.join(", ", catalog.fileToolNames()));
         }
         return switch (normalizedTool) {
             case "write-file" -> executeWriteFileTool(workspaceDir, arguments);
@@ -312,33 +249,202 @@ public class ToolExecutionService {
         }
         try {
             String originalContent = Files.readString(filePath, StandardCharsets.UTF_8);
-            if (!originalContent.contains(searchText)) {
-                return new ToolResult(false, 1, "",
+            PatchAttempt attempt = tryPatch(originalContent, searchText, replacementText);
+            return switch (attempt.status()) {
+                case OK -> {
+                    Files.writeString(filePath, attempt.newContent(), StandardCharsets.UTF_8);
+                    log.info("patch-file: patched {} ({})", relativePath, attempt.matchTier());
+                    String hint = attempt.matchTier() == MatchTier.EXACT
+                            ? ""
+                            : " (matched via " + attempt.matchTier().label()
+                                    + " — line endings/trailing whitespace normalized)";
+                    yield new ToolResult(true, 0, "File patched: " + relativePath + hint, "");
+                }
+                case NOT_FOUND -> new ToolResult(false, 1, "",
                         "patch-file: search text not found in file: " + relativePath
-                                + ". Use `cat` to inspect the exact current content first.");
-            }
-            // Count occurrences to detect ambiguous patches — replacing >1 occurrence is
-            // almost always a mistake (e.g. duplicated method signatures, repeated imports).
-            int occurrences = countOccurrences(originalContent, searchText);
-            if (occurrences > 1) {
-                return new ToolResult(false, 1, "",
-                        "patch-file: search text matches " + occurrences + " locations in "
+                                + ". The search was tried as-is, with normalized line endings, "
+                                + "and with whitespace-tolerant matching. Use `cat` to inspect "
+                                + "the exact current content first.");
+                case AMBIGUOUS -> new ToolResult(false, 1, "",
+                        "patch-file: search text matches " + attempt.occurrences() + " locations in "
                                 + relativePath + " — the replacement would be ambiguous. "
                                 + "Provide a more specific search string that matches exactly once "
                                 + "(use `cat` to identify a unique surrounding context).");
-            }
-            String newContent = originalContent.replace(searchText, replacementText);
-            if (newContent.equals(originalContent)) {
-                return new ToolResult(false, 1, "",
+                case NO_CHANGE -> new ToolResult(false, 1, "",
                         "patch-file produced no changes in " + relativePath
                                 + ". The replacement is identical to the matched text.");
-            }
-            Files.writeString(filePath, newContent, StandardCharsets.UTF_8);
-            log.info("patch-file: patched {}", relativePath);
-            return new ToolResult(true, 0, "File patched: " + relativePath, "");
+            };
         } catch (IOException e) {
             return new ToolResult(false, -1, "", "patch-file failed: " + e.getMessage());
         }
+    }
+
+    // ---- patch-file matching tiers --------------------------------------
+
+    private enum MatchTier {
+        EXACT("exact match"),
+        NORMALIZED_LINE_ENDINGS("normalized line endings"),
+        WHITESPACE_TOLERANT("whitespace-tolerant line match");
+
+        private final String label;
+        MatchTier(String label) { this.label = label; }
+        String label() { return label; }
+    }
+
+    private enum PatchStatus { OK, NOT_FOUND, AMBIGUOUS, NO_CHANGE }
+
+    private record PatchAttempt(PatchStatus status, String newContent, MatchTier matchTier, int occurrences) {
+        static PatchAttempt ok(String newContent, MatchTier tier) {
+            return new PatchAttempt(PatchStatus.OK, newContent, tier, 1);
+        }
+        static PatchAttempt notFound() {
+            return new PatchAttempt(PatchStatus.NOT_FOUND, null, null, 0);
+        }
+        static PatchAttempt ambiguous(int occurrences) {
+            return new PatchAttempt(PatchStatus.AMBIGUOUS, null, null, occurrences);
+        }
+        static PatchAttempt noChange() {
+            return new PatchAttempt(PatchStatus.NO_CHANGE, null, null, 1);
+        }
+    }
+
+    /**
+     * Tries to apply a patch with progressively more tolerant matching, so the LLM does not
+     * waste a round-trip when its search text differs from the file only in line endings
+     * (CRLF vs LF) or trailing whitespace.
+     *
+     * <ol>
+     *   <li><b>Tier 1 — exact:</b> {@code String.contains} / {@code replace}.</li>
+     *   <li><b>Tier 2 — normalized line endings:</b> CRLF/CR are folded to LF in both file
+     *       and search text before matching. The replacement is spliced in and the file's
+     *       original dominant line-ending style is restored before writing.</li>
+     *   <li><b>Tier 3 — whitespace-tolerant line match:</b> compare line-by-line ignoring
+     *       trailing whitespace (and collapsing runs of horizontal whitespace within a
+     *       line). On a unique match the original line range is replaced verbatim with the
+     *       replacement text (line endings normalized to the file's dominant style).</li>
+     * </ol>
+     *
+     * Tiers stop as soon as a unique match is found.
+     */
+    private PatchAttempt tryPatch(String original, String search, String replacement) {
+        // ---- Tier 1: exact ----
+        if (original.contains(search)) {
+            int occurrences = countOccurrences(original, search);
+            if (occurrences > 1) return PatchAttempt.ambiguous(occurrences);
+            String patched = original.replace(search, replacement);
+            return patched.equals(original) ? PatchAttempt.noChange()
+                    : PatchAttempt.ok(patched, MatchTier.EXACT);
+        }
+
+        // ---- Tier 2: normalized line endings ----
+        String dominantEol = detectDominantLineEnding(original);
+        String origLf   = normalizeToLf(original);
+        String searchLf = normalizeToLf(search);
+        String replLf   = normalizeToLf(replacement);
+        if (!searchLf.equals(search) || !origLf.equals(original)) {
+            if (origLf.contains(searchLf)) {
+                int occurrences = countOccurrences(origLf, searchLf);
+                if (occurrences > 1) return PatchAttempt.ambiguous(occurrences);
+                String patchedLf = origLf.replace(searchLf, replLf);
+                if (patchedLf.equals(origLf)) return PatchAttempt.noChange();
+                return PatchAttempt.ok(applyLineEnding(patchedLf, dominantEol),
+                        MatchTier.NORMALIZED_LINE_ENDINGS);
+            }
+        }
+
+        // ---- Tier 3: whitespace-tolerant line match ----
+        String[] fileLines   = origLf.split("\n", -1);
+        String[] searchLines = searchLf.split("\n", -1);
+        // Drop trailing empty lines from the search (LLM often pads its search text with
+        // a final newline that the file does not have at that position).
+        int searchLen = trimTrailingEmpty(searchLines);
+        if (searchLen == 0) return PatchAttempt.notFound();
+
+        List<Integer> matches = findWhitespaceTolerantMatches(fileLines, searchLines, searchLen);
+        if (matches.isEmpty())   return PatchAttempt.notFound();
+        if (matches.size() > 1)  return PatchAttempt.ambiguous(matches.size());
+
+        int startLine = matches.getFirst();
+        String[] replLines = replLf.split("\n", -1);
+        int replLen = trimTrailingEmpty(replLines);
+
+        StringBuilder sb = new StringBuilder(origLf.length() + replLf.length());
+        for (int i = 0; i < startLine; i++) {
+            if (i > 0) sb.append('\n');
+            sb.append(fileLines[i]);
+        }
+        if (startLine > 0) sb.append('\n');
+        for (int i = 0; i < replLen; i++) {
+            if (i > 0) sb.append('\n');
+            sb.append(replLines[i]);
+        }
+        for (int i = startLine + searchLen; i < fileLines.length; i++) {
+            sb.append('\n').append(fileLines[i]);
+        }
+        String patchedLf = sb.toString();
+        if (patchedLf.equals(origLf)) return PatchAttempt.noChange();
+        return PatchAttempt.ok(applyLineEnding(patchedLf, dominantEol),
+                MatchTier.WHITESPACE_TOLERANT);
+    }
+
+    private static String normalizeToLf(String s) {
+        return s.replace("\r\n", "\n").replace('\r', '\n');
+    }
+
+    /** Returns {@code "\r\n"} if CRLF dominates in the original content, otherwise {@code "\n"}. */
+    private static String detectDominantLineEnding(String content) {
+        int crlf = 0;
+        int lf   = 0;
+        for (int i = 0; i < content.length(); i++) {
+            char c = content.charAt(i);
+            if (c == '\n') {
+                if (i > 0 && content.charAt(i - 1) == '\r') crlf++;
+                else lf++;
+            }
+        }
+        return crlf > lf ? "\r\n" : "\n";
+    }
+
+    private static String applyLineEnding(String lfContent, String eol) {
+        return "\n".equals(eol) ? lfContent : lfContent.replace("\n", eol);
+    }
+
+    /** Collapses runs of horizontal whitespace and trims trailing whitespace for comparison only. */
+    private static String normalizeWhitespaceForCompare(String line) {
+        return line.replaceAll("[ \t]+", " ").stripTrailing();
+    }
+
+    /** Returns the effective length of {@code lines} after dropping trailing empty entries. */
+    private static int trimTrailingEmpty(String[] lines) {
+        int len = lines.length;
+        while (len > 0 && lines[len - 1].isEmpty()) len--;
+        return len;
+    }
+
+    /**
+     * Returns every starting index in {@code fileLines} where {@code searchLen} consecutive
+     * lines match {@code searchLines[0..searchLen)} under
+     * {@link #normalizeWhitespaceForCompare(String) whitespace-tolerant} comparison.
+     */
+    private static List<Integer> findWhitespaceTolerantMatches(String[] fileLines,
+                                                                String[] searchLines,
+                                                                int searchLen) {
+        List<Integer> matches = new ArrayList<>();
+        String[] normSearch = new String[searchLen];
+        for (int i = 0; i < searchLen; i++) {
+            normSearch[i] = normalizeWhitespaceForCompare(searchLines[i]);
+        }
+        int upper = fileLines.length - searchLen;
+        outer:
+        for (int i = 0; i <= upper; i++) {
+            for (int j = 0; j < searchLen; j++) {
+                if (!normalizeWhitespaceForCompare(fileLines[i + j]).equals(normSearch[j])) {
+                    continue outer;
+                }
+            }
+            matches.add(i);
+        }
+        return matches;
     }
 
     /** Counts the number of non-overlapping occurrences of {@code needle} in {@code haystack}. */

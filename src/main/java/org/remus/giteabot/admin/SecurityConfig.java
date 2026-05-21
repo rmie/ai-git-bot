@@ -36,7 +36,7 @@ public class SecurityConfig {
      */
     @Bean
     @Order(1)
-    public SecurityFilterChain apiSecurityFilterChain(HttpSecurity http) throws Exception {
+    public SecurityFilterChain apiSecurityFilterChain(HttpSecurity http) {
         http
                 .securityMatcher("/api/**", "/actuator/**")
                 .authorizeHttpRequests(auth -> auth.anyRequest().permitAll())
@@ -49,7 +49,7 @@ public class SecurityConfig {
      */
     @Bean
     @Order(2)
-    public SecurityFilterChain webSecurityFilterChain(HttpSecurity http) throws Exception {
+    public SecurityFilterChain webSecurityFilterChain(HttpSecurity http) {
         http
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/setup", "/setup/**", "/css/**", "/js/**", "/images/**", "/favicon.ico").permitAll()

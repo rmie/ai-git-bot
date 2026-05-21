@@ -91,6 +91,36 @@
                             <input type="number" class="form-control" id="retryTruncatedChunkChars"
                                    th:field="*{retryTruncatedChunkChars}" min="1" required/>
                         </div>
+
+                        <div class="col-12">
+                            <hr/>
+                            <h5 class="mb-3">
+                                <i class="bi bi-tools"></i> Tool calling
+                            </h5>
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" role="switch"
+                                       id="enableNativeToolCalling" th:field="*{enableNativeToolCalling}"/>
+                                <label class="form-check-label" for="enableNativeToolCalling">
+                                    Enable experimental native tool calling
+                                    <span class="badge bg-warning text-dark ms-1">experimental</span>
+                                    <button type="button" class="btn btn-link btn-sm p-0 align-baseline ms-1"
+                                            tabindex="0"
+                                            data-bs-toggle="popover"
+                                            data-bs-trigger="focus"
+                                            data-bs-placement="right"
+                                            data-bs-html="true"
+                                            data-bs-title="Tool calling mode"
+                                            data-bs-content="<p><strong>Off (default)</strong>: <em>legacy</em> tool calling. The tool catalogue is described inside the system prompt and the model is asked to reply with a JSON block the agent parses itself. This path uses more tokens but has proven extremely robust across every provider, model version and self-hosted backend we test against — it is the recommended default.</p><p><strong>On (experimental)</strong>: tool descriptors are sent through the provider's native function-calling API (Anthropic <code>tools</code>, OpenAI/Ollama <code>tool_calls</code>, Google <code>functionDeclarations</code>). The model returns structured tool invocations that the agent loop dispatches directly. This saves tokens and is the future default, but is currently sensitive to upstream API changes and to weaker models that misuse tools.</p><p><strong>When in doubt, leave this off.</strong> If a run misbehaves in native mode, switch back to legacy and the bot will keep working. See <code>doc/TOOL_CALLING.md</code> for the full troubleshooting playbook.</p><p>llama.cpp always runs in legacy mode regardless of this switch.">
+                                        <i class="bi bi-question-circle"></i>
+                                    </button>
+                                </label>
+                                <div class="form-text">
+                                    Default is the robust legacy (JSON-in-prompt) tool-calling path.
+                                    Enable native function calling only if you want to opt into the
+                                    experimental, more token-efficient route.
+                                </div>
+                            </div>
+                        </div>
                     </div>
 
                     <div class="mt-4">
@@ -192,6 +222,11 @@
                     providerSelect.dataset.previousValue = providerSelect.value;
                     updateProviderDefaults();
                 }
+
+                // Step 6: enable Bootstrap popover for the tool-calling explanation
+                document.querySelectorAll('[data-bs-toggle="popover"]').forEach(function(el) {
+                    new bootstrap.Popover(el);
+                });
             });
             /*]]>*/
         </script>

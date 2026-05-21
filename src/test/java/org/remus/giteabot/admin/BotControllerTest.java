@@ -1,7 +1,16 @@
 package org.remus.giteabot.admin;
 
 import org.junit.jupiter.api.Test;
-import org.remus.giteabot.systemsettings.*;
+import org.remus.giteabot.prworkflow.config.WorkflowConfigurationService;
+import org.remus.giteabot.systemsettings.BotToolConfiguration;
+import org.remus.giteabot.systemsettings.BotToolConfigurationService;
+import org.remus.giteabot.systemsettings.BotToolSelectionRow;
+import org.remus.giteabot.systemsettings.BotToolSelectionService;
+import org.remus.giteabot.systemsettings.McpConfiguration;
+import org.remus.giteabot.systemsettings.McpConfigurationService;
+import org.remus.giteabot.systemsettings.McpToolSelectionRow;
+import org.remus.giteabot.systemsettings.McpToolSelectionService;
+import org.remus.giteabot.systemsettings.SystemPromptService;
 import org.springframework.http.ResponseEntity;
 
 import java.util.List;
@@ -13,16 +22,30 @@ import static org.mockito.Mockito.when;
 
 class BotControllerTest {
 
+    private BotController newController(BotService botService,
+                                        McpConfigurationService mcpConfigurationService,
+                                        McpToolSelectionService mcpToolSelectionService,
+                                        BotToolConfigurationService botToolConfigurationService,
+                                        BotToolSelectionService botToolSelectionService) {
+        return new BotController(
+                botService,
+                mock(AiIntegrationService.class),
+                mock(GitIntegrationService.class),
+                mock(SystemPromptService.class),
+                mcpConfigurationService,
+                mcpToolSelectionService,
+                botToolConfigurationService,
+                botToolSelectionService,
+                mock(WorkflowConfigurationService.class),
+                mock(org.remus.giteabot.prworkflow.config.DeploymentTargetService.class));
+    }
+
     @Test
     void selectedMcpTools_missingConfiguration_returnsNotFound() {
-        BotService botService = mock(BotService.class);
-        AiIntegrationService aiIntegrationService = mock(AiIntegrationService.class);
-        GitIntegrationService gitIntegrationService = mock(GitIntegrationService.class);
-        SystemPromptService systemPromptService = mock(SystemPromptService.class);
         McpConfigurationService mcpConfigurationService = mock(McpConfigurationService.class);
         McpToolSelectionService mcpToolSelectionService = mock(McpToolSelectionService.class);
-        BotController controller = new BotController(botService, aiIntegrationService, gitIntegrationService,
-                systemPromptService, mcpConfigurationService, mcpToolSelectionService);
+        BotController controller = newController(mock(BotService.class), mcpConfigurationService,
+                mcpToolSelectionService, mock(BotToolConfigurationService.class), mock(BotToolSelectionService.class));
         when(mcpConfigurationService.findById(55L)).thenReturn(Optional.empty());
 
         ResponseEntity<List<java.util.Map<String, String>>> response = controller.selectedMcpTools(55L);
@@ -32,14 +55,10 @@ class BotControllerTest {
 
     @Test
     void selectedMcpTools_existingConfiguration_returnsRows() {
-        BotService botService = mock(BotService.class);
-        AiIntegrationService aiIntegrationService = mock(AiIntegrationService.class);
-        GitIntegrationService gitIntegrationService = mock(GitIntegrationService.class);
-        SystemPromptService systemPromptService = mock(SystemPromptService.class);
         McpConfigurationService mcpConfigurationService = mock(McpConfigurationService.class);
         McpToolSelectionService mcpToolSelectionService = mock(McpToolSelectionService.class);
-        BotController controller = new BotController(botService, aiIntegrationService, gitIntegrationService,
-                systemPromptService, mcpConfigurationService, mcpToolSelectionService);
+        BotController controller = newController(mock(BotService.class), mcpConfigurationService,
+                mcpToolSelectionService, mock(BotToolConfigurationService.class), mock(BotToolSelectionService.class));
         McpConfiguration config = new McpConfiguration();
         config.setId(7L);
         when(mcpConfigurationService.findById(7L)).thenReturn(Optional.of(config));
@@ -53,6 +72,38 @@ class BotControllerTest {
         assertEquals(1, response.getBody().size());
         assertEquals("mcp:github:get_file", response.getBody().getFirst().get("qualifiedName"));
     }
+
+    @Test
+    void selectedBuiltinTools_missingConfiguration_returnsNotFound() {
+        BotToolConfigurationService toolConfigurationService = mock(BotToolConfigurationService.class);
+        BotToolSelectionService toolSelectionService = mock(BotToolSelectionService.class);
+        BotController controller = newController(mock(BotService.class), mock(McpConfigurationService.class),
+                mock(McpToolSelectionService.class), toolConfigurationService, toolSelectionService);
+        when(toolConfigurationService.findById(99L)).thenReturn(Optional.empty());
+
+        ResponseEntity<List<java.util.Map<String, String>>> response = controller.selectedBuiltinTools(99L);
+
+        assertEquals(404, response.getStatusCode().value());
+    }
+
+    @Test
+    void selectedBuiltinTools_existingConfiguration_returnsRows() {
+        BotToolConfigurationService toolConfigurationService = mock(BotToolConfigurationService.class);
+        BotToolSelectionService toolSelectionService = mock(BotToolSelectionService.class);
+        BotController controller = newController(mock(BotService.class), mock(McpConfigurationService.class),
+                mock(McpToolSelectionService.class), toolConfigurationService, toolSelectionService);
+        BotToolConfiguration configuration = new BotToolConfiguration();
+        configuration.setId(8L);
+        when(toolConfigurationService.findById(8L)).thenReturn(Optional.of(configuration));
+        when(toolSelectionService.loadSelectedTools(8L)).thenReturn(List.of(
+                new BotToolSelectionRow("mvn", "VALIDATION", "Run Maven", true)
+        ));
+
+        ResponseEntity<List<java.util.Map<String, String>>> response = controller.selectedBuiltinTools(8L);
+
+        assertEquals(200, response.getStatusCode().value());
+        assertEquals(1, response.getBody().size());
+        assertEquals("mvn", response.getBody().getFirst().get("toolName"));
+        assertEquals("VALIDATION", response.getBody().getFirst().get("toolKind"));
+    }
 }
-
-

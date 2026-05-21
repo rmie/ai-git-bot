@@ -48,10 +48,14 @@ class WriterResponseParserTest {
     }
 
     @Test
-    void parse_plainTextWithoutJson_fallsBackToClarifyingQuestion() {
+    void parse_plainTextWithoutJson_fallsBackToQualityAssessment() {
         WriterPlan plan = parser.parse("Please provide the expected behavior for non-authors.");
 
-        assertThat(plan.getClarifyingQuestions()).containsExactly("Please provide the expected behavior for non-authors.");
+        assertThat(plan.getQualityAssessment()).isEqualTo("Please provide the expected behavior for non-authors.");
+        // The clarifyingQuestions list must stay empty so the rendered comment
+        // does not duplicate the prose (once as assessment, once as a question).
+        assertThat(plan.getClarifyingQuestions()).isEmpty();
+        assertThat(plan.isReadyToCreate()).isFalse();
         assertThat(plan.hasContextRequests()).isFalse();
     }
 }

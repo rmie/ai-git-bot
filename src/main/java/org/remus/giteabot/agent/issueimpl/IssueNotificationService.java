@@ -2,11 +2,13 @@ package org.remus.giteabot.agent.issueimpl;
 
 import lombok.extern.slf4j.Slf4j;
 import org.remus.giteabot.agent.model.ImplementationPlan;
-import org.remus.giteabot.agent.validation.ToolExecutionService;
+import org.remus.giteabot.agent.tools.ToolCatalog;
 import org.remus.giteabot.agent.validation.ToolResult;
 import org.remus.giteabot.repository.RepositoryApiClient;
 
+import java.util.EnumMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Posts progress, thinking, and tool-result comments on issues
@@ -16,18 +18,18 @@ import java.util.List;
 public class IssueNotificationService {
 
     /** Maximum number of characters shown per tool argument in comments. */
-    private static final int MAX_ARG_DISPLAY_CHARS = 80;
+    private static final int MAX_ARG_DISPLAY_CHARS = 40;
 
     private final RepositoryApiClient repositoryClient;
     private final AiResponseParser responseParser;
-    private final ToolExecutionService toolExecutionService;
+    private final ToolCatalog catalog;
 
     public IssueNotificationService(RepositoryApiClient repositoryClient,
                                      AiResponseParser responseParser,
-                                     ToolExecutionService toolExecutionService) {
+                                     ToolCatalog catalog) {
         this.repositoryClient = repositoryClient;
         this.responseParser = responseParser;
-        this.toolExecutionService = toolExecutionService;
+        this.catalog = catalog;
     }
 
     /**
@@ -84,7 +86,7 @@ public class IssueNotificationService {
         if (plan != null && plan.hasToolRequest()) {
             List<ImplementationPlan.ToolRequest> validationTools = plan.getEffectiveToolRequests()
                     .stream()
-                    .filter(r -> !toolExecutionService.isSilentTool(r.getTool()))
+                    .filter(r -> !catalog.isSilent(r.getTool()))
                     .toList();
             if (!validationTools.isEmpty()) {
                 comment.append("🔧 **Will run** (").append(validationTools.size()).append("):\n");
@@ -103,6 +105,60 @@ public class IssueNotificationService {
 
         try {
             repositoryClient.postIssueComment(owner, repo, issueNumber, commentText);
+        } catch (Exception e) {
+            log.warn("Failed to post AI thinking comment on issue #{}: {}", issueNumber, e.getMessage());
+        }
+    }
+
+    /**
+     * Posts a "thinking" comment for a native-mode turn that may contain only
+     * tool_calls and no assistant text.  Always emits a comment (provided at
+     * least one tool was requested or the model produced reasoning text), so
+     * the user sees what the agent is about to do — even when the provider
+     * returns an empty assistant message together with native tool_calls.
+     *
+     * <p>Tool arguments are truncated by {@link #appendToolRequestLine} to
+     * {@value #MAX_ARG_DISPLAY_CHARS} characters so write-file/patch-file
+     * payloads (which may contain large or sensitive code blobs) are not
+     * dumped verbatim into the issue feed.</p>
+     */
+    public void postNativeToolPlanComment(String owner, String repo, Long issueNumber,
+                                          String assistantText,
+                                          List<ImplementationPlan.ToolRequest> requests) {
+        boolean hasText = assistantText != null && !assistantText.isBlank();
+        boolean hasRequests = requests != null && !requests.isEmpty();
+        if (!hasText && !hasRequests) {
+            return;
+        }
+
+        StringBuilder comment = new StringBuilder();
+        comment.append("🤖 **AI Agent Response**:\n\n");
+
+        if (hasText) {
+            comment.append(assistantText).append("\n\n");
+        }
+
+        if (hasRequests) {
+            // Group tools into visual buckets via ToolCatalog instead of stacking
+            // isFile/isSilent/looksLikeMcp boolean checks. MCP and read-only tools
+            // belong in "Context lookups", file tools in "File changes", everything
+            // else (validation tools + unknown names) in "Will run".
+            Map<ToolCatalog.DisplayBucket, List<ImplementationPlan.ToolRequest>> bucketed =
+                    new EnumMap<>(ToolCatalog.DisplayBucket.class);
+            for (ToolCatalog.DisplayBucket bucket : ToolCatalog.DisplayBucket.values()) {
+                bucketed.put(bucket, new java.util.ArrayList<>());
+            }
+            for (ImplementationPlan.ToolRequest req : requests) {
+                bucketed.get(catalog.bucketOf(req.getTool())).add(req);
+            }
+
+            appendBucket(comment, "🔎 **Context lookups**", bucketed.get(ToolCatalog.DisplayBucket.CONTEXT));
+            appendBucket(comment, "✏️ **File changes**", bucketed.get(ToolCatalog.DisplayBucket.MUTATION));
+            appendBucket(comment, "🔧 **Will run**", bucketed.get(ToolCatalog.DisplayBucket.VALIDATION));
+        }
+
+        try {
+            repositoryClient.postIssueComment(owner, repo, issueNumber, comment.toString().strip());
         } catch (Exception e) {
             log.warn("Failed to post AI thinking comment on issue #{}: {}", issueNumber, e.getMessage());
         }
@@ -182,6 +238,18 @@ public class IssueNotificationService {
     }
 
     // ---- Helpers ----
+
+    private void appendBucket(StringBuilder comment, String header,
+                              List<ImplementationPlan.ToolRequest> requests) {
+        if (requests == null || requests.isEmpty()) {
+            return;
+        }
+        comment.append(header).append(" (").append(requests.size()).append("):\n");
+        for (ImplementationPlan.ToolRequest req : requests) {
+            appendToolRequestLine(comment, req);
+        }
+        comment.append("\n");
+    }
 
     private void appendToolRequestLine(StringBuilder comment, ImplementationPlan.ToolRequest toolReq) {
         String id = (toolReq.getId() != null && !toolReq.getId().isBlank())

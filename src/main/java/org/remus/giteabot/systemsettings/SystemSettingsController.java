@@ -1,10 +1,18 @@
 package org.remus.giteabot.systemsettings;
 
 import lombok.extern.slf4j.Slf4j;
+import org.remus.giteabot.prworkflow.config.DeploymentTargetService;
+import org.remus.giteabot.prworkflow.config.WorkflowConfigurationService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.ModelAttribute;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.ResponseBody;
 import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 
 import java.util.List;
@@ -18,19 +26,34 @@ public class SystemSettingsController {
     private final SystemPromptService systemPromptService;
     private final McpConfigurationService mcpConfigurationService;
     private final McpToolSelectionService mcpToolSelectionService;
+    private final BotToolConfigurationService botToolConfigurationService;
+    private final BotToolSelectionService botToolSelectionService;
+    private final WorkflowConfigurationService workflowConfigurationService;
+    private final DeploymentTargetService deploymentTargetService;
 
     public SystemSettingsController(SystemPromptService systemPromptService,
                                     McpConfigurationService mcpConfigurationService,
-                                    McpToolSelectionService mcpToolSelectionService) {
+                                    McpToolSelectionService mcpToolSelectionService,
+                                    BotToolConfigurationService botToolConfigurationService,
+                                    BotToolSelectionService botToolSelectionService,
+                                    WorkflowConfigurationService workflowConfigurationService,
+                                    DeploymentTargetService deploymentTargetService) {
         this.systemPromptService = systemPromptService;
         this.mcpConfigurationService = mcpConfigurationService;
         this.mcpToolSelectionService = mcpToolSelectionService;
+        this.botToolConfigurationService = botToolConfigurationService;
+        this.botToolSelectionService = botToolSelectionService;
+        this.workflowConfigurationService = workflowConfigurationService;
+        this.deploymentTargetService = deploymentTargetService;
     }
 
     @GetMapping
     public String list(Model model) {
         model.addAttribute("systemPrompts", systemPromptService.findAll());
         model.addAttribute("mcpConfigurations", mcpConfigurationService.findAll());
+        model.addAttribute("botToolConfigurations", botToolConfigurationService.findAll());
+        model.addAttribute("workflowConfigurations", workflowConfigurationService.findAll());
+        model.addAttribute("deploymentTargets", deploymentTargetService.findAll());
         model.addAttribute("activeNav", "system-settings");
         return "system-settings/list";
     }
@@ -196,6 +219,105 @@ public class SystemSettingsController {
             redirectAttributes.addFlashAttribute("success", "System prompt deleted successfully");
         } catch (Exception e) {
             log.error("Failed to delete system prompt", e);
+            redirectAttributes.addFlashAttribute("error", "Failed to delete: " + e.getMessage());
+        }
+        return "redirect:/system-settings";
+    }
+
+    // ------------------------------------------------------------------
+    // Bot Tool Configurations (built-in agent tools whitelist per bot)
+    // ------------------------------------------------------------------
+
+    @GetMapping("/bot-tools/new")
+    public String newBotToolForm(Model model) {
+        model.addAttribute("botToolConfiguration", new BotToolConfiguration());
+        model.addAttribute("activeNav", "system-settings");
+        return "system-settings/bot-tools-form";
+    }
+
+    @GetMapping("/bot-tools/{id}/edit")
+    public String editBotToolForm(@PathVariable Long id, Model model, RedirectAttributes redirectAttributes) {
+        return botToolConfigurationService.findById(id)
+                .map(configuration -> {
+                    model.addAttribute("botToolConfiguration", configuration);
+                    model.addAttribute("activeNav", "system-settings");
+                    return "system-settings/bot-tools-form";
+                })
+                .orElseGet(() -> {
+                    redirectAttributes.addFlashAttribute("error", "Tool configuration not found");
+                    return "redirect:/system-settings";
+                });
+    }
+
+    @GetMapping("/bot-tools/{id}/clone")
+    public String cloneBotToolForm(@PathVariable Long id, Model model, RedirectAttributes redirectAttributes) {
+        try {
+            BotToolConfiguration clone = botToolConfigurationService.cloneConfiguration(id);
+            model.addAttribute("botToolConfiguration", clone);
+            model.addAttribute("activeNav", "system-settings");
+            return "system-settings/bot-tools-form";
+        } catch (IllegalArgumentException e) {
+            redirectAttributes.addFlashAttribute("error", e.getMessage());
+            return "redirect:/system-settings";
+        }
+    }
+
+    @PostMapping("/bot-tools/save")
+    public String saveBotTool(@ModelAttribute("botToolConfiguration") BotToolConfiguration botToolConfiguration,
+                              Model model, RedirectAttributes redirectAttributes) {
+        try {
+            BotToolConfiguration saved = botToolConfigurationService.save(botToolConfiguration);
+            redirectAttributes.addFlashAttribute("success",
+                    "Tool configuration saved. Please select which built-in tools are allowed.");
+            return "redirect:/system-settings/bot-tools/" + saved.getId() + "/tools";
+        } catch (Exception e) {
+            log.error("Failed to save tool configuration", e);
+            model.addAttribute("error", "Failed to save: " + e.getMessage());
+            model.addAttribute("botToolConfiguration", botToolConfiguration);
+            model.addAttribute("activeNav", "system-settings");
+            return "system-settings/bot-tools-form";
+        }
+    }
+
+    @GetMapping("/bot-tools/{id}/tools")
+    public String botToolSelection(@PathVariable Long id, Model model, RedirectAttributes redirectAttributes) {
+        return botToolConfigurationService.findById(id)
+                .map(configuration -> {
+                    List<BotToolSelectionRow> tools = botToolSelectionService.loadAvailableTools(id);
+                    model.addAttribute("botToolConfiguration", configuration);
+                    model.addAttribute("tools", tools);
+                    model.addAttribute("activeNav", "system-settings");
+                    return "system-settings/bot-tools-selection";
+                })
+                .orElseGet(() -> {
+                    redirectAttributes.addFlashAttribute("error", "Tool configuration not found");
+                    return "redirect:/system-settings";
+                });
+    }
+
+    @PostMapping("/bot-tools/{id}/tools/save")
+    public String saveBotToolSelection(@PathVariable Long id,
+                                       @RequestParam(name = "selectedToolNames", required = false)
+                                       List<String> selectedToolNames,
+                                       RedirectAttributes redirectAttributes) {
+        try {
+            botToolSelectionService.saveSelection(id, selectedToolNames);
+            redirectAttributes.addFlashAttribute("success", "Tool selection saved successfully");
+            return "redirect:/system-settings";
+        } catch (Exception e) {
+            log.error("Failed to save tool selection", e);
+            redirectAttributes.addFlashAttribute("error", "Failed to save tool selection: " + e.getMessage());
+            return "redirect:/system-settings/bot-tools/" + id + "/tools";
+        }
+    }
+
+    @PostMapping("/bot-tools/{id}/delete")
+    public String deleteBotTool(@PathVariable Long id, RedirectAttributes redirectAttributes) {
+        try {
+            botToolConfigurationService.deleteById(id);
+            redirectAttributes.addFlashAttribute("success", "Tool configuration deleted successfully");
+        } catch (Exception e) {
+            log.error("Failed to delete tool configuration", e);
             redirectAttributes.addFlashAttribute("error", "Failed to delete: " + e.getMessage());
         }
         return "redirect:/system-settings";

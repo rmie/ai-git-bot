@@ -5,6 +5,10 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.remus.giteabot.agent.model.ImplementationPlan;
+import org.remus.giteabot.agent.shared.AgentJackson;
+import org.remus.giteabot.agent.shared.AgentSchema;
+import org.remus.giteabot.agent.shared.AgentSchemaValidator;
+import org.remus.giteabot.agent.shared.AgentSchemaValidatorHolder;
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.ObjectMapper;
 
@@ -18,20 +22,39 @@ public class WriterResponseParser {
     private static final Pattern JSON_BLOCK_PATTERN = Pattern.compile("```json\\s*\\n(.*?)\\n\\s*```", Pattern.DOTALL);
     private static final Pattern JSON_BLOCK_UNCLOSED_PATTERN = Pattern.compile("```json\\s*\\n(\\{.*)", Pattern.DOTALL);
     private static final Pattern GENERIC_JSON_BLOCK_PATTERN = Pattern.compile("```\\s*\\n(\\{.*?})\\n\\s*```", Pattern.DOTALL);
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final ObjectMapper objectMapper = AgentJackson.mapper();
 
     public WriterPlan parse(String aiResponse) {
         if (aiResponse == null || aiResponse.isBlank()) {
-            return WriterPlan.builder().qualityAssessment("").build();
+            // Always populate clarifyingQuestions with at least an empty list so
+            // downstream consumers (WriterPromptBuilder) never NPE.
+            return WriterPlan.builder()
+                    .qualityAssessment("")
+                    .clarifyingQuestions(List.of())
+                    .build();
         }
         String json = extractJson(aiResponse);
         if (json == null) {
+            // Plain-text reply (no JSON). Surface it verbatim as the quality
+            // assessment and leave clarifyingQuestions empty — the strategy
+            // still takes the clarifying-comment branch because readyToCreate
+            // defaults to false. Storing the same text in both fields caused
+            // the prose to be rendered twice in the posted comment.
             return WriterPlan.builder()
                     .qualityAssessment(aiResponse.strip())
-                    .clarifyingQuestions(List.of(aiResponse.strip()))
+                    .clarifyingQuestions(List.of())
                     .build();
         }
         try {
+            // Step 5: schema validation – observe-only by default. In enforce
+            // mode we treat the response like an unparseable payload and fall
+            // back to the assessment-only WriterPlan.
+            if (!validateAgainstSchema(json)) {
+                return WriterPlan.builder()
+                        .qualityAssessment(aiResponse.strip())
+                        .clarifyingQuestions(List.of())
+                        .build();
+            }
             AiWriterResponse response = objectMapper.readValue(json, AiWriterResponse.class);
             return WriterPlan.builder()
                     .qualityAssessment(response.getQualityAssessment())
@@ -47,7 +70,7 @@ public class WriterResponseParser {
             log.warn("Failed to parse writer response JSON: {}", e.getMessage());
             return WriterPlan.builder()
                     .qualityAssessment(aiResponse.strip())
-                    .clarifyingQuestions(List.of(aiResponse.strip()))
+                    .clarifyingQuestions(List.of())
                     .build();
         }
     }
@@ -108,6 +131,23 @@ public class WriterResponseParser {
             }
         }
         return json;
+    }
+
+    private boolean validateAgainstSchema(String json) {
+        AgentSchemaValidator validator = AgentSchemaValidatorHolder.get();
+        if (validator == null) {
+            return true;
+        }
+        var violations = validator.validate(json, AgentSchema.WRITER_PLAN);
+        if (violations.isEmpty()) {
+            return true;
+        }
+        if (validator.isEnforce()) {
+            log.warn("Rejecting writer plan: {} schema violation(s) and enforce mode active",
+                    violations.get().size());
+            return false;
+        }
+        return true;
     }
 
     private List<String> nullToEmpty(List<String> values) {

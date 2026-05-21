@@ -6,6 +6,7 @@ import org.remus.giteabot.session.ConversationMessage;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
@@ -76,6 +77,24 @@ public class AgentSessionService {
         return repository.save(session);
     }
 
+    /**
+     * Step 7.1 — persist the most recently parsed implementation plan on the
+     * session row so that PR-body and follow-up comment generation can read
+     * the latest plan in O(1) instead of re-parsing the entire conversation
+     * history.
+     *
+     * @param session the session to update (mutated in place and saved)
+     * @param summary short human-readable summary (typically {@code plan.summary()}); may be {@code null}
+     * @param rawJson raw JSON representation of the plan; may be {@code null}
+     * @return the saved entity
+     */
+    @Transactional
+    public AgentSession recordPlan(AgentSession session, String summary, String rawJson) {
+        session.setLastPlanSummary(summary);
+        session.setLastPlanJson(rawJson);
+        session.setLastPlanAt(Instant.now());
+        return repository.save(session);
+    }
 
     @Transactional
     public AgentSession setBranchName(AgentSession session, String branchName) {
@@ -103,20 +122,35 @@ public class AgentSessionService {
         return repository.save(session);
     }
 
-    @Transactional
-    public void deleteSession(String owner, String repo, Long issueNumber) {
-        log.info("Deleting agent session for issue #{} in {}/{}", issueNumber, owner, repo);
-        repository.deleteByRepoOwnerAndRepoNameAndIssueNumber(owner, repo, issueNumber);
-    }
 
     /**
      * Converts stored conversation messages to provider-agnostic AI message format.
      * Messages are sorted by creation time to maintain conversation order.
+     *
+     * <p><strong>Tool-flow messages are intentionally dropped:</strong> the
+     * persisted {@link ConversationMessage} entity only stores {@code role}
+     * and {@code content} — it does <em>not</em> preserve the native
+     * {@code tool_calls} payload of assistant turns nor the
+     * {@code tool_call_id} of {@code role:"tool"} turns. Replaying such
+     * orphaned messages to OpenAI/Anthropic in a follow-up run would fail
+     * with errors like
+     * <em>"messages with role 'tool' must be a response to a preceeding
+     * message with 'tool_calls'"</em>. Since prior tool executions have
+     * already been committed/pushed and the agent can re-discover state via
+     * tools, we strip:
+     * <ul>
+     *   <li>every {@code role:"tool"} message,</li>
+     *   <li>assistant messages whose content is blank (these were
+     *       tool-call-only turns whose {@code tool_calls} payload is lost).</li>
+     * </ul>
      */
     public List<AiMessage> toAiMessages(AgentSession session) {
         return session.getMessages().stream()
                 .sorted(Comparator.comparing(ConversationMessage::getCreatedAt,
                         Comparator.nullsFirst(Comparator.naturalOrder())))
+                .filter(m -> !"tool".equalsIgnoreCase(m.getRole()))
+                .filter(m -> !("assistant".equalsIgnoreCase(m.getRole())
+                        && (m.getContent() == null || m.getContent().isBlank())))
                 .map(m -> AiMessage.builder()
                         .role(m.getRole())
                         .content(m.getContent())

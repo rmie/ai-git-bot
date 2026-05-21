@@ -1,12 +1,25 @@
 package org.remus.giteabot.agent;
 
 import lombok.extern.slf4j.Slf4j;
+import org.remus.giteabot.agent.critic.CriticAgent;
+import org.remus.giteabot.agent.critic.ReflectionResult;
 import org.remus.giteabot.agent.issueimpl.AgentPromptBuilder;
 import org.remus.giteabot.agent.issueimpl.AiResponseParser;
+import org.remus.giteabot.agent.issueimpl.CodingAgentStrategy;
 import org.remus.giteabot.agent.issueimpl.IssueNotificationService;
+import org.remus.giteabot.agent.loop.AgentBudget;
+import org.remus.giteabot.agent.loop.AgentLoop;
+import org.remus.giteabot.agent.loop.AgentRunContext;
+import org.remus.giteabot.agent.loop.LoopOutcome;
 import org.remus.giteabot.agent.model.ImplementationPlan;
 import org.remus.giteabot.agent.session.AgentSession;
 import org.remus.giteabot.agent.session.AgentSessionService;
+import org.remus.giteabot.agent.shared.BranchRefs;
+import org.remus.giteabot.agent.shared.BranchSwitcher;
+import org.remus.giteabot.agent.shared.McpTools;
+import org.remus.giteabot.agent.shared.ToolFailures;
+import org.remus.giteabot.agent.tools.AgentToolRouter;
+import org.remus.giteabot.agent.tools.ToolCatalog;
 import org.remus.giteabot.agent.validation.ToolExecutionService;
 import org.remus.giteabot.agent.validation.ToolResult;
 import org.remus.giteabot.agent.validation.WorkspaceResult;
@@ -18,16 +31,15 @@ import org.remus.giteabot.config.PromptService;
 import org.remus.giteabot.gitea.model.WebhookPayload;
 import org.remus.giteabot.mcp.McpOrchestrationService;
 import org.remus.giteabot.mcp.McpToolCatalog;
-import org.remus.giteabot.mcp.McpToolPromptRenderer;
+import org.remus.giteabot.agent.shared.SystemPromptAssembler;
+import org.remus.giteabot.agent.loop.ToolingMode;
 import org.remus.giteabot.repository.RepositoryApiClient;
 import org.remus.giteabot.systemsettings.McpConfiguration;
 
 import java.nio.file.Path;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.stream.IntStream;
 
 /**
  * Core issue-implementation (agent) business logic.  Not a Spring-managed
@@ -44,7 +56,6 @@ import java.util.stream.IntStream;
 public class IssueImplementationService {
 
     private static final String AGENT_PROMPT_NAME = "agent";
-    private static final int MAX_CONTEXT_TOOL_REQUESTS = 5;
     /** Git author identity used for automated commits. */
     private static final String GIT_AUTHOR_NAME  = "AI Agent";
     private static final String GIT_AUTHOR_EMAIL = "ai-agent@bot.local";
@@ -55,25 +66,31 @@ public class IssueImplementationService {
     private final AgentConfigProperties agentConfig;
     private final AgentSessionService sessionService;
     private final ToolExecutionService toolExecutionService;
+    private final ToolCatalog toolCatalog;
     private final WorkspaceService workspaceService;
     private final String issueAgentSystemPrompt;
     private final String botUsername;
     private final McpOrchestrationService mcpOrchestrationService;
     private final McpConfiguration mcpConfiguration;
     private final McpToolCatalog mcpToolCatalog;
-    private final McpToolPromptRenderer mcpToolPromptRenderer;
+    private final SystemPromptAssembler systemPromptAssembler;
+    private final java.util.Set<String> allowedBuiltinTools;
 
     // Extracted helpers
     private final AiResponseParser responseParser;
     private final AgentPromptBuilder promptBuilder;
     private final IssueNotificationService notificationService;
     private final AgentErrorNotificationService errorNotificationService;
+    private final BranchSwitcher branchSwitcher;
+    private final AgentToolRouter toolRouter;
+    private final CriticAgent criticAgent;
 
     public IssueImplementationService(IssueImplementationContext context,
                                       PromptService promptService,
                                       AgentConfigProperties agentConfig,
                                       AgentSessionService sessionService,
                                       ToolExecutionService toolExecutionService,
+                                      ToolCatalog toolCatalog,
                                       WorkspaceService workspaceService) {
         this.repositoryClient = context.repositoryClient();
         this.aiClient = context.aiClient();
@@ -81,18 +98,27 @@ public class IssueImplementationService {
         this.agentConfig = agentConfig;
         this.sessionService = sessionService;
         this.toolExecutionService = toolExecutionService;
+        this.toolCatalog = toolCatalog;
         this.workspaceService = workspaceService;
         this.issueAgentSystemPrompt = context.issueAgentSystemPrompt();
         this.botUsername = context.botUsername();
         this.mcpOrchestrationService = context.mcpOrchestrationService();
         this.mcpConfiguration = context.mcpConfiguration();
         this.mcpToolCatalog = context.mcpToolCatalog();
-        this.mcpToolPromptRenderer = new McpToolPromptRenderer();
+        this.systemPromptAssembler = new SystemPromptAssembler();
+        this.allowedBuiltinTools = context.allowedBuiltinTools();
 
         this.responseParser = new AiResponseParser();
         this.promptBuilder = new AgentPromptBuilder(agentConfig != null ? agentConfig.getContext() : null);
-        this.notificationService = new IssueNotificationService(this.repositoryClient, responseParser, toolExecutionService);
+        this.notificationService = new IssueNotificationService(this.repositoryClient, responseParser, toolCatalog);
         this.errorNotificationService = new AgentErrorNotificationService(this.repositoryClient);
+        this.branchSwitcher = new BranchSwitcher(toolExecutionService);
+        this.toolRouter = new AgentToolRouter(toolExecutionService, toolCatalog, this.mcpOrchestrationService,
+                this.mcpConfiguration, this.mcpToolCatalog, this.repositoryClient, this.allowedBuiltinTools);
+        this.criticAgent = new CriticAgent(
+                agentConfig != null ? agentConfig.getCritic() : null,
+                agentConfig != null ? agentConfig.getBudget() : null,
+                null);
     }
 
     public void handleIssueAssigned(WebhookPayload payload) {
@@ -154,48 +180,23 @@ public class IssueImplementationService {
             String treeContext  = promptBuilder.buildTreeContext(tree);
             String systemPrompt = resolveAgentSystemPrompt();
 
-            // STEP 1: Ask AI which context it needs
-            log.info("Step 1: Asking AI which files are needed for issue #{}", issueNumber);
-            String fileRequestPrompt = promptBuilder.buildFileRequestPrompt(
-                    issueTitle, issueBody, issueCommentsContext, treeContext);
-            sessionService.addMessage(session, "user", fileRequestPrompt);
-
-            String fileRequestResponse = aiClient.chat(new ArrayList<>(), fileRequestPrompt, systemPrompt,
-                    null, agentConfig.getMaxTokens());
-            sessionService.addMessage(session, "assistant", fileRequestResponse);
-
-            ImplementationPlan initialContextPlan = responseParser.parseAiResponse(fileRequestResponse);
-            List<String> requestedFiles = initialContextPlan != null && initialContextPlan.getRequestFiles() != null
-                    ? initialContextPlan.getRequestFiles()
-                    : responseParser.parseRequestedFiles(fileRequestResponse, tree);
-            List<ImplementationPlan.ToolRequest> requestedTools =
-                    initialContextPlan != null ? initialContextPlan.getRequestTools() : List.of();
-            log.info("AI requested {} files and {} repository tools for context",
-                    requestedFiles.size(), requestedTools != null ? requestedTools.size() : 0);
-
-            BranchSwitchResult branchSwitchResult = applyRequestedBranchSwitch(
-                    workspaceDir, baseBranch, requestedTools, issueNumber);
-            baseBranch = branchSwitchResult.selectedBranch();
-            requestedTools = branchSwitchResult.remainingToolRequests();
-            if (!baseBranch.equals(branchSwitchResult.initialBranch())) {
-                tree = repositoryClient.getRepositoryTree(owner, repo, baseBranch);
-                treeContext = promptBuilder.buildTreeContext(tree);
-            }
-
-            String fileContext = fetchRequestedContext(owner, repo, baseBranch,
-                    requestedFiles, requestedTools, workspaceDir);
-
-            // STEP 2: Generate implementation via tool requests
-            log.info("Step 2: Generating implementation for issue #{}", issueNumber);
+            // Single implementation loop — symmetric to WriterAgentService#handleIssueAssigned.
+            // The previous "Step 1" (separate one-shot AI call to ask which files were needed)
+            // has been folded into the AgentLoop: the CodingAgentStrategy already supports
+            // context-only rounds (`requestFiles`/`requestTools` in legacy mode, or `cat`/`rg`
+            // tool calls in native mode), so a dedicated pre-loop turn was redundant and
+            // diverged from the writer flow.
             String implementationPrompt = promptBuilder.buildImplementationPromptWithContext(
-                    issueTitle, issueBody, issueCommentsContext, treeContext, fileContext);
+                    issueTitle, issueBody, issueCommentsContext, treeContext,
+                    "(no files preloaded — request more via `requestFiles`/`requestTools` or "
+                            + "use context tools like `cat`, `rg`, `find`, `tree` if you need to inspect specific files)");
 
-            // Add tools info to prompt
-            String toolsInfo = buildToolsInfo();
-            String fullPrompt = implementationPrompt + toolsInfo;
-
+            // Tool listings are now part of the system prompt (rendered dynamically
+            // by SystemPromptAssembler in LEGACY mode / advertised via the function-calling
+            // API in NATIVE mode), so the implementation prompt no longer duplicates them.
+            log.info("Starting implementation loop for issue #{}", issueNumber);
             ToolImplementationLoopResult implementationResult = runToolImplementationLoop(
-                    session, fullPrompt, systemPrompt, workspaceDir, owner, repo, issueNumber, baseBranch);
+                    session, implementationPrompt, systemPrompt, workspaceDir, owner, repo, issueNumber, baseBranch);
             boolean implementationSucceeded = implementationResult.success();
             baseBranch = implementationResult.selectedBranch();
 
@@ -213,6 +214,33 @@ public class IssueImplementationService {
             // Commit and push to new feature branch
             String branchName = agentConfig.getBranchPrefix() + "issue-" + issueNumber;
             sessionService.setBranchName(session, branchName);
+
+            // Step 7.3 — optional Critic / Reflection step. With critic.enabled=false
+            // (default) this short-circuits without an LLM call.
+            ImplementationPlan plannedPlan = getLastPlanFromSession(session);
+            ReflectionResult reflection = criticAgent.review(
+                    issueTitle, issueBody,
+                    plannedPlan != null ? plannedPlan.getSummary() : null,
+                    workspaceService.diffStat(workspaceDir),
+                    aiClient);
+            if (reflection.outcome() == ReflectionResult.Outcome.ABORT) {
+                log.warn("Critic aborted implementation for issue #{}: {}",
+                        issueNumber, reflection.feedback());
+                sessionService.setStatus(session, AgentSession.AgentSessionStatus.FAILED);
+                repositoryClient.postIssueComment(owner, repo, issueNumber,
+                        "🤖 **AI Agent (Critic)**: I reviewed my own implementation and decided not to "
+                                + "open a PR. Reason: " + reflection.feedback());
+                return;
+            }
+            if (reflection.outcome() == ReflectionResult.Outcome.ITERATE) {
+                log.info("Critic requested another iteration for issue #{}: {}",
+                        issueNumber, reflection.feedback());
+                sessionService.setStatus(session, AgentSession.AgentSessionStatus.FAILED);
+                repositoryClient.postIssueComment(owner, repo, issueNumber,
+                        "🤖 **AI Agent (Critic)**: My implementation needs another iteration. "
+                                + "Mention me to retry. Feedback: " + reflection.feedback());
+                return;
+            }
 
             String commitMessage = String.format("agent: implement #%d - %s", issueNumber, issueTitle);
             boolean pushed = workspaceService.commitAndPush(workspaceDir, branchName, commitMessage,
@@ -252,254 +280,49 @@ public class IssueImplementationService {
 
     /**
      * Unified tool-based implementation loop — used by both {@link #handleIssueAssigned} and
-     * {@link #handleIssueComment}.
-     * <p>
-     * The AI proposes a list of {@code runTools} (file modifications + validation).  All tools
-     * are executed in the cloned workspace.  Validation results are fed back to the AI on
-     * failure so it can self-correct.
-     * <p>
-     * The current session conversation (stored via {@link AgentSessionService}) is used as
-     * context for every AI call, so earlier dialogue (file-request step, prior comments) is
-     * always visible to the model.
+     * {@link #handleIssueComment}. The actual decision logic lives in
+     * {@link CodingAgentStrategy}; this method just wires up the {@link AgentLoop}
+     * with that strategy and the per-run context.
      *
      * @param userMessage the next user turn to kick off this loop (will be appended to the session)
-     * @return {@code true} when the implementation is considered successful
+     * @return success flag plus the branch finally selected for context lookups
      */
     private ToolImplementationLoopResult runToolImplementationLoop(
             AgentSession session, String userMessage, String systemPrompt,
             Path workspaceDir, String owner, String repo, Long issueNumber,
             String initialContextBranch) {
 
-        int maxRetries    = agentConfig.getValidation().isEnabled()
-                ? agentConfig.getValidation().getMaxRetries() : 1;
+        CodingAgentStrategy strategy = new CodingAgentStrategy(
+                systemPrompt,
+                promptBuilder,
+                responseParser,
+                notificationService,
+                sessionService,
+                branchSwitcher,
+                toolRouter,
+                toolCatalog,
+                workspaceService,
+                agentConfig,
+                mcpOrchestrationService,
+                mcpToolCatalog,
+                allowedBuiltinTools,
+                this::fetchRequestedContext);
+
+        // Step 7.2 — budgets are now sourced from BudgetConfig. Validation
+        // sub-budget is still a hint (the strategy enforces it internally),
+        // but the loop's hard cap derives from validation+tool+context rounds.
+        AgentConfigProperties.BudgetConfig budgetCfg = agentConfig.getBudget();
+        int maxRetries = budgetCfg.getMaxValidationRetries();
         int maxToolRounds = agentConfig.getValidation().getMaxToolExecutions();
-        int fileRequestRounds = 0;
-        int toolRounds    = 0;
-        String currentContextBranch = initialContextBranch;
-
-        // Snapshot the prior conversation history (file-request dialogue, earlier comments, …)
-        // so it is visible to the model as context.  The list is then extended locally as the
-        // loop progresses — we do not re-query the session on every iteration so that mocks
-        // in tests remain simple.
-        List<AiMessage> history = new ArrayList<>(sessionService.toAiMessages(session));
-        sessionService.addMessage(session, "user", userMessage);
-        String currentMessage = userMessage;
-
-        for (int attempt = 1; attempt <= maxRetries; attempt++) {
-            log.info("Tool implementation loop for issue #{}, attempt {}/{}", issueNumber, attempt, maxRetries);
-
-            String aiResponse = aiClient.chat(history, currentMessage, systemPrompt,
-                    null, agentConfig.getMaxTokens());
-            sessionService.addMessage(session, "assistant", aiResponse);
-            notificationService.postAiThinkingComment(owner, repo, issueNumber, aiResponse);
-
-            ImplementationPlan plan = responseParser.parseAiResponse(aiResponse);
-            if (plan == null) {
-                log.warn("Failed to parse AI response on attempt {}", attempt);
-                return new ToolImplementationLoopResult(false, currentContextBranch);
-            }
-
-            // Context request before implementation — does not count as an implementation attempt
-            if (plan.hasContextRequests() && !plan.hasToolRequest() && fileRequestRounds < 3) {
-                fileRequestRounds++;
-                log.info("AI requesting additional context (round {}/3)", fileRequestRounds);
-                BranchSwitchResult branchSwitchResult = applyRequestedBranchSwitch(
-                        workspaceDir, currentContextBranch, plan.getRequestTools(), issueNumber);
-                currentContextBranch = branchSwitchResult.selectedBranch();
-                String ctx = fetchRequestedContext(owner, repo, currentContextBranch,
-                        plan.getRequestFiles(), branchSwitchResult.remainingToolRequests(), workspaceDir);
-                String ctxMsg = "Here is the requested repository context:\n" + ctx
-                        + "\n\nNow implement the issue using `runTools`. "
-                        + "Use write-file/patch-file for changes and include validation tools.";
-                history.add(AiMessage.builder().role("user").content(currentMessage).build());
-                history.add(AiMessage.builder().role("assistant").content(aiResponse).build());
-                currentMessage = ctxMsg;
-                sessionService.addMessage(session, "user", ctxMsg);
-                attempt--; // doesn't count as an implementation attempt
-                continue;
-            }
-
-            // No tool requests at all → ask AI to produce them
-            if (!plan.hasToolRequest()) {
-                log.info("AI provided no runTools on attempt {}", attempt);
-                String feedbackMsg = promptBuilder.buildMissingToolFeedback();
-                history.add(AiMessage.builder().role("user").content(currentMessage).build());
-                history.add(AiMessage.builder().role("assistant").content(aiResponse).build());
-                currentMessage = feedbackMsg;
-                sessionService.addMessage(session, "user", feedbackMsg);
-                continue;
-            }
-
-            // Guard against runaway tool rounds
-            if (toolRounds >= maxToolRounds) {
-                log.warn("Reached max tool rounds ({}) — returning current result", maxToolRounds);
-                return new ToolImplementationLoopResult(false, currentContextBranch);
-            }
-            toolRounds++;
-
-            List<ImplementationPlan.ToolRequest> requests = plan.getEffectiveToolRequests();
-            List<ToolResult> results = executeAllTools(workspaceDir, requests);
-            boolean hasValidationTools = hasValidationTools(requests);
-            boolean validationPassed = !hasValidationTools || allValidationToolsPassed(requests, results);
-
-            // Post only non-silent (validation) tool results as comments
-            for (int i = 0; i < requests.size(); i++) {
-                ImplementationPlan.ToolRequest req = requests.get(i);
-                if (!toolExecutionService.isSilentTool(req.getTool()) && !isMcpTool(req.getTool())) {
-                    notificationService.postToolResultComment(owner, repo, issueNumber, req, results.get(i));
-                }
-            }
-
-            if (hasBlockingNonValidationToolFailures(requests, results, validationPassed)) {
-                log.info("One or more non-validation tools failed on attempt {}; asking AI to correct", attempt);
-                String feedback = promptBuilder.buildMultiToolFeedback(requests, results);
-                history.add(AiMessage.builder().role("user").content(currentMessage).build());
-                history.add(AiMessage.builder().role("assistant").content(aiResponse).build());
-                currentMessage = feedback;
-                sessionService.addMessage(session, "user", feedback);
-                continue;
-            }
-
-            // Validation disabled → treat as success after first tool execution
-            if (!agentConfig.getValidation().isEnabled()) {
-                if (!workspaceHasChangesOrPrepareRetry(workspaceDir, requests, results, history, currentMessage, aiResponse, session)) {
-                    currentMessage = buildNoWorkspaceChangesFeedback(requests, results);
-                    continue;
-                }
-                return new ToolImplementationLoopResult(true, currentContextBranch);
-            }
-
-            // No validation tools present → file-only changes, consider success
-            if (!hasValidationTools) {
-                if (!workspaceHasChangesOrPrepareRetry(workspaceDir, requests, results, history, currentMessage, aiResponse, session)) {
-                    currentMessage = buildNoWorkspaceChangesFeedback(requests, results);
-                    continue;
-                }
-                return new ToolImplementationLoopResult(true, currentContextBranch);
-            }
-
-            if (validationPassed) {
-                log.info("All validation tools passed on attempt {}", attempt);
-                if (!workspaceHasChangesOrPrepareRetry(workspaceDir, requests, results, history, currentMessage, aiResponse, session)) {
-                    currentMessage = buildNoWorkspaceChangesFeedback(requests, results);
-                    continue;
-                }
-                return new ToolImplementationLoopResult(true, currentContextBranch);
-            }
-
-            // Validation failed → give feedback and let the AI retry
-            String feedback = promptBuilder.buildMultiToolFeedback(requests, results);
-            history.add(AiMessage.builder().role("user").content(currentMessage).build());
-            history.add(AiMessage.builder().role("assistant").content(aiResponse).build());
-            currentMessage = feedback;
-            sessionService.addMessage(session, "user", feedback);
-        }
-
-        log.warn("Tool implementation loop exhausted {} attempts without full success", maxRetries);
-        return new ToolImplementationLoopResult(false, currentContextBranch);
-    }
-
-    /**
-     * Returns {@code true} if {@code requests} contains at least one configured validation tool
-     * (e.g. {@code mvn}, {@code npm}).  Uses {@link ToolExecutionService#isValidationTool} which
-     * checks the configured {@code available-tools} list — not the weaker {@code !isSilentTool}.
-     */
-    private boolean hasValidationTools(List<ImplementationPlan.ToolRequest> requests) {
-        return requests.stream()
-                .anyMatch(r -> toolExecutionService.isValidationTool(r.getTool()));
-    }
-    /**
-     * Returns {@code true} if every validation tool in {@code requests} produced a successful result.
-     * When there are <em>no</em> validation tools this returns {@code true} vacuously — callers must
-     * guard with {@link #hasValidationTools} when they need to distinguish "nothing to validate" from
-     * "all validations passed".
-     */
-    private boolean allValidationToolsPassed(List<ImplementationPlan.ToolRequest> requests,
-                                              List<ToolResult> results) {
-        return IntStream.range(0, requests.size())
-                .filter(i -> toolExecutionService.isValidationTool(requests.get(i).getTool()))
-                .allMatch(i -> results.get(i).success());
-    }
-
-    private boolean hasNonValidationToolFailures(List<ImplementationPlan.ToolRequest> requests,
-                                                 List<ToolResult> results) {
-        return IntStream.range(0, requests.size())
-                .filter(i -> !toolExecutionService.isValidationTool(requests.get(i).getTool()))
-                .anyMatch(i -> !results.get(i).success());
-    }
-
-    private boolean hasBlockingNonValidationToolFailures(List<ImplementationPlan.ToolRequest> requests,
-                                                         List<ToolResult> results,
-                                                         boolean validationPassed) {
-        if (!hasNonValidationToolFailures(requests, results)) {
-            return false;
-        }
-        AgentConfigProperties.ValidationConfig.NonValidationFailurePolicy policy =
-                agentConfig.getValidation().getNonValidationFailurePolicy();
-        if (policy == AgentConfigProperties.ValidationConfig.NonValidationFailurePolicy.IGNORE_MCP_AFTER_VALIDATION_SUCCESS
-                && validationPassed
-                && hasOnlyMcpNonValidationFailures(requests, results)) {
-            log.info("Ignoring MCP non-validation tool failures because validation passed");
-            return false;
-        }
-        return true;
-    }
-
-    private boolean hasOnlyMcpNonValidationFailures(List<ImplementationPlan.ToolRequest> requests,
-                                                    List<ToolResult> results) {
-        return IntStream.range(0, requests.size())
-                .filter(i -> !toolExecutionService.isValidationTool(requests.get(i).getTool()))
-                .filter(i -> !results.get(i).success())
-                .allMatch(i -> isMcpTool(requests.get(i).getTool()));
-    }
-
-    private boolean workspaceHasChangesOrPrepareRetry(Path workspaceDir,
-                                                      List<ImplementationPlan.ToolRequest> requests,
-                                                      List<ToolResult> results,
-                                                      List<AiMessage> history,
-                                                      String currentMessage,
-                                                      String aiResponse,
-                                                      AgentSession session) {
-        if (workspaceService.hasUncommittedChanges(workspaceDir)) {
-            return true;
-        }
-        log.info("Tool execution produced no Git-detectable workspace changes; asking AI to correct");
-        String feedback = buildNoWorkspaceChangesFeedback(requests, results);
-        history.add(AiMessage.builder().role("user").content(currentMessage).build());
-        history.add(AiMessage.builder().role("assistant").content(aiResponse).build());
-        sessionService.addMessage(session, "user", feedback);
-        return false;
-    }
-
-    private String buildNoWorkspaceChangesFeedback(List<ImplementationPlan.ToolRequest> requests,
-                                                   List<ToolResult> results) {
-        return promptBuilder.buildMultiToolFeedback(requests, results)
-                + "\n\nNo file changes are currently present in the git workspace. "
-                + "Your previous file tools either failed, made no effective change, or only created empty directories. "
-                + "Inspect the files with context tools if needed, then use write-file or patch-file so Git has actual changes to commit.";
-    }
-
-    /** Execute each tool and collect results (file tools via executeFileTool, others via context/validation). */
-    private List<ToolResult> executeAllTools(Path workspaceDir,
-                                              List<ImplementationPlan.ToolRequest> requests) {
-        List<ToolResult> results = new ArrayList<>();
-        for (ImplementationPlan.ToolRequest req : requests) {
-            log.info("Executing tool: {} {}", req.getTool(),
-                    req.getArgs() != null ? String.join(" ", req.getArgs()) : "");
-            ToolResult res;
-            if (toolExecutionService.isFileTool(req.getTool())) {
-                res = toolExecutionService.executeFileTool(workspaceDir, req.getTool(), req.getArgs());
-            } else if (isMcpTool(req.getTool())) {
-                res = mcpOrchestrationService.executeTool(mcpConfiguration, mcpToolCatalog,
-                        req.getTool(), req.getArgs());
-            } else if (toolExecutionService.isContextTool(req.getTool())) {
-                res = toolExecutionService.executeContextTool(workspaceDir, req.getTool(), req.getArgs());
-            } else {
-                res = toolExecutionService.executeTool(workspaceDir, req.getTool(), req.getArgs());
-            }
-            results.add(res);
-        }
-        return results;
+        int hardCap = Math.max(budgetCfg.getMaxRounds(),
+                maxRetries + maxToolRounds + budgetCfg.getMaxContextRounds() + 2 /* slack */);
+        AgentBudget budget = new AgentBudget(hardCap, budgetCfg.getMaxContextRounds(),
+                maxRetries, budgetCfg.getMaxTokensPerCall());
+        AgentLoop loop = new AgentLoop(aiClient, sessionService, budget);
+        AgentRunContext ctx = new AgentRunContext(
+                session, owner, repo, issueNumber, workspaceDir, initialContextBranch);
+        LoopOutcome outcome = loop.run(ctx, userMessage, strategy);
+        return new ToolImplementationLoopResult(outcome.success(), outcome.selectedBranch());
     }
 
     /**
@@ -626,17 +449,6 @@ public class IssueImplementationService {
 
     // ---- helpers ---------------------------------------------------------
 
-    private String buildToolsInfo() {
-        List<String> availableTools = toolExecutionService.getAvailableTools();
-        return "\n\n**Available file tools** (all silent — results go back to you only): "
-                + String.join(", ", toolExecutionService.getAvailableFileTools())
-                + "\n**Available context tools** (silent): "
-                + String.join(", ", toolExecutionService.getAvailableContextTools())
-                + "\n**Available validation tools** (results posted as comments): "
-                + String.join(", ", availableTools)
-                + mcpToolPromptRenderer.render(mcpToolCatalog);
-    }
-
     private String fetchIssueCommentsContext(String owner, String repo, Long issueNumber) {
         try {
             List<Map<String, Object>> issueComments = repositoryClient.getIssueComments(owner, repo, issueNumber);
@@ -694,13 +506,30 @@ public class IssueImplementationService {
     }
 
     private String resolveAgentSystemPrompt() {
+        // Drive the prompt mode purely off the configured client (i.e. the operator's
+        // `use_legacy_tool_calling` toggle). The coding strategy advertises native
+        // function-calling whenever the client supports it, so the prompt and the
+        // transport stay in sync without a separate static hint.
+        ToolingMode mode = (aiClient != null && aiClient.supportsNativeTools())
+                ? ToolingMode.NATIVE : ToolingMode.LEGACY;
+        return resolveAgentSystemPrompt(mode);
+    }
+
+    /**
+     * Variant used by Step 1 (one-shot file-context request) which always wants the
+     * JSON-protocol guidance regardless of whether the implementation loop later runs
+     * in native mode.
+     */
+    private String resolveAgentSystemPrompt(ToolingMode mode) {
         String basePrompt;
         if (issueAgentSystemPrompt != null && !issueAgentSystemPrompt.isBlank()) {
             basePrompt = issueAgentSystemPrompt;
         } else {
             basePrompt = promptService.getSystemPrompt(AGENT_PROMPT_NAME);
         }
-        return basePrompt + mcpToolPromptRenderer.render(mcpToolCatalog);
+        return systemPromptAssembler.assemble(basePrompt, toolCatalog, allowedBuiltinTools,
+                mcpToolCatalog, mode,
+                org.remus.giteabot.agent.shared.SystemPromptAssembler.PromptKind.ISSUE_AGENT);
     }
 
     /**
@@ -727,49 +556,6 @@ public class IssueImplementationService {
         return sb.isEmpty() ? "No additional repository context could be retrieved." : sb.toString();
     }
 
-    private BranchSwitchResult applyRequestedBranchSwitch(Path workspaceDir,
-                                                          String baseBranch,
-                                                          List<ImplementationPlan.ToolRequest> toolRequests,
-                                                          Long issueNumber) {
-        if (toolRequests == null || toolRequests.isEmpty()) {
-            return new BranchSwitchResult(baseBranch, baseBranch, List.of());
-        }
-
-        String selectedBranch = baseBranch;
-        boolean switched = false;
-        List<ImplementationPlan.ToolRequest> remaining = new ArrayList<>();
-
-        for (ImplementationPlan.ToolRequest toolRequest : toolRequests) {
-            if (toolRequest == null || toolRequest.getTool() == null || toolRequest.getTool().isBlank()) {
-                continue;
-            }
-
-            if ("branch-switcher".equalsIgnoreCase(toolRequest.getTool()) && !switched) {
-                ToolResult result = toolExecutionService.executeContextTool(
-                        workspaceDir, "branch-switcher", toolRequest.getArgs());
-                String switchedBranch = extractSwitchedBranch(result);
-                if (switchedBranch != null && !switchedBranch.isBlank()) {
-                    selectedBranch = switchedBranch;
-                    switched = true;
-                    log.info("Switched workspace/context branch to '{}' for issue #{}",
-                            selectedBranch, issueNumber);
-                } else {
-                    log.warn("Branch switch request failed for issue #{}: {}",
-                            issueNumber, describeToolFailure(result));
-                }
-                continue;
-            }
-
-            if ("branch-switcher".equalsIgnoreCase(toolRequest.getTool())) {
-                log.info("Ignoring additional branch-switcher request for issue #{}", issueNumber);
-                continue;
-            }
-
-            remaining.add(toolRequest);
-        }
-
-        return new BranchSwitchResult(baseBranch, selectedBranch, remaining);
-    }
 
     private String executeRequestedContextTools(Path workspaceDir,
                                                 List<ImplementationPlan.ToolRequest> toolRequests) {
@@ -782,9 +568,9 @@ public class IssueImplementationService {
             if (toolRequest == null || toolRequest.getTool() == null || toolRequest.getTool().isBlank()) {
                 continue;
             }
-            if (toolCount >= MAX_CONTEXT_TOOL_REQUESTS) {
+            if (toolCount >= agentConfig.getBudget().getMaxContextToolRequestsPerRound()) {
                 sb.append("\nAdditional tool requests were skipped after reaching the per-round limit of ")
-                        .append(MAX_CONTEXT_TOOL_REQUESTS).append(".\n");
+                        .append(agentConfig.getBudget().getMaxContextToolRequestsPerRound()).append(".\n");
                 break;
             }
             toolCount++;
@@ -801,7 +587,7 @@ public class IssueImplementationService {
                 String output = result.output();
                 sb.append(output == null || output.isBlank() ? "(no output)" : output).append("\n\n");
             } else {
-                sb.append("Failed: ").append(describeToolFailure(result))
+                sb.append("Failed: ").append(ToolFailures.describe(result))
                         .append("\n\n");
             }
         }
@@ -838,79 +624,59 @@ public class IssueImplementationService {
      * Normalizes a branch reference by removing the "refs/heads/" prefix if present.
      */
     private String normalizeBranchRef(String ref) {
-        if (ref == null || ref.isBlank()) {
-            return null;
-        }
-        if (ref.startsWith("refs/heads/")) {
-            return ref.substring("refs/heads/".length());
-        }
-        if (ref.startsWith("refs/tags/")) {
-            return ref.substring("refs/tags/".length());
-        }
-        return ref;
-    }
-
-    private String extractSwitchedBranch(ToolResult result) {
-        if (result == null || !result.success()) {
-            return null;
-        }
-        String output = result.output();
-        if (output == null || output.isBlank()) {
-            return null;
-        }
-        String prefix = "Switched workspace branch to:";
-        int idx = output.indexOf(prefix);
-        if (idx < 0) {
-            return null;
-        }
-        String branch = output.substring(idx + prefix.length()).trim();
-        return normalizeBranchRef(branch);
-    }
-
-    private String describeToolFailure(ToolResult result) {
-        if (result == null) {
-            return "unknown tool failure";
-        }
-        String error = result.error();
-        if (error != null && !error.isBlank()) {
-            return error;
-        }
-        String output = result.output();
-        if (output != null && !output.isBlank()) {
-            return output;
-        }
-        return "tool returned no details";
+        return BranchRefs.normalize(ref);
     }
 
     private boolean isMcpTool(String toolName) {
-        return mcpOrchestrationService != null && mcpOrchestrationService.isMcpTool(mcpToolCatalog, toolName);
+        return McpTools.isMcpTool(mcpOrchestrationService, mcpToolCatalog, toolName);
     }
 
-    /**
-     * Result of processing an optional branch-switch request from AI context tools.
-     *
-     * @param initialBranch        branch used before evaluating branch-switcher requests
-     * @param selectedBranch       final selected base branch after evaluating branch-switcher
-     * @param remainingToolRequests non-branch-switcher tool requests that should still be executed
-     */
-    private record BranchSwitchResult(String initialBranch,
-                                      String selectedBranch,
-                                      List<ImplementationPlan.ToolRequest> remainingToolRequests) {
-    }
 
     /** Result of the implementation loop including the final branch used for context lookups. */
     private record ToolImplementationLoopResult(boolean success, String selectedBranch) {
     }
 
-    /** Retrieves the last parsed plan from the session history (the latest assistant JSON response). */
+    /**
+     * Step 7.1 — retrieves the most recently parsed implementation plan from
+     * the session row in O(1). Falls back to the legacy history-walk for old
+     * sessions persisted before V11 (no {@code last_plan_json} populated) or
+     * when the session itself is {@code null} (test scaffolding).
+     */
     private ImplementationPlan getLastPlanFromSession(AgentSession session) {
+        if (session == null) {
+            return null;
+        }
+        String rawJson = session.getLastPlanJson();
+        if (rawJson != null && !rawJson.isBlank()) {
+            ImplementationPlan p = responseParser.parseAiResponse(rawJson);
+            if (p != null) {
+                return p;
+            }
+        }
+        // Fallback for legacy sessions without persisted plan.
         List<AiMessage> messages = sessionService.toAiMessages(session);
+        if (messages == null) {
+            return null;
+        }
         for (int i = messages.size() - 1; i >= 0; i--) {
-            if ("assistant".equals(messages.get(i).getRole())) {
-                ImplementationPlan p = responseParser.parseAiResponse(messages.get(i).getContent());
-                if (p != null) {
-                    return p;
-                }
+            AiMessage msg = messages.get(i);
+            if (!"assistant".equals(msg.getRole())) {
+                continue;
+            }
+            String content = msg.getContent();
+            // Skip messages that obviously cannot contain a JSON plan. In native
+            // tool-calling mode most assistant turns are plain reasoning text or
+            // pure tool_call envelopes — running the parser on them would only
+            // log "Could not extract JSON" warnings without ever returning a plan.
+            if (content == null || content.isBlank()) {
+                continue;
+            }
+            if (!content.contains("{")) {
+                continue;
+            }
+            ImplementationPlan p = responseParser.parseAiResponse(content);
+            if (p != null) {
+                return p;
             }
         }
         return null;

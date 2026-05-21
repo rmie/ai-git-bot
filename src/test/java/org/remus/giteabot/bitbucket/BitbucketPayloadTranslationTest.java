@@ -120,7 +120,7 @@ class BitbucketPayloadTranslationTest {
     }
 
     @Test
-    void translateRealBitbucketPayload_mapsAllFields() throws Exception {
+    void translateRealBitbucketPayload_mapsAllFields() {
         // Real Bitbucket Cloud payload from a pullrequest:created event
         String json = """
             {
@@ -192,7 +192,6 @@ class BitbucketPayloadTranslationTest {
 
     // ---- Helper methods ----
 
-    @SuppressWarnings("unchecked")
     private Map<String, Object> createPullRequestPayload() {
         Map<String, Object> source = new HashMap<>();
         source.put("branch", Map.of("name", "feature-branch"));

@@ -63,7 +63,8 @@ public class OpenAiProviderMetadata implements AiProviderMetadata {
                 integration.getMaxTokens(),
                 integration.getMaxDiffCharsPerChunk(),
                 integration.getMaxDiffChunks(),
-                integration.getRetryTruncatedChunkChars()
+                integration.getRetryTruncatedChunkChars(),
+                !integration.isUseLegacyToolCalling()
         );
     }
 }

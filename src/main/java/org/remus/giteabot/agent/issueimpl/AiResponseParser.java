@@ -6,6 +6,10 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.remus.giteabot.agent.model.ImplementationPlan;
+import org.remus.giteabot.agent.shared.AgentJackson;
+import org.remus.giteabot.agent.shared.AgentSchema;
+import org.remus.giteabot.agent.shared.AgentSchemaValidator;
+import org.remus.giteabot.agent.shared.AgentSchemaValidatorHolder;
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.ObjectMapper;
 
@@ -31,7 +35,7 @@ public class AiResponseParser {
     private static final Pattern JSON_BLOCK_UNCLOSED_PATTERN = Pattern.compile("```json\\s*\\n(\\{.*)", Pattern.DOTALL);
     private static final Pattern JSON_OBJECT_PATTERN = Pattern.compile("(\\{\\s*\"summary\"\\s*:.*)", Pattern.DOTALL);
 
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final ObjectMapper objectMapper = AgentJackson.mapper();
 
     /**
      * Parses a full AI response string into an {@link ImplementationPlan}.
@@ -47,7 +51,12 @@ public class AiResponseParser {
 
         String jsonStr = extractJsonFromResponse(aiResponse);
         if (jsonStr == null) {
-            log.warn("Could not extract JSON from AI response");
+            // Native tool-calling mode legitimately produces many assistant
+            // responses without any embedded JSON plan (the structured intent
+            // lives in tool_calls instead). Logging at WARN spammed the log;
+            // keep it at DEBUG so legacy diagnostics are still available when
+            // operators explicitly enable debug for this class.
+            log.debug("Could not extract JSON from AI response");
             return null;
         }
 
@@ -59,6 +68,13 @@ public class AiResponseParser {
 
         // Fix invalid JSON escape sequences (e.g. \<space> instead of \n)
         jsonStr = sanitizeInvalidJsonEscapes(jsonStr);
+
+        // Step 5: Validate against JSON-Schema (observe-only by default).
+        // In enforce mode the parser bails out so that the loop falls back to
+        // the existing "no plan returned" handling.
+        if (!validateAgainstSchema(jsonStr)) {
+            return null;
+        }
 
         try {
             AiImplementationResponse response = objectMapper.readValue(jsonStr, AiImplementationResponse.class);
@@ -429,6 +445,29 @@ public class AiResponseParser {
         }
 
         return lastComplete;
+    }
+
+    /**
+     * Validates the extracted JSON against the coding-agent schema. The
+     * validator runs observe-only by default (see
+     * {@code agent.schema.enforce}); this method only returns {@code false}
+     * when the validator is configured to enforce and validation failed.
+     */
+    private boolean validateAgainstSchema(String jsonStr) {
+        AgentSchemaValidator validator = AgentSchemaValidatorHolder.get();
+        if (validator == null) {
+            return true;
+        }
+        var violations = validator.validate(jsonStr, AgentSchema.CODING_PLAN);
+        if (violations.isEmpty()) {
+            return true;
+        }
+        if (validator.isEnforce()) {
+            log.warn("Rejecting coding plan: {} schema violation(s) and enforce mode active",
+                    violations.get().size());
+            return false;
+        }
+        return true;
     }
 
     private List<String> normalizeArgs(Object rawArgs) {

@@ -1,0 +1,10 @@
+{
+  "summary": "Need more context before implementing",
+  "requestFiles": [
+    "src/main/java/org/remus/giteabot/agent/IssueImplementationService.java",
+    "src/main/java/org/remus/giteabot/agent/writerimpl/WriterAgentService.java"
+  ],
+  "requestTools": [
+    { "id": "ctx-1", "tool": "rg", "args": ["AgentLoop", "src", "-n"] }
+  ]
+}

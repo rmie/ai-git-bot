@@ -118,4 +118,16 @@ class GoogleAiClientTest {
     private GoogleAiClient createClient() {
         return new GoogleAiClient(RestClient.builder().build(), "gemini-2.5-flash", 1024, 10, 2, 6);
     }
+
+    @Test
+    void supportsNativeTools_defaultsToTrue() {
+        assertTrue(createClient().supportsNativeTools());
+    }
+
+    @Test
+    void supportsNativeTools_canBeDisabled() {
+        GoogleAiClient client = new GoogleAiClient(RestClient.builder().build(),
+                "gemini-2.5-flash", 1024, 10, 2, 6, false);
+        assertFalse(client.supportsNativeTools());
+    }
 }

@@ -45,6 +45,40 @@ public class AiIntegration {
     @Column(nullable = false)
     private int retryTruncatedChunkChars = 60000;
 
+    /**
+     * If {@code true} (the current default), the agent loop uses the
+     * battle-tested JSON-in-prompt tool-calling path (the historical
+     * behaviour). If {@code false}, tool descriptors are sent natively via
+     * the provider's {@code tools}/{@code tool_use}/{@code tool_calls} API
+     * and the model's structured calls are dispatched directly.
+     *
+     * <p>Native function calling is currently considered <strong>experimental</strong>:
+     * it works well with frontier models but is sensitive to provider API
+     * changes and to weaker / smaller models that misuse tools. Operators
+     * who want to opt in flip the inverse {@code enableNativeToolCalling}
+     * switch in the admin UI (see the transient accessors below). New
+     * integrations default to legacy mode; native mode is expected to
+     * become the default once the upstream APIs stabilise further.
+     */
+    @Column(name = "use_legacy_tool_calling", nullable = false)
+    private boolean useLegacyToolCalling = true;
+
+    /**
+     * UI-facing inverse of {@link #useLegacyToolCalling}. The admin form
+     * binds to this property so the checkbox semantics read positively
+     * ("enable experimental native tool calling") while the persisted
+     * column keeps the original {@code use_legacy_tool_calling} meaning.
+     * Not a JPA column.
+     */
+    @Transient
+    public boolean isEnableNativeToolCalling() {
+        return !useLegacyToolCalling;
+    }
+
+    public void setEnableNativeToolCalling(boolean enableNativeToolCalling) {
+        this.useLegacyToolCalling = !enableNativeToolCalling;
+    }
+
     @Column(nullable = false, updatable = false)
     private Instant createdAt;
 

@@ -1,6 +1,13 @@
 package org.remus.giteabot.admin;
 
 import lombok.extern.slf4j.Slf4j;
+import org.remus.giteabot.prworkflow.config.DeploymentTarget;
+import org.remus.giteabot.prworkflow.config.DeploymentTargetService;
+import org.remus.giteabot.prworkflow.config.WorkflowConfiguration;
+import org.remus.giteabot.prworkflow.config.WorkflowConfigurationService;
+import org.remus.giteabot.systemsettings.BotToolConfiguration;
+import org.remus.giteabot.systemsettings.BotToolConfigurationService;
+import org.remus.giteabot.systemsettings.BotToolSelectionService;
 import org.remus.giteabot.systemsettings.McpConfiguration;
 import org.remus.giteabot.systemsettings.McpConfigurationService;
 import org.remus.giteabot.systemsettings.McpToolSelectionService;
@@ -9,7 +16,13 @@ import org.remus.giteabot.systemsettings.SystemPromptService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.ModelAttribute;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.ResponseBody;
 import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 
 import java.util.List;
@@ -26,19 +39,31 @@ public class BotController {
     private final SystemPromptService systemPromptService;
     private final McpConfigurationService mcpConfigurationService;
     private final McpToolSelectionService mcpToolSelectionService;
+    private final BotToolConfigurationService botToolConfigurationService;
+    private final BotToolSelectionService botToolSelectionService;
+    private final WorkflowConfigurationService workflowConfigurationService;
+    private final DeploymentTargetService deploymentTargetService;
 
     public BotController(BotService botService,
                          AiIntegrationService aiIntegrationService,
                          GitIntegrationService gitIntegrationService,
                          SystemPromptService systemPromptService,
                          McpConfigurationService mcpConfigurationService,
-                         McpToolSelectionService mcpToolSelectionService) {
+                         McpToolSelectionService mcpToolSelectionService,
+                         BotToolConfigurationService botToolConfigurationService,
+                         BotToolSelectionService botToolSelectionService,
+                         WorkflowConfigurationService workflowConfigurationService,
+                         DeploymentTargetService deploymentTargetService) {
         this.botService = botService;
         this.aiIntegrationService = aiIntegrationService;
         this.gitIntegrationService = gitIntegrationService;
         this.systemPromptService = systemPromptService;
         this.mcpConfigurationService = mcpConfigurationService;
         this.mcpToolSelectionService = mcpToolSelectionService;
+        this.botToolConfigurationService = botToolConfigurationService;
+        this.botToolSelectionService = botToolSelectionService;
+        this.workflowConfigurationService = workflowConfigurationService;
+        this.deploymentTargetService = deploymentTargetService;
     }
 
     @GetMapping
@@ -53,6 +78,8 @@ public class BotController {
     public String newForm(Model model) {
         Bot bot = new Bot();
         systemPromptService.findDefault().ifPresent(bot::setSystemPrompt);
+        botToolConfigurationService.findDefault().ifPresent(bot::setToolConfiguration);
+        workflowConfigurationService.findDefault().ifPresent(bot::setWorkflowConfiguration);
         model.addAttribute("bot", bot);
         addFormAttributes(model);
         return "bots/form";
@@ -78,6 +105,9 @@ public class BotController {
                         @RequestParam Long gitIntegrationId,
                         @RequestParam Long systemPromptId,
                         @RequestParam(required = false) Long mcpConfigurationId,
+                        @RequestParam Long toolConfigurationId,
+                        @RequestParam(required = false) Long workflowConfigurationId,
+                        @RequestParam(required = false) Long deploymentTargetId,
                         Model model,
                         RedirectAttributes redirectAttributes) {
         try {
@@ -92,11 +122,28 @@ public class BotController {
                 mcpConfiguration = mcpConfigurationService.findById(mcpConfigurationId)
                         .orElseThrow(() -> new IllegalArgumentException("MCP configuration not found"));
             }
+            BotToolConfiguration toolConfiguration = botToolConfigurationService.findById(toolConfigurationId)
+                    .orElseThrow(() -> new IllegalArgumentException("Tool configuration not found"));
+            WorkflowConfiguration workflowConfiguration;
+            if (workflowConfigurationId != null) {
+                workflowConfiguration = workflowConfigurationService.findById(workflowConfigurationId)
+                        .orElseThrow(() -> new IllegalArgumentException("Workflow configuration not found"));
+            } else {
+                workflowConfiguration = workflowConfigurationService.findDefault().orElse(null);
+            }
 
             bot.setAiIntegration(aiIntegration);
             bot.setGitIntegration(gitIntegration);
             bot.setSystemPrompt(systemPrompt);
             bot.setMcpConfiguration(mcpConfiguration);
+            bot.setToolConfiguration(toolConfiguration);
+            bot.setWorkflowConfiguration(workflowConfiguration);
+            DeploymentTarget deploymentTarget = null;
+            if (deploymentTargetId != null) {
+                deploymentTarget = deploymentTargetService.findById(deploymentTargetId)
+                        .orElseThrow(() -> new IllegalArgumentException("Deployment target not found"));
+            }
+            bot.setDeploymentTarget(deploymentTarget);
             botService.save(bot);
             redirectAttributes.addFlashAttribute("success", "Bot saved successfully");
         } catch (Exception e) {
@@ -114,6 +161,9 @@ public class BotController {
         model.addAttribute("gitIntegrations", gitIntegrationService.findAll());
         model.addAttribute("systemPrompts", systemPrompts);
         model.addAttribute("mcpConfigurations", mcpConfigurationService.findAll());
+        model.addAttribute("toolConfigurations", botToolConfigurationService.findAll());
+        model.addAttribute("workflowConfigurations", workflowConfigurationService.findAll());
+        model.addAttribute("deploymentTargets", deploymentTargetService.findAll());
         model.addAttribute("botTypes", BotType.values());
         model.addAttribute("activeNav", "bots");
     }
@@ -142,6 +192,21 @@ public class BotController {
                         "serverName", tool.serverName(),
                         "toolName", tool.toolName(),
                         "title", tool.title() == null ? "" : tool.title(),
+                        "description", tool.description() == null ? "" : tool.description()))
+                .toList();
+        return ResponseEntity.ok(rows);
+    }
+
+    @GetMapping("/bot-tools/{id}/selected-tools")
+    @ResponseBody
+    public ResponseEntity<List<Map<String, String>>> selectedBuiltinTools(@PathVariable Long id) {
+        if (botToolConfigurationService.findById(id).isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
+        List<Map<String, String>> rows = botToolSelectionService.loadSelectedTools(id).stream()
+                .map(tool -> Map.of(
+                        "toolName", tool.toolName(),
+                        "toolKind", tool.toolKind(),
                         "description", tool.description() == null ? "" : tool.description()))
                 .toList();
         return ResponseEntity.ok(rows);

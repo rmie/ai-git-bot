@@ -6,156 +6,130 @@
 [![GitHub stars](https://img.shields.io/github/stars/tmseidel/ai-git-bot)](https://github.com/tmseidel/ai-git-bot/stargazers)
 [![GitHub issues](https://img.shields.io/github/issues/tmseidel/ai-git-bot)](https://github.com/tmseidel/ai-git-bot/issues)
 
-> **Your intelligent gateway between Git and AI — Half Bot, half Agent.** 🤖🧠
+> **Automate the necessary-but-uncomfortable parts of software development — directly inside the Git tools your team already uses.**
 
-AI-Git-Bot is a lightweight, self-hostable **gateway application** that connects your Git platforms with AI providers. As a central hub it receives webhooks from **Gitea, GitHub, GitHub Enterprise, GitLab, and Bitbucket Cloud**, routes them to configurable AI providers, and writes the results back as code reviews, technical-writing issue drafts, comments, or even entire pull requests — fully automated.
+Every team has a list of *"we know we should be doing this"* engineering chores. Writing a properly scoped issue *before* coding starts. Adding a regression E2E test for that login bug. Re-reviewing a PR after the third force-push. Tearing down a stale preview environment. These chores are **necessary** (skipping them rots the codebase) but **uncomfortable** (they aren't the fun part, and they get cut first under deadline pressure).
+
+**AI-Git-Bot turns those chores into repeatable, automated workflows** that live natively inside **Gitea, GitHub, GitHub Enterprise, GitLab, and Bitbucket Cloud** — triggered by the events your team is *already* producing (issue assigned, PR opened, reviewer re-requested, `@bot` mentioned in a comment).
+
+> ## 📣 New here? **Read the pitch first.**
+>
+> If you want to know **why this project exists, what it does for your team, and how it compares to Copilot Workspace / GitLab Duo / Qodo / Aider**, start with the pitch — it's the fastest way to decide whether AI-Git-Bot is for you.
+>
+> 👉 **[doc/pitch/PITCH.md](doc/pitch/PITCH.md)** — the long-form pitch (~10 min read)
+
 
 <p align="center">
   <img src="doc/images/ai-git-bot-diagram.svg" alt="AI-Git-Bot Architecture Schema" width="800"/>
 </p>
 
-## 🔎 Discovery, keywords, and LLM entry points
+## 🩹 The pain points it removes
 
-AI-Git-Bot is designed for **AI code review**, **self-hosted Git automation**, **coding-agent workflows**, and **technical-writing issue refinement** across **Gitea**, **GitHub**, **GitHub Enterprise**, **GitLab**, and **Bitbucket Cloud**.
+| The uncomfortable chore | What usually happens | What AI-Git-Bot does |
+|---|---|---|
+| 🧾 **Writing a good issue** before any code is written | Vague bug reports get queued and re-clarified in chat days later. Acceptance criteria are missing. | Assign a **writer bot** to the issue → it inspects related issues + the repo (read-only), asks the *minimum* clarifying questions, and produces a structured `AI Created Issue: …` with acceptance criteria. |
+| 🔍 **Reviewing PRs consistently** even when the reviewer is swamped | Reviews are skimmed, regressions slip in, the same comments keep getting written by hand. | A **review bot** runs the same review every time the bot is requested as reviewer — large diffs are chunked, comments land inline, and `@bot` mentions keep the discussion in the PR. |
+| 🧪 **Writing regression E2E tests** for the bug you just fixed | "We'll add a test later" — and we never do. Manual QA is repeated for every PR. | Assign a deployment target + the `Full-stack QA` workflow → the bot **plans, authors, deploys, and runs** Playwright tests per PR, posts the report as a PR comment, and tears the environment down on close. |
+| 🛠️ **Implementing the boring follow-up issues** (rename, dependency bump, small refactor) | They pile up; senior engineers don't want them; juniors get blocked on them. | Assign an issue to a **coding bot** — it reads the source, drafts the change in a workspace, validates with the project's own build tooling (Maven / Gradle / npm / Go / Cargo / .NET), and opens a PR. |
+| 🔁 **Re-running tests / regenerating coverage** when something flaked | Engineer manually re-runs locally, copies the report, pastes a screenshot. | `@bot rerun-tests` re-executes the existing suite; `@bot regenerate-tests <feedback>` re-plans the suite with operator hints. |
+| 🧹 **Tearing down stale preview environments** | Forgotten PR previews accumulate, burn cluster budget, leak data. | PR-close lifecycle hook calls the deployment target's `teardown` action — webhook, MCP tool, static no-op, or a CI workflow dispatch (the `CI_ACTION` strategy). |
 
-Useful search and classification terms: `ai code review`, `code review bot`, `coding agent`, `issue implementation agent`, `technical writer agent`, `AI issue triage`, `self-hosted AI`, `Git automation`, `Gitea bot`, `GitHub bot`, `GitLab bot`, `Bitbucket bot`, `Anthropic Claude`, `OpenAI`, `Google Gemini`, `Ollama`, `llama.cpp`, `local LLM`, `MCP`, `Model Context Protocol`, `Spring Boot`, `Java 21`, `Docker`, `PostgreSQL`.
-
-LLM and agent indexes should start with [`llms.txt`](llms.txt) for a compact project map or [`llms-full.txt`](llms-full.txt) for an expanded single-file reference.
-
-## 🎯 Who is AI-Git-Bot for?
-
-| Audience | Benefit |
-|----------|---------|
-| 🧑‍💻 **Developers who want a personalized code AI** | Configure your own AI with custom system prompts — for code reviews that match your tech stack and coding standards. |
-| 🔄 **Teams with multiple projects & Git systems** | Define an AI configuration once and reuse it across any number of repositories, projects, and Git platforms — through a single gateway. |
-| 👥 **Multi-pass reviews with different personas** | Create multiple bots with different prompts: a security reviewer, a performance expert, a junior mentor — all on the same PR. |
-| 🧾 **Product owners, maintainers, and triagers** | Use writer bots to turn vague issue reports into actionable, testable implementation-ready issues without leaving the Git platform. |
-| 🧠 **Teams that need better issue quality before coding starts** | Let a technical-writer agent check completeness, contradictions, assumptions, and acceptance criteria before engineering work begins. |
-| 🔒 **Self-hosters with compliance requirements** | Run everything on-premise with local LLMs (Ollama, llama.cpp). No code leaves your infrastructure — ideal for regulatory and compliance needs. |
-| ⚡ **Lightweight AI implementation** | A single Docker image, one PostgreSQL database — done. No complex infrastructure, no Kubernetes clusters required. |
-
-## 🤖🧠 Half Bot, Half Agent
-
-AI-Git-Bot unites two worlds:
-
-- **As a Bot** it reacts when it is requested as reviewer, answers questions in comments, and delivers context-aware inline reviews — like a reliable code-review partner that never sleeps.
-- **As an Agent** it autonomously takes on entire issues in two ways: a **coding agent** implements the change and opens a pull request, while a **writer agent** improves vague issues into structured, implementation-ready follow-up issues.
-
-> More than a bot. More than an agent. **The intelligent gateway for your entire code review and implementation workflow.**
+> **Pick the chore that hurts most this quarter. Wire one bot. Done. The other workflows are opt-in per bot — nothing changes for repos you don't touch.**
 
 <p align="center">
   <img src="doc/images/dashboard_ai_git_bot.PNG" alt="AI-Git-Bot Dashboard" width="800"/>
 </p>
 
-## 🌉 The Gateway Principle
+## 🧰 The core workflows
 
-AI-Git-Bot acts as a **central gateway** between your Git systems and AI providers:
+Each workflow is a **first-class, named PR workflow** you can enable per bot via the admin UI. They all run through the same orchestrator (`PrWorkflowOrchestrator`) so they share session memory, audit logs, slash-command dispatch, and tool whitelisting.
 
-```mermaid
-graph LR
-    subgraph Git Platforms
-        Gitea
-        GitHub
-        GitLab
-        Bitbucket
-    end
-
-    subgraph AI Providers
-        Anthropic
-        OpenAI
-        GoogleAI[Google AI / Gemini]
-        Ollama
-        llama.cpp
-    end
-
-    Gateway["🌉 AI-Git-Bot\n(Gateway)"]
-    DB["🗄️ PostgreSQL\n(Config & Sessions)"]
-    MCPServers["🔌 Remote MCP Servers"]
-    MCPConfig["🧰 MCP Config +\nTool Whitelist"]
-
-    Gitea <--> Gateway
-    GitHub <--> Gateway
-    GitLab <--> Gateway
-    Bitbucket <--> Gateway
-    Gateway <--> Anthropic
-    Gateway <--> OpenAI
-    Gateway <--> GoogleAI
-    Gateway <--> Ollama
-    Gateway <--> llama.cpp
-    Gateway <--> MCPServers
-    MCPConfig --> Gateway
-    MCPConfig --> DB
-    Gateway --> DB
-```
-
-**Benefits of the gateway approach:**
-
-- 🔗 **One configuration, many repositories** — Set up once, use everywhere
-- 🔀 **Mix & match** — Combine different AI providers with different Git platforms
-- 🛡️ **Centralized control** — Manage API keys, tokens, and prompts in one place
-- 📊 **Unified monitoring** — Dashboard with statistics across all bots
-- 🔐 **Encrypted secrets** — API keys and tokens are stored with AES-256-GCM encryption
-
-## Features
-
-### ✅ Why teams use it
-
-| Capability | What it does | Practical benefit |
+| Workflow | Triggered by | What it produces |
 |---|---|---|
-| **Reviewer-triggered PR reviews** | Reviews pull requests when the bot is assigned or re-requested as reviewer | Keeps AI feedback intentional and avoids review noise on every push |
-| **Interactive PR conversations** | Answers `@bot` questions in PR and inline review comments with session history | Lets teams ask follow-up questions without leaving the review thread |
-| **Coding agent** | Implements assigned issues in a workspace, validates changes, and opens a PR | Turns implementation-ready issues into reviewable pull requests faster |
-| **Writer agent** | Rewrites vague issues into clearer, testable follow-up issues | Improves issue quality before engineering time is spent on the wrong problem |
-| **Reusable system prompts** | Separates review, coding-agent, and writer-agent prompts into named entries | Makes personas and standards reusable across many bots and repositories |
-| **Gateway architecture** | Connects any supported Git platform with any supported AI provider | Centralizes setup, credentials, governance, and monitoring in one place |
+| **Review** | PR opened with bot as reviewer, or bot re-requested | Inline + summary review comments, chunked for large diffs  |
+| **Issue → Code (coding agent)** | Issue assigned to a *coding* bot | A pull request implementing the change  |
+| **Issue → Better Issue (writer agent)** | Issue assigned to a *writer* bot | A structured `AI Created Issue` with acceptance criteria  |
+| **Interactive Q&A** | `@bot` mention in any PR or inline review comment | Threaded reply with file/diff context  |
+| **Full-stack QA (E2E tests)** | PR opened on a bot with an `e2e-test` workflow + deployment target | Generated Playwright suite, run report posted to PR, environment torn down on PR close  |
+| **Suite promotion** | Operator opts in per suite | A follow-up PR that "graduates" a generated suite into the repo ([see user story](doc/agentic-workflows/SUITE_PROMOTION_USER_STORY.md)) |
 
-### 🔍 Reviewer-Triggered PR Code Reviews
+> See the [PR Workflows guide](doc/PR_WORKFLOWS.md) and [Agent documentation](doc/AGENT.md) for the operator-facing details.
 
-When a pull request is opened **with the bot already assigned as reviewer**, or the bot is later **added/re-requested as reviewer**, the bot reviews the diff and posts feedback as a review comment. Large diffs are intelligently split into chunks with automatic retry on token limits.
+> 🎥 **Watch the PR workflows in action:** [AI-Git-Bot — PR workflow walkthrough on YouTube](https://www.youtube.com/watch?v=MjFmZHGIO-w)
+>
+> [![Watch the PR workflow walkthrough](https://img.youtube.com/vi/MjFmZHGIO-w/hqdefault.jpg)](https://www.youtube.com/watch?v=MjFmZHGIO-w)
 
-**Benefit:** teams stay in control of when AI review runs, while still getting deep review coverage on demand.
+> ## 🧪 Project maturity & tested provider matrix
+>
+> AI-Git-Bot is a single-maintainer side project. I cannot realistically run
+> the full feature set against every Git host × every AI provider combination,
+> so most provider-specific code is built **from the official API
+> documentation and reviewed by AI**, then validated end-to-end only on the
+> stack I actually run in production.
+>
+> | Provider | Maturity |
+> |---|---|
+> | **Gitea** | ✅ **Well-tested** — primary target, exercised end-to-end (incl. webhooks, PR review, coding agent, writer agent, E2E full-stack QA) on every release. |
+> | **GitHub / GitHub Enterprise** | ⚠️ Experimental — implemented from the REST/Webhook docs; basic flows have been smoke-tested but not exercised at scale. |
+> | **GitLab** | ⚠️ Experimental — same caveat as GitHub. |
+> | **Bitbucket Cloud** | ⚠️ Experimental — same caveat. |
+>
+> The **Full-stack QA / E2E PR review workflow** is the most complex
+> moving part (deployment targets, generated test suites, callbacks,
+> teardown lifecycle) and should be considered **experimental on every
+> provider including Gitea** — runtime semantics differ subtly between
+> hosts and not every combination has been exercised.
+>
+> 🐛 **Bug reports are very welcome** — please open a
+> [GitHub issue](https://github.com/tmseidel/ai-git-bot/issues) with the
+> provider, version, workflow, and the relevant log excerpt; that is the
+> fastest path to fixing the rough edges across the matrix.
+>
+> 🧰 **Reproducible system-test containers** — to keep the rough edges
+> findable, every non-trivial workflow ships with a self-contained
+> `docker-compose` stack under [`systemtest/`](systemtest/) plus a recipe
+> README. Bring up the bot + a real Git host + sample apps + (where
+> applicable) a local LLM and exercise the workflow end-to-end without
+> touching any production system:
+>
+> | Stack | Compose file | Recipe |
+> |---|---|---|
+> | Local **Gitea** + runner + bot | [`docker-compose-local-gitea.yml`](systemtest/docker-compose-local-gitea.yml) | [`systemtest/README.md`](systemtest/README.md) |
+> | Local **GitLab** + bot | [`docker-compose-local-gitlab.yml`](systemtest/docker-compose-local-gitlab.yml) | [`systemtest/README.md`](systemtest/README.md) |
+> | E2E sample app for Full-stack QA | [`docker-compose-e2e-sample.yml`](systemtest/docker-compose-e2e-sample.yml) | [`systemtest/README.md`](systemtest/README.md) |
+> | `CI_ACTION` deployment strategy | [`docker-compose-ci-action.yml`](systemtest/docker-compose-ci-action.yml) | [`systemtest/README-ci-action.md`](systemtest/README-ci-action.md) |
+> | `MCP` deployment strategy | [`docker-compose-mcp-deployment.yml`](systemtest/docker-compose-mcp-deployment.yml) | [`systemtest/README-mcp-deployment.md`](systemtest/README-mcp-deployment.md) |
+> | MCP tool-calling against GitHub | [`docker-compose-mcp-github.yml`](systemtest/docker-compose-mcp-github.yml) | [`systemtest/README-mcp-github.md`](systemtest/README-mcp-github.md) |
+> | Suite-promotion workflow | — | [`systemtest/README-suite-promotion.md`](systemtest/README-suite-promotion.md) |
+> | Local LLM via **Ollama** | [`docker-compose-ollama.yml`](systemtest/docker-compose-ollama.yml) | [`doc/OLLAMA.md`](doc/OLLAMA.md) |
+> | Local LLM via **llama.cpp** | [`docker-compose-llamacpp.yml`](systemtest/docker-compose-llamacpp.yml) | [`doc/LLAMACPP.md`](doc/LLAMACPP.md) |
+>
+> If you can reproduce a bug against one of these stacks, attach the
+> compose file you used + the bot log; that turns most reports into a
+> 1-commit fix.
+
+
+## 🌍 Where the E2E workflow deploys its preview environment
+
+The **Full-stack QA** workflow needs a per-PR environment to test against. Different teams already have *very* different deploy pipelines — so the bot ships a small **`DeploymentStrategy` SPI** with four interchangeable implementations. Pick the one that matches the world your team already lives in:
+
+| Strategy | Best for | Concrete user story |
+|---|---|---|
+| **`STATIC`** | Vercel / Netlify / GitLab review apps / Render — anything that already creates a preview-per-PR at a predictable URL. | [Marco the Frontend Lead](doc/agentic-workflows/STATIC_DEPLOYMENT_USER_STORY.md)  |
+| **`WEBHOOK`** | Jenkins / TeamCity / scripts behind a corporate firewall — anywhere you can `curl` an HMAC-signed callback back to the bot. | [Priya the DevOps Engineer](doc/agentic-workflows/WEBHOOK_DEPLOYMENT_USER_STORY.md)  |
+| **`MCP`** | Internal platform teams already exposing deploy/status/teardown over MCP — zero extra services, single whitelist, no inbound callback. | [Alex the Platform Engineer](doc/agentic-workflows/MCP_DEPLOYMENT_USER_STORY.md) (laptop reproduction: `systemtest/docker-compose-mcp-deployment.yml`)  |
+| **`CI_ACTION`** | Provider-native CI (GitHub Actions / GitLab CI / Bitbucket Pipelines / Gitea Actions) — dispatched via existing repo credentials, zero new secrets. | [Sam the SRE](doc/agentic-workflows/CI_ACTION_DEPLOYMENT_USER_STORY.md) (operator recipes: [`doc/PR_WORKFLOWS_CI_ACTIONS.md`](doc/PR_WORKFLOWS_CI_ACTIONS.md); laptop reproduction: `systemtest/docker-compose-ci-action.yml`)  |
+
+> The full **feature documentation** for the agentic PR workflows — concept, architecture, persona-driven user stories, internals — lives under [`doc/agentic-workflows/`](doc/agentic-workflows/README.md).
+
+## ✍️ The two agent personas in detail
+
+### 🤖 Coding agent — for "just do the boring change" issues
+
+Assign an issue to a coding bot — it analyzes the task, reads source code, generates the change in a sandboxed workspace, validates with the project's build tooling (Maven / Gradle / npm / Go / Cargo / .NET), and opens a finished pull request.
 
 <details>
-<summary>📸 Screenshots: Code reviews across platforms</summary>
-
-**Gitea:**
-<img src="doc/screenshots/gitea/screenshot_initial_code_review.png" alt="Gitea Code Review" width="600"/>
-
-**GitHub:**
-<img src="doc/screenshots/github/github_code_review_with_comment.png" alt="GitHub Code Review" width="600"/>
-
-**GitLab:**
-<img src="doc/screenshots/gitlab/gitlab-pull-request-with-code-review.png" alt="GitLab Code Review" width="600"/>
-
-**Bitbucket:**
-<img src="doc/screenshots/bitbucket/bitbucket-code-review.png" alt="Bitbucket Code Review" width="600"/>
-
-</details>
-
-### 💬 Interactive Bot Commands
-
-Mention the bot (e.g. `@ai_bot`) in any PR comment to ask questions or request additional analysis. The bot acknowledges with 👀 and responds using the full conversation history.
-
-**Benefit:** review discussions stay in the PR instead of moving to chat or ad-hoc side channels.
-
-<img src="doc/screenshots/gitea/screenshot_code_review_with_comment.png" alt="Code Review with Comment" width="600"/>
-
-### 📝 Inline Review Comment Responses
-
-Mention the bot in an inline review comment on a specific code line. The bot includes the file context and diff hunk when generating its answer and replies directly inline.
-
-**Benefit:** developers get code-local explanations and follow-up analysis exactly where the question came up.
-
-<img src="doc/screenshots/gitea/screenshot_code_review_with_inline_comment.png" alt="Code Review with Inline Comment" width="600"/>
-
-### 🤖 Autonomous Issue Implementation Agent
-
-Assign the bot to an issue — it analyzes the task, reads the source code, generates an implementation, validates with build tools, and creates a finished pull request. Fully autonomous.
-
-**Benefit:** implementation-ready issues can move from backlog item to reviewable PR with much less manual orchestration.
-
-<details>
-<summary>📸 Screenshots: Agent across platforms</summary>
+<summary>📸 Screenshots: Coding agent across platforms</summary>
 
 **GitHub:**
 <img src="doc/screenshots/github/github_issue_agent_code_implementation.png" alt="GitHub Agent" width="600"/>
@@ -165,72 +139,79 @@ Assign the bot to an issue — it analyzes the task, reads the source code, gene
 
 </details>
 
-See the [Agent Documentation](doc/AGENT.md) for details.
+### ✍️ Writer agent — for "this issue isn't actionable yet" tickets
 
-### ✍️ Technical Writer Agent for Better Issues
-
-Assign a **Writer bot** to an issue when you want the bot to improve the problem statement instead of changing code. The writer agent can inspect related issues and explore the repository in a **read-only workspace** to understand naming, affected components, and constraints before it drafts a better issue.
-
-**Benefit:** teams catch missing acceptance criteria, hidden assumptions, and unclear scope before coding starts.
+Assign an issue to a writer bot when you want the *problem statement* improved, not the code changed. The writer agent inspects related issues and explores the repo read-only to understand naming, affected components, and constraints before drafting a follow-up `AI Created Issue: …` with acceptance criteria.
 
 Typical writer-bot use cases:
 
 - turn vague bug reports into reproducible, testable issues
 - rewrite feature requests into structured engineering work items
-- identify missing acceptance criteria, contradictions, and open questions
-- ask the original issue author only the minimum critical follow-up questions
-- create a linked `AI Created Issue: ...` once enough context is available
+- surface missing acceptance criteria, contradictions, and open questions
+- ask the original author only the *minimum* critical follow-up questions
 
-Writer bots are currently intended for providers with issue-assignment workflows such as **Gitea, GitHub, and GitLab**. They ignore pull-request review events and never modify repository files.
+Writer bots target providers with issue-assignment workflows (Gitea, GitHub, GitLab). They ignore PR-review events and never modify repository files.
 
-### 🧩 MCP Server Orchestration and Tool Whitelisting
+## 🔍 Review + interactive Q&A in PRs
 
-Attach remote MCP server configurations to bots and control exactly which MCP tools are exposed to agent prompts:
+When a PR is opened with the bot already assigned as reviewer — or the bot is later re-requested — the review bot posts inline + summary feedback. Large diffs are chunked automatically with retry on token limits. Mention `@bot` in any comment or inline review comment to ask follow-up questions; the bot replies with full file/diff context and session history.
 
-- discover tools from all configured MCP servers
-- select allowed tools in a pageable/filterable/sortable whitelist UI
-- expose only selected MCP tools to coding and writer agents
-- inspect selected MCP tools in bot configuration via a read-only details dialog
+<details>
+<summary>📸 Screenshots: Reviews + conversations across platforms</summary>
 
-See [MCP Server Handling](doc/MCP_SERVER_HANDLING.md) for the full workflow.
+**Gitea:** <img src="doc/screenshots/gitea/screenshot_initial_code_review.png" alt="Gitea Code Review" width="600"/>
 
-### 🖥️ Web-Based Management
+**GitHub:** <img src="doc/screenshots/github/github_code_review_with_comment.png" alt="GitHub Code Review" width="600"/>
 
-All configuration is managed through a **web-based UI** — no environment variables needed for AI providers, Git connections, or bot settings:
+**GitLab:** <img src="doc/screenshots/gitlab/gitlab-pull-request-with-code-review.png" alt="GitLab Code Review" width="600"/>
 
-- Create multiple **AI Integrations** (Anthropic, OpenAI, Google AI / Gemini, Ollama, llama.cpp)
-- Create multiple **Git Integrations** (Gitea, GitHub, GitHub Enterprise, GitLab, Bitbucket Cloud)
-- Create multiple **Bots**, each with its own webhook URL, AI provider, and system prompt
-- Dashboard with statistics and monitoring
+**Bitbucket:** <img src="doc/screenshots/bitbucket/bitbucket-code-review.png" alt="Bitbucket Code Review" width="600"/>
 
-**Benefit:** operations teams can standardize setup once instead of hand-configuring secrets and prompts per repository.
+**Inline comment thread (Gitea):** <img src="doc/screenshots/gitea/screenshot_code_review_with_inline_comment.png" alt="Inline review comment" width="600"/>
 
-### 🔌 Supported AI Providers
+</details>
 
-| Provider | Default API URL | Suggested Models |
-|----------|-----------------|------------------|
+## 🧱 Under the hood: an AI- and Git-agnostic gateway
+
+The reason a single bot can serve four Git platforms and five AI providers is that AI-Git-Bot is structured as a small **gateway**: every Git platform plugs in through a `RepositoryApiClient` SPI, every AI provider through an `AiClient` SPI, and tool calls (built-in + MCP) flow through a unified `AgentToolRouter`. That's useful — but it's *enabling infrastructure*, not the headline feature. The headline feature is the **workflows above**, which happen to work everywhere because of this design.
+
+If you do care about the plumbing, see the [Architecture documentation](doc/ARCHITECTURE.md). At a glance:
+
+- 🔗 **One configuration, many repositories** — set up an AI integration once, attach it to as many bots as you like
+- 🔀 **Mix & match** — any supported AI provider with any supported Git platform
+- 🛡️ **Centralized control** — API keys, tokens, prompts, and tool whitelists managed in one admin UI
+- 🔐 **Encrypted secrets at rest** — AES-256-GCM for every credential
+- 🧩 **MCP-ready** — remote MCP servers can be attached to bots; the per-tool whitelist controls exactly which MCP tools an agent sees ([MCP Server Handling](doc/MCP_SERVER_HANDLING.md))
+- 📊 **Single dashboard** — statistics + audit across every bot and workflow run
+
+### 🔌 Supported AI providers
+
+| Provider | Default API URL | Suggested models |
+|---|---|---|
 | **Anthropic** | `https://api.anthropic.com` | claude-opus-4-7, claude-sonnet-4-6, claude-haiku-4-5-20251001 |
 | **OpenAI** | `https://api.openai.com` | gpt-5.5, gpt-5.4, gpt-5.4-mini, gpt-5.3-codex |
 | **Google AI / Gemini** | `https://generativelanguage.googleapis.com` | gemini-2.5-pro, gemini-2.5-flash, gemini-2.0-flash |
 | **Ollama** | `http://localhost:11434` | User-configured local models |
 | **llama.cpp** | `http://localhost:8081` | User-configured GGUF models |
 
-### 🌐 Supported Git Platforms
+### 🌐 Supported Git platforms
 
 | Provider | Description |
-|----------|-------------|
+|---|---|
 | **Gitea** | Self-hosted Gitea instances |
 | **GitHub** | github.com |
 | **GitHub Enterprise** | Self-hosted GitHub Enterprise Server |
 | **GitLab** | gitlab.com and self-managed GitLab CE/EE |
 | **Bitbucket Cloud** | bitbucket.org |
 
-### More Features
+### Other niceties
 
-- **Session Management** — Maintains conversation history per PR, persisted in the database, enabling context-aware follow-up reviews
-- **Configurable System Prompts** — Manage reusable review, coding-agent, and writer-agent prompt entries in System settings and assign them per bot
-- **AI-Driven Code Validation** — The agent validates generated code with build tools (Maven, Gradle, npm, Go, Cargo, .NET, etc.)
-- **Health Endpoint** — `/actuator/health` for monitoring and orchestration
+- **Session memory per PR**, persisted in PostgreSQL, so follow-up questions stay context-aware
+- **Reusable named system prompts** for review / coding / writer personas — assign one per bot
+- **Per-bot built-in tool whitelist** ([BOT_TOOL_CONFIGURATIONS.md](doc/BOT_TOOL_CONFIGURATIONS.md))
+- **Self-hostable end-to-end** including local LLMs (Ollama, llama.cpp) — nothing has to leave your infrastructure
+- **Lightweight ops** — one Docker image, one PostgreSQL database. No Kubernetes required.
+- **Health endpoint** — `/actuator/health` for orchestrators
 
 ## Docker
 
@@ -355,8 +336,10 @@ The bot receives webhooks from your Git provider, fetches PR diffs, sends them t
 |----------|-------------|
 | [User Guide](doc/USER_GUIDE.md) | Web UI usage, creating bots and integrations |
 | [MCP Server Handling](doc/MCP_SERVER_HANDLING.md) | MCP JSON setup, tool whitelist selection, bot details view, and MCP call transparency |
+| [Bot Tool Configurations](doc/BOT_TOOL_CONFIGURATIONS.md) | Per-bot whitelist of built-in agent tools — admin UI, runtime enforcement, default config, migration |
 | [Architecture](doc/ARCHITECTURE.md) | Component diagrams, request flows, webhook routing |
 | [Agent](doc/AGENT.md) | Coding agent and technical writer agent — setup, tools, and workflows |
+| [Tool Calling KB](doc/TOOL_CALLING.md) | Why provider tool APIs differ, abstractions, fallbacks, and what to do when a model misbehaves (incl. the legacy tool-calling switch) |
 | **Git Provider Setup** | |
 | [Gitea Setup](doc/GITEA_SETUP.md) | Bot user creation, permissions, API tokens for Gitea |
 | [GitHub Setup](doc/GITHUB_SETUP.md) | Bot user creation, permissions, PAT tokens for GitHub |

@@ -21,13 +21,9 @@ class ToolExecutionServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new ToolExecutionService(new AgentConfigProperties());
-    }
-
-    @Test
-    void getAvailableContextTools_containsExpectedTools() {
-        assertThat(service.getAvailableContextTools())
-                .contains("rg", "grep", "find", "cat", "git-log", "git-blame", "tree", "branch-switcher");
+        AgentConfigProperties config = new AgentConfigProperties();
+        service = new ToolExecutionService(config,
+                new org.remus.giteabot.agent.tools.ToolCatalog(config));
     }
 
     @Test
@@ -248,6 +244,55 @@ class ToolExecutionServiceTest {
     }
 
     @Test
+    void executeFileTool_patchFile_crlfFile_lfSearch_appliesWithLineEndingTier() throws IOException {
+        Path target = tempDir.resolve("Service.java");
+        // File on disk uses CRLF (e.g. checked out on Windows or a .gitattributes rule).
+        Files.writeString(target, "class Service {\r\n    private int x = 1;\r\n}\r\n");
+
+        // LLM submits the search/replacement with LF (typical model output).
+        ToolResult result = service.executeFileTool(tempDir, "patch-file",
+                List.of("Service.java", "private int x = 1;\n", "private int x = 42;\n"));
+
+        assertThat(result.success()).isTrue();
+        assertThat(result.output()).contains("normalized line endings");
+        // CRLF is preserved on write.
+        assertThat(Files.readString(target)).isEqualTo(
+                "class Service {\r\n    private int x = 42;\r\n}\r\n");
+    }
+
+    @Test
+    void executeFileTool_patchFile_trailingWhitespaceMismatch_appliesWithToleranceTier() throws IOException {
+        Path target = tempDir.resolve("Service.java");
+        // File has trailing whitespace on the indented line that the LLM omitted.
+        Files.writeString(target, "class Service {\n    private int x = 1;   \n}\n");
+
+        // Search spans two lines so trailing whitespace on the first line breaks exact match.
+        ToolResult result = service.executeFileTool(tempDir, "patch-file",
+                List.of("Service.java",
+                        "    private int x = 1;\n}",
+                        "    private int x = 42;\n}"));
+
+        assertThat(result.success()).isTrue();
+        assertThat(result.output()).contains("whitespace-tolerant");
+        assertThat(Files.readString(target)).isEqualTo("class Service {\n    private int x = 42;\n}\n");
+    }
+
+    @Test
+    void executeFileTool_patchFile_collapsedInteriorWhitespace_appliesWithToleranceTier() throws IOException {
+        Path target = tempDir.resolve("Service.java");
+        Files.writeString(target, "class   Service { int    x = 1; }\n");
+
+        // LLM normalized interior whitespace to a single space.
+        ToolResult result = service.executeFileTool(tempDir, "patch-file",
+                List.of("Service.java", "class Service { int x = 1; }", "class Service { int x = 42; }"));
+
+        assertThat(result.success()).isTrue();
+        assertThat(result.output()).contains("whitespace-tolerant");
+        // Replacement line is written verbatim (LLM-provided form).
+        assertThat(Files.readString(target)).isEqualTo("class Service { int x = 42; }\n");
+    }
+
+    @Test
     void executeFileTool_mkdir_createsDirectory() {
         ToolResult result = service.executeFileTool(tempDir, "mkdir",
                 List.of("new/nested/dir"));
@@ -294,43 +339,5 @@ class ToolExecutionServiceTest {
 
         assertThat(result.success()).isFalse();
         assertThat(result.error()).contains("escapes");
-    }
-
-    @Test
-    void isFileTool_returnsCorrectly() {
-        assertThat(service.isFileTool("write-file")).isTrue();
-        assertThat(service.isFileTool("patch-file")).isTrue();
-        assertThat(service.isFileTool("mkdir")).isTrue();
-        assertThat(service.isFileTool("delete-file")).isTrue();
-        assertThat(service.isFileTool("mvn")).isFalse();
-        assertThat(service.isFileTool("rg")).isFalse();
-        assertThat(service.isFileTool(null)).isFalse();
-    }
-
-    @Test
-    void isSilentTool_fileToolsAreSilent() {
-        assertThat(service.isSilentTool("write-file")).isTrue();
-        assertThat(service.isSilentTool("cat")).isTrue();
-        assertThat(service.isSilentTool("mvn")).isFalse();
-    }
-
-    @Test
-    void isValidationTool_recognizesConfiguredTools() {
-        // mvn is in the configured available-tools list (set up via agentConfig in setUp)
-        assertThat(service.isValidationTool("mvn")).isTrue();
-        assertThat(service.isValidationTool("dotnet")).isTrue();
-        // file and context tools are NOT validation tools
-        assertThat(service.isValidationTool("write-file")).isFalse();
-        assertThat(service.isValidationTool("cat")).isFalse();
-        assertThat(service.isValidationTool("rg")).isFalse();
-        assertThat(service.isValidationTool(null)).isFalse();
-    }
-
-    @Test
-    void isValidationTool_notEquivalentToNotSilentTool() {
-        // An unknown tool that is also not in the silent lists must NOT count as a validation tool.
-        // Previously '!isSilentTool' was used which would incorrectly classify unknown tools.
-        assertThat(service.isSilentTool("unknown-tool")).isFalse();    // not silent
-        assertThat(service.isValidationTool("unknown-tool")).isFalse(); // but also not a validation tool
     }
 }
