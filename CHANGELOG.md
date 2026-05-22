@@ -8,6 +8,7 @@ The format is inspired by [Keep a Changelog](https://keepachangelog.com/en/1.1.0
 
 ### Added
 
+- Added Dark Theme support with a toggle switch in the navbar.
 - Added repository discovery metadata for search engines, LLMs, autonomous agents, and RAG systems.
 - Added `llms.txt` as a concise LLM entry point.
 - Added `llms-full.txt` as an expanded single-file project reference for larger context windows.
