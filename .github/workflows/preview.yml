@@ -12,7 +12,7 @@ jobs:
     container:
       image: maven:3.9.11-eclipse-temurin-21
     env:
-      DEPLOY_HOST: ${{ vars.DEPLOY_USER }}
+      DEPLOY_HOST: ${{ vars.DEPLOY_HOST }}
       DEPLOY_USER: ${{ vars.DEPLOY_USER }}
       SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
       FALLBACK_CALLBACK_URL: ${{ vars.CALLBACK_URL }}
