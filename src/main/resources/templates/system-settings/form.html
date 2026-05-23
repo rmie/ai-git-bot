@@ -45,6 +45,36 @@
                             <textarea class="form-control" id="writerAgentSystemPrompt" th:field="*{writerAgentSystemPrompt}"
                                       rows="14" required></textarea>
                         </div>
+
+                        <div class="col-12">
+                            <hr class="my-2">
+                            <h5 class="mb-1">E2E PR workflow prompts</h5>
+                            <small class="text-muted">
+                                Used by the Full-stack QA workflow. Edit the agent's
+                                <strong>role description</strong> only — the technical protocol
+                                (active framework, JSON output schema, tool names and call sequence,
+                                URL conventions) is always appended by the software and is
+                                <strong>not</strong> editable here, so an edit cannot break the pipeline.
+                            </small>
+                        </div>
+
+                        <div class="col-12">
+                            <label for="e2ePlannerSystemPrompt" class="form-label">E2E Planner System-Prompt</label>
+                            <textarea class="form-control" id="e2ePlannerSystemPrompt" th:field="*{e2ePlannerSystemPrompt}"
+                                      rows="14" required></textarea>
+                        </div>
+
+                        <div class="col-12">
+                            <label for="e2eAuthorSystemPrompt" class="form-label">E2E Author System-Prompt</label>
+                            <textarea class="form-control" id="e2eAuthorSystemPrompt" th:field="*{e2eAuthorSystemPrompt}"
+                                      rows="14" required></textarea>
+                        </div>
+
+                        <div class="col-12">
+                            <label for="e2eRunnerSystemPrompt" class="form-label">E2E Runner System-Prompt</label>
+                            <textarea class="form-control" id="e2eRunnerSystemPrompt" th:field="*{e2eRunnerSystemPrompt}"
+                                      rows="14" required></textarea>
+                        </div>
                     </div>
 
                     <div class="mt-4">

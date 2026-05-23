@@ -18,6 +18,7 @@ import org.remus.giteabot.prworkflow.e2e.agents.TestPlannerAgent;
 import org.remus.giteabot.prworkflow.e2e.agents.TestRunnerAgent;
 import org.remus.giteabot.prworkflow.e2e.tools.PrWorkflowToolContext;
 import org.remus.giteabot.repository.RepositoryApiClient;
+import org.remus.giteabot.systemsettings.SystemPrompt;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
@@ -111,7 +112,9 @@ public class PlaywrightTestSuiteRunner implements TestSuiteRunner {
                         ? ""
                         : valueOrEmpty(request.context().hint(PrWorkflowContext.HINT_E2E_FEEDBACK)));
 
-        TestPlan plan = plannerAgent.plan(aiClient, request.framework(), plannerInput).orElse(null);
+        SystemPrompt systemPrompt = bot.getSystemPrompt();
+
+        TestPlan plan = plannerAgent.plan(aiClient, request.framework(), plannerInput, systemPrompt).orElse(null);
         if (plan == null || plan.isEmpty()) {
             return TestSuiteOutcome.skipped(
                     "TestPlannerAgent returned no journeys — nothing to author or run");
@@ -127,7 +130,7 @@ public class PlaywrightTestSuiteRunner implements TestSuiteRunner {
                 addr.owner(), addr.repo(), addr.prNumber(),
                 apiClient);
 
-        TestAuthorAgent.Result authorResult = authorAgent.write(aiClient, toolContext, plan);
+        TestAuthorAgent.Result authorResult = authorAgent.write(aiClient, toolContext, plan, systemPrompt);
         if (!authorResult.wroteAnything()) {
             return TestSuiteOutcome.error(
                     "TestAuthorAgent wrote zero files (budgetExhausted="
@@ -135,7 +138,7 @@ public class PlaywrightTestSuiteRunner implements TestSuiteRunner {
         }
 
         int effectiveRetries = effectiveRetries(plan, request.maxRetries());
-        TestRunnerAgent.Result runResult = runnerAgent.execute(aiClient, toolContext, plan, effectiveRetries);
+        TestRunnerAgent.Result runResult = runnerAgent.execute(aiClient, toolContext, plan, effectiveRetries, systemPrompt);
 
         // Aggregate per-case outcomes from the database — those are the source of truth.
         List<PrTestCase> cases = caseRepository.findBySuiteOrderByIdAsc(request.suite());
