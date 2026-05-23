@@ -10,8 +10,8 @@ name: Guard main branch
 
 on:
   pull_request:
-    branches: [main]
-    types: [opened, reopened, synchronize, edited, ready_for_review]
+    branches:
+      - main
 
 permissions:
   contents: read
