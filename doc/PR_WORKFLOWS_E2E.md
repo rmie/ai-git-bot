@@ -26,6 +26,26 @@ planner's user message via `PrWorkflowContext.hints`.
    walk-throughs under [`doc/agentic-workflows/`](./agentic-workflows/README.md) if
    you're unsure which one to pick). Without a target the workflow
    aborts immediately and posts a clearly labelled skip-comment.
+
+   > 💡 If you run the bot itself via Docker / `docker compose` and use a
+   > `CI_ACTION` deployment target, make sure the bot's public callback base URL
+   > is reachable **from inside the workflow job container**. In Docker-based
+   > setups configure this via `APP_PUBLIC_URL` (maps to Spring property
+   > `app.public-url`), for example:
+   >
+   > ```yaml
+   > APP_PUBLIC_URL: http://172.17.0.1:8080
+   > ```
+   >
+   > on Linux / WSL2, or:
+   >
+   > ```yaml
+   > APP_PUBLIC_URL: http://host.docker.internal:8080
+   > ```
+   >
+   > on macOS / Windows with Docker Desktop. If this is left at
+   > `http://localhost:8080`, E2E preview callbacks can fail because `localhost`
+   > inside the job container points to the container itself, not to the bot.
 2. Open the bot's *Workflow configuration*. Either pick the **seeded
    `Full-stack QA` configuration** (shipped by Flyway `V18`, has
    `review` + `e2e-test` pre-enabled with `framework=playwright`,
@@ -245,7 +265,7 @@ exactly as before.
 ## Try it out — sample app under `systemtest/`
 
 A minimal Node app (no external deps, ~70 lines of `server.js`) lives
-under [`systemtest/sample-e2e-app/`](../systemtest/sample-e2e-app/) and is
+under `systemtest/sample-e2e-app/` and is
 exposed via [`systemtest/docker-compose-e2e-sample.yml`](../systemtest/docker-compose-e2e-sample.yml).
 It boots a single login form with credentials `demo` / `demo` and exposes
 `/healthz` for the deployment-target probe.
