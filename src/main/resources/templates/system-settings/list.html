@@ -387,56 +387,14 @@
         </div>
 
         <script>
-            (function () {
-                const STORAGE_KEY = 'systemSettings.collapsedSections';
-                const loadCollapsed = () => {
-                    try { return new Set(JSON.parse(localStorage.getItem(STORAGE_KEY)) || []); }
-                    catch (e) { return new Set(); }
-                };
-                const saveCollapsed = (set) => {
-                    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(Array.from(set))); }
-                    catch (e) { /* ignore */ }
-                };
-
-                const collapsed = loadCollapsed();
-                const collapses = document.querySelectorAll('[id^="section-"].collapse');
-
-                // Apply persisted state before Bootstrap initializes transitions.
-                collapses.forEach((el) => {
-                    const header = document.querySelector('[data-bs-target="#' + el.id + '"]');
-                    if (collapsed.has(el.id)) {
-                        el.classList.remove('show');
-                        if (header) {
-                            header.classList.add('collapsed');
-                            header.setAttribute('aria-expanded', 'false');
-                        }
-                    }
+            document.addEventListener('DOMContentLoaded', function () {
+                initCollapsibleSections({
+                    storageKey: 'systemSettings.collapsedSections',
+                    collapses: document.querySelectorAll('[id^="section-"].collapse'),
+                    expandButton: document.getElementById('expandAllSections'),
+                    collapseButton: document.getElementById('collapseAllSections')
                 });
-
-                collapses.forEach((el) => {
-                    el.addEventListener('shown.bs.collapse', () => {
-                        collapsed.delete(el.id);
-                        saveCollapsed(collapsed);
-                    });
-                    el.addEventListener('hidden.bs.collapse', () => {
-                        collapsed.add(el.id);
-                        saveCollapsed(collapsed);
-                    });
-                });
-
-                const expandBtn = document.getElementById('expandAllSections');
-                const collapseBtn = document.getElementById('collapseAllSections');
-                if (expandBtn) {
-                    expandBtn.addEventListener('click', () => {
-                        collapses.forEach((el) => bootstrap.Collapse.getOrCreateInstance(el).show());
-                    });
-                }
-                if (collapseBtn) {
-                    collapseBtn.addEventListener('click', () => {
-                        collapses.forEach((el) => bootstrap.Collapse.getOrCreateInstance(el).hide());
-                    });
-                }
-            })();
+            });
         </script>
 
     </div>
