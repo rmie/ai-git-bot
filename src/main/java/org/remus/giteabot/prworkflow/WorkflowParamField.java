@@ -46,6 +46,27 @@ public record WorkflowParamField(
             throw new IllegalArgumentException("name must not be blank");
         }
         allowedValues = allowedValues == null ? List.of() : List.copyOf(allowedValues);
+        if (type == ParamType.ENUM && allowedValues.isEmpty()) {
+            throw new IllegalArgumentException(
+                    "ENUM field '" + name + "' must define at least one allowedValues option");
+        }
+        if (type != ParamType.ENUM && !allowedValues.isEmpty()) {
+            throw new IllegalArgumentException(
+                    "allowedValues is only supported for ENUM fields, but field '" + name
+                            + "' has type " + type);
+        }
+        for (EnumOption opt : allowedValues) {
+            Objects.requireNonNull(opt, "allowedValues entry must not be null (field '" + name + "')");
+            if (opt.key() == null || opt.key().isBlank()) {
+                throw new IllegalArgumentException(
+                        "allowedValues option key must not be blank (field '" + name + "')");
+            }
+            if (opt.label() == null || opt.label().isBlank()) {
+                throw new IllegalArgumentException(
+                        "allowedValues option label must not be blank (field '" + name
+                                + "', key '" + opt.key() + "')");
+            }
+        }
     }
 
     /**

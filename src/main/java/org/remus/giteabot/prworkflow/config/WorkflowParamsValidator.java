@@ -126,13 +126,17 @@ public class WorkflowParamsValidator {
             case ENUM -> {
                 List<WorkflowParamField.EnumOption> opts = field.allowedValues();
                 if (!opts.isEmpty()) {
-                    boolean valid = opts.stream().anyMatch(o -> o.key().equalsIgnoreCase(text));
-                    if (!valid) {
-                        errors.add("Parameter '" + field.label() + "' must be one of: "
-                                + opts.stream().map(WorkflowParamField.EnumOption::key)
-                                        .collect(Collectors.joining(", ")));
-                        yield null;
+                    java.util.Optional<String> canonical = opts.stream()
+                            .map(WorkflowParamField.EnumOption::key)
+                            .filter(k -> k.equalsIgnoreCase(text))
+                            .findFirst();
+                    if (canonical.isPresent()) {
+                        yield canonical.get();   // persist the canonical casing
                     }
+                    errors.add("Parameter '" + field.label() + "' must be one of: "
+                            + opts.stream().map(WorkflowParamField.EnumOption::key)
+                                    .collect(Collectors.joining(", ")));
+                    yield null;
                 }
                 yield text;
             }
