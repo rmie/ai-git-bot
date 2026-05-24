@@ -1,6 +1,7 @@
 package org.remus.giteabot.prworkflow.e2e;
 
 import lombok.extern.slf4j.Slf4j;
+import org.jspecify.annotations.NonNull;
 import org.remus.giteabot.admin.Bot;
 import org.remus.giteabot.admin.GiteaClientFactory;
 import org.remus.giteabot.gitea.model.WebhookPayload;
@@ -70,7 +71,7 @@ public class E2eTestSlashCommandHandler {
     }
 
     /**
-     * @return {@code true} when the comment was recognised as an E2E slash
+     * @return {@code true} when the comment was recognized as an E2E slash
      *         command and dispatched (regardless of the dispatched run's
      *         outcome); {@code false} when the comment is something else and
      *         the caller must continue with its default handling.
@@ -104,15 +105,27 @@ public class E2eTestSlashCommandHandler {
         log.info("[Bot '{}'] E2E slash command '{}' detected (feedback='{}'), dispatching e2e-test workflow",
                 bot.getName(), verb, abbreviate(feedback, 80));
         try {
-            Map<String, String> hints = feedback.isBlank()
-                    ? Map.of()
-                    : Map.of(PrWorkflowContext.HINT_E2E_FEEDBACK, feedback);
+            var hints = getHints(verb, feedback);
             orchestrator.run(bot, payload, E2ETestWorkflow.KEY, hints);
         } catch (RuntimeException e) {
             log.warn("[Bot '{}'] E2E slash command '{}' dispatch failed: {}",
                     bot.getName(), verb, e.getMessage(), e);
         }
         return true;
+    }
+
+    private static @NonNull Map<String, String> getHints(String verb, String feedback) {
+        Map<String, String> hints;
+        if ("rerun-tests".equals(verb)) {
+            // Skip Planner+Author; re-run the existing test files from the last suite.
+            hints = Map.of(PrWorkflowContext.HINT_RERUN_ONLY, "true");
+        } else {
+            // regenerate-tests: full flow. Optionally pass operator feedback to the planner.
+            hints = feedback.isBlank()
+                    ? Map.of()
+                    : Map.of(PrWorkflowContext.HINT_E2E_FEEDBACK, feedback);
+        }
+        return hints;
     }
 
     private boolean isE2eEnabledOnBot(Bot bot) {

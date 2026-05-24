@@ -177,14 +177,38 @@ public class E2ETestWorkflow implements PrWorkflow {
             return WorkflowResult.skipped("No deployment target on bot");
         }
 
+        boolean rerunOnly = "true".equalsIgnoreCase(context.hint(PrWorkflowContext.HINT_RERUN_ONLY));
+
+        // Locate the most-recent previous suite that actually has test cases attached
+        // when we are in rerun-only mode. If none exists we fall back to a full run.
+        PrTestSuite previousSuite = null;
+        if (rerunOnly) {
+            previousSuite = suiteRepository.findByPrNumberOrderByIdDesc(prNumber).stream()
+                    .filter(s -> s.getCases() != null && !s.getCases().isEmpty())
+                    .findFirst()
+                    .orElse(null);
+            if (previousSuite == null) {
+                log.info("[Workflow '{}'] rerun-only requested for PR #{} but no previous suite with "
+                        + "cases found — falling back to full regenerate run", KEY, prNumber);
+                rerunOnly = false;
+            } else {
+                log.info("[Workflow '{}'] rerun-only for PR #{}: reusing suite #{} ({} cases)",
+                        KEY, prNumber, previousSuite.getId(),
+                        previousSuite.getCases().size());
+            }
+        }
+
         // Tell the operator the run has started — generation, deployment and
         // execution can take several minutes, so an immediate ack avoids the
         // "is it stuck?" question and matches the 👀 reaction posted by
         // E2eTestSlashCommandHandler for re-run / regenerate slash commands.
         postPrComment(bot, payload, prNumber,
-                E2eTestSummaryRenderer.renderStarting(prNumber, framework, lifecycleMode));
+                rerunOnly
+                        ? E2eTestSummaryRenderer.renderRerunStarting(prNumber, framework, lifecycleMode)
+                        : E2eTestSummaryRenderer.renderStarting(prNumber, framework, lifecycleMode));
         context.appendStep("e2e-start",
-                "Starting E2E run (framework=" + framework.key()
+                (rerunOnly ? "Re-running existing tests" : "Starting E2E run")
+                        + " (framework=" + framework.key()
                         + ", lifecycle=" + lifecycleMode.key() + ")");
 
         context.requireActive("before persisting PrTestSuite");
@@ -239,7 +263,8 @@ public class E2ETestWorkflow implements PrWorkflow {
         } else {
             TestSuiteRequest request = new TestSuiteRequest(
                     context, bot, payload, suite, workspace,
-                    framework, deployment.previewUrl(), maxRetries, maxTestCases);
+                    framework, deployment.previewUrl(), maxRetries, maxTestCases,
+                    previousSuite);
             try {
                 outcome = runner.run(request);
             } catch (RuntimeException e) {

@@ -11,6 +11,7 @@ import org.remus.giteabot.prworkflow.e2e.E2eTestFramework;
 import org.remus.giteabot.prworkflow.e2e.PrTestCase;
 import org.remus.giteabot.prworkflow.e2e.PrTestCaseRepository;
 import org.remus.giteabot.prworkflow.e2e.PrTestCaseStatus;
+import org.remus.giteabot.prworkflow.e2e.PrTestSuite;
 import org.remus.giteabot.prworkflow.e2e.agents.TestAuthorAgent;
 import org.remus.giteabot.prworkflow.e2e.agents.TestPlan;
 import org.remus.giteabot.prworkflow.e2e.agents.TestPlanParser;
@@ -21,6 +22,9 @@ import org.remus.giteabot.repository.RepositoryApiClient;
 import org.remus.giteabot.systemsettings.SystemPrompt;
 import org.springframework.stereotype.Component;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
 
 /**
@@ -92,6 +96,13 @@ public class PlaywrightTestSuiteRunner implements TestSuiteRunner {
         }
 
         OwnerRepoPr addr = OwnerRepoPr.from(request.payload());
+
+        // ── rerun-only path: restore previously generated test files, skip Planner+Author ──
+        if (request.isRerunOnly()) {
+            return runExistingTests(request, aiClient, apiClient, addr);
+        }
+
+        // ── full regenerate path ──
         String diff = "";
         try {
             if (addr.owner() != null && addr.repo() != null && addr.prNumber() != null) {
@@ -172,8 +183,108 @@ public class PlaywrightTestSuiteRunner implements TestSuiteRunner {
                 failed + "/" + attempted + " failed", attempted, failed);
     }
 
-    private static int effectiveRetries(TestPlan plan, int workflowDefault) {
-        Integer fromPlan = plan.maxRetries();
+    /**
+     * Rerun-only path: restores all test files from the {@link PrTestSuite#getCases()
+     * cases} of {@code request.previousSuite()} into the new workspace, skips
+     * {@link TestPlannerAgent} and {@link TestAuthorAgent}, and directly delegates
+     * to {@link TestRunnerAgent}. A minimal {@link TestPlan} reconstructed from the
+     * stored cases is used solely to drive the runner agent's context.
+     */
+    private TestSuiteOutcome runExistingTests(TestSuiteRequest request,
+                                              AiClient aiClient,
+                                              RepositoryApiClient apiClient,
+                                              OwnerRepoPr addr) {
+        PrTestSuite previousSuite = request.previousSuite();
+        List<PrTestCase> previousCases = caseRepository.findBySuiteOrderByIdAsc(previousSuite);
+        if (previousCases.isEmpty()) {
+            return TestSuiteOutcome.skipped(
+                    "rerun-only: previous suite #" + previousSuite.getId()
+                            + " has no persisted test cases — cannot rerun");
+        }
+
+        // Restore each test file from the DB into the new workspace directory.
+        int restored = 0;
+        for (PrTestCase pc : previousCases) {
+            if (pc.getContent() == null || pc.getPath() == null) continue;
+            try {
+                Path dest = request.workspace().resolve(pc.getPath());
+                Files.createDirectories(dest.getParent());
+                Files.writeString(dest, pc.getContent());
+                restored++;
+            } catch (IOException e) {
+                log.warn("PlaywrightTestSuiteRunner rerun: could not restore '{}': {}",
+                        pc.getPath(), e.getMessage());
+            }
+        }
+        if (restored == 0) {
+            return TestSuiteOutcome.error(
+                    "rerun-only: failed to restore any test files from suite #"
+                            + previousSuite.getId() + " into workspace");
+        }
+        log.info("PlaywrightTestSuiteRunner rerun: restored {}/{} test files from suite #{}",
+                restored, previousCases.size(), previousSuite.getId());
+
+        // Reconstruct a minimal TestPlan so the runner agent has journey context.
+        List<TestPlan.Journey> journeys = previousCases.stream()
+                .filter(pc -> pc.getPath() != null)
+                .map(pc -> new TestPlan.Journey(
+                        journeyIdFromPath(pc.getPath()),
+                        pc.getTitle() != null ? pc.getTitle() : pc.getPath(),
+                        List.of(),
+                        List.of(),
+                        pc.getPath()))
+                .toList();
+        TestPlan plan = new TestPlan(request.framework().key(), journeys, request.maxRetries());
+
+        PrWorkflowToolContext toolContext = new PrWorkflowToolContext(
+                request.suite(), request.workspace(), request.framework(),
+                request.previewUrl(),
+                addr.owner(), addr.repo(), addr.prNumber(),
+                apiClient);
+
+        SystemPrompt systemPrompt = request.bot().getSystemPrompt();
+        int effectiveRetries = effectiveRetries(plan, request.maxRetries());
+        TestRunnerAgent.Result runResult = runnerAgent.execute(
+                aiClient, toolContext, plan, effectiveRetries, systemPrompt);
+
+        List<PrTestCase> cases = caseRepository.findBySuiteOrderByIdAsc(request.suite());
+        int attempted = 0;
+        int failed = 0;
+        for (PrTestCase pc : cases) {
+            if (pc.getLastStatus() == null || pc.getLastStatus() == PrTestCaseStatus.PENDING) {
+                continue;
+            }
+            attempted++;
+            if (pc.getLastStatus() == PrTestCaseStatus.FAILED
+                    || pc.getLastStatus() == PrTestCaseStatus.ERROR) {
+                failed++;
+            }
+        }
+        if (attempted == 0) {
+            return TestSuiteOutcome.error(
+                    "rerun: TestRunnerAgent finished but no PrTestCase was executed (prTestRunInvocations="
+                            + runResult.prTestRunInvocations() + ", budgetExhausted="
+                            + runResult.budgetExhausted() + ")");
+        }
+        if (failed == 0) {
+            String summary = attempted + "/" + cases.size() + " passed (rerun)";
+            if (runResult.attachedArtifacts() > 0) {
+                summary += " · " + runResult.attachedArtifacts() + " artefact(s) attached";
+            }
+            return TestSuiteOutcome.passed(summary, attempted);
+        }
+        return TestSuiteOutcome.failed(failed + "/" + attempted + " failed (rerun)", attempted, failed);
+    }
+
+    /** Derives a stable journey id from a test file path, e.g. {@code tests/login.spec.ts → login}. */
+    private static String journeyIdFromPath(String path) {
+        if (path == null) return "journey";
+        String name = Path.of(path).getFileName().toString();
+        int dot = name.indexOf('.');
+        return dot > 0 ? name.substring(0, dot) : name;
+    }
+
+    private static int effectiveRetries(TestPlan plan, int workflowDefault) {        Integer fromPlan = plan.maxRetries();
         if (fromPlan == null) return workflowDefault;
         return Math.max(0, Math.min(workflowDefault, fromPlan));
     }
