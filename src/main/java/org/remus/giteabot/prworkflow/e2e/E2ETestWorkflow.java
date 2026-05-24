@@ -31,6 +31,7 @@ import org.springframework.stereotype.Component;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.time.Instant;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -128,9 +129,19 @@ public class E2ETestWorkflow implements PrWorkflow {
     public WorkflowParamsSchema paramsSchema() {
         return WorkflowParamsSchema.of(
                 new WorkflowParamField(E2eTestParam.FRAMEWORK, "Test framework",
-                        WorkflowParamField.ParamType.STRING, false,
+                        false,
                         DEFAULT_FRAMEWORK.key(),
-                        "playwright (default, well-tested) — pytest, k6, cypress are experimental and only smoke-tested."),
+                        "playwright (default, well-tested) — pytest, k6, cypress are experimental and only smoke-tested.",
+                        List.of(
+                                new WorkflowParamField.EnumOption(E2eTestFramework.PLAYWRIGHT.key(), "Playwright",
+                                        "Node.js — default, well-tested."),
+                                new WorkflowParamField.EnumOption(E2eTestFramework.PYTEST.key(), "pytest",
+                                        "Python — experimental."),
+                                new WorkflowParamField.EnumOption(E2eTestFramework.K6.key(), "k6",
+                                        "Grafana k6 load testing — experimental."),
+                                new WorkflowParamField.EnumOption(E2eTestFramework.CYPRESS.key(), "Cypress",
+                                        "Node.js — experimental.")
+                        )),
                 new WorkflowParamField(E2eTestParam.MAX_RETRIES, "Max retries per test",
                         WorkflowParamField.ParamType.INTEGER, false,
                         String.valueOf(DEFAULT_MAX_RETRIES),
@@ -141,13 +152,19 @@ public class E2ETestWorkflow implements PrWorkflow {
                         "Cost guard. Capped at " + ABSOLUTE_MAX_TEST_CASES
                                 + " regardless of the configured value."),
                 new WorkflowParamField(E2eTestParam.SUITE_LIFECYCLE, "Suite lifecycle",
-                        WorkflowParamField.ParamType.STRING, false,
+                        false,
                         SuiteLifecycleMode.EPHEMERAL.key(),
-                        "What happens to the generated suite. One of: "
-                                + "ephemeral (delete on PR close, default), "
-                                + "offer-as-pr (open a follow-up PR with the tests), "
-                                + "promote-on-merge (open follow-up PR against the default branch once the parent PR merges), "
-                                + "commit-to-pr (commit the tests directly onto the feature branch)."),
+                        "What happens to the generated suite after the PR closes.",
+                        List.of(
+                                new WorkflowParamField.EnumOption(SuiteLifecycleMode.EPHEMERAL.key(), "Ephemeral",
+                                        "Delete suite and test cases when the PR closes (default)."),
+                                new WorkflowParamField.EnumOption(SuiteLifecycleMode.OFFER_AS_PR.key(), "Offer as PR",
+                                        "Open a follow-up PR with the generated tests against the feature branch."),
+                                new WorkflowParamField.EnumOption(SuiteLifecycleMode.PROMOTE_ON_MERGE.key(), "Promote on merge",
+                                        "Once the parent PR merges, open a follow-up PR against the default branch."),
+                                new WorkflowParamField.EnumOption(SuiteLifecycleMode.COMMIT_TO_PR.key(), "Commit to PR",
+                                        "Commit the generated tests directly onto the feature branch.")
+                        )),
                 new WorkflowParamField(E2eTestParam.PROMOTION_THRESHOLD_PERCENT, "Promotion pass-rate threshold (%)",
                         WorkflowParamField.ParamType.INTEGER, false,
                         String.valueOf(DEFAULT_PROMOTION_THRESHOLD_PERCENT),
