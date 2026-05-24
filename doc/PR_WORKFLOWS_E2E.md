@@ -49,15 +49,18 @@ via `PrWorkflowContext.hints`.
    pre-enabled with `framework=playwright`, `maxRetries=1`,
    `maxTestCases=10`) or toggle the `E2E Tests` workflow on your own
    configuration (listed under **TESTING**, **disabled by default** on
-   the seeded `Default` configuration). Tune the per-workflow
+   the seeded `Default` configuration). The editor renders each workflow
+   as a **collapsible section** and remembers its expanded / collapsed
+   state in the browser; use the page-level **Expand all / Collapse all**
+   controls when you manage larger configurations. Tune the per-workflow
    parameters as needed:
 
    | Field            | Type    | Default      | Notes                                                                |
    |------------------|---------|--------------|----------------------------------------------------------------------|
-   | `framework`      | string  | `playwright` | One of `playwright`, `pytest`, `k6`, `cypress`. Only `playwright` is well-tested. |
+   | `framework`      | enum (radio group)  | `playwright` | One of `playwright`, `pytest`, `k6`, `cypress`. Only `playwright` is well-tested. |
    | `maxRetries`     | integer | `1`          | Per-test retry budget. A test that passes after retry is tagged `FLAKY`. Capped at 5. |
    | `maxTestCases`   | integer | `20`         | Hard cost guard. Capped at 100 server-side. |
-   | `suiteLifecycle` | string  | `ephemeral`  | See [Suite lifecycle modes](#suite-lifecycle-modes) below. |
+   | `suiteLifecycle` | enum (radio group)  | `ephemeral`  | See [Suite lifecycle modes](#suite-lifecycle-modes) below. |
    | `promotionThresholdPercent` | integer | `100` | Minimum percentage of executed cases that must pass for the suite to be **promoted** (offer-as-pr / commit-to-pr / promote-on-merge). `100` keeps the original "only fully green suites are promoted" behaviour; lower it (e.g. `80`) when you want partial successes to still trigger the configured promotion action. `ERROR` / `SKIPPED` suites are never promoted regardless of this value. See [Treating generated tests as a regression baseline](#treating-generated-tests-as-a-regression-baseline). |
 
 3. Save. The next PR-open / PR-synchronise webhook triggers the workflow.
@@ -76,7 +79,10 @@ review / issue-agent / writer-agent slots:
 
 The bot's *Preview* button renders all three texts alongside the
 existing review / coding / writer prompts so you can sanity-check them
-before saving.
+before saving. Both the *System prompts* edit page and the bot's
+preview modal render these long prompt bodies as **expandable sections**
+so operators can inspect one prompt at a time instead of scrolling
+through the full combined text.
 
 > 🛡️ **What you can and cannot edit.** These three editors hold the
 > agent's **role description only** — persona, intent, tone, policy.
@@ -148,12 +154,17 @@ The `suiteLifecycle` param controls what happens to the generated
 |---|---|---|---|---|
 | `ephemeral` *(default)* | — | — | — | No — suite is deleted on PR close. |
 | `commit-to-pr` | Successful run on the feature PR | feature branch (direct commit) | `tests/e2e/pr-{n}/` | No — tests land directly on the feature branch. |
-| `offer-as-pr` | Successful run on the feature PR | `ai-tests/pr-{n}` → feature branch | `tests/e2e/pr-{n}/` | "Add E2E tests for PR #N" — author reviews tests in isolation. |
-| `promote-on-merge` | PR-merged webhook on the parent PR | `ai-tests/promoted-pr-{n}` → default branch | `tests/e2e/` | "Promote E2E tests from merged PR #N" — tests join standard CI. |
+| `offer-as-pr` | Successful run on the feature PR | `ai-tests/pr-{n}-r{runId}` → feature branch | `tests/e2e/pr-{n}/` | "Add E2E tests for PR #N" — author reviews tests in isolation. |
+| `promote-on-merge` | PR-merged webhook on the parent PR | `ai-tests/promoted-pr-{n}-r{runId}` → default branch | `tests/e2e/` | "Promote E2E tests from merged PR #N" — tests join standard CI. |
 
 **Idempotency.** `PrWorkflowRun.followUpPrNumber` is set on the first
 successful promotion. Re-runs (`@bot rerun-tests`), late merge events
 and webhook retries all observe the populated field and no-op.
+
+**Unique branch naming for re-promotions.** The follow-up branch name now
+includes the workflow-run id (`-r{runId}`) so a fresh promotion attempt
+for the same parent PR does not collide with an older branch that was
+already pushed during an earlier run.
 
 **Conflict policy.** If the destination file already exists, the bot
 appends a numeric suffix before the first dot:
