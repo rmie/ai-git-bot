@@ -180,6 +180,24 @@
                                     </div>
                                 </div>
 
+                                <div class="accordion-item">
+                                    <h2 class="accordion-header">
+                                        <button class="accordion-button collapsed" type="button"
+                                                data-bs-toggle="collapse" data-bs-target="#collapseUnitTestAuthorPrompt"
+                                                aria-expanded="false" aria-controls="collapseUnitTestAuthorPrompt">
+                                            Unit-Test Author System-Prompt
+                                        </button>
+                                    </h2>
+                                    <div id="collapseUnitTestAuthorPrompt" class="accordion-collapse collapse"
+                                         data-bs-parent="#systemPromptsAccordion">
+                                        <div class="accordion-body">
+                                            <label for="unitTestAuthorSystemPrompt" class="form-label visually-hidden">Unit-Test Author System-Prompt</label>
+                                            <textarea class="form-control" id="unitTestAuthorSystemPrompt" th:field="*{unitTestAuthorSystemPrompt}"
+                                                      rows="14" required></textarea>
+                                        </div>
+                                    </div>
+                                </div>
+
                             </div>
                         </div>
                     </div>
