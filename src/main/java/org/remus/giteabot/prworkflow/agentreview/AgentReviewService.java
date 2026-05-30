@@ -130,7 +130,7 @@ public class AgentReviewService {
                 return false;
             }
 
-            repositoryClient.postPullRequestComment(owner, repo, prNumber, formatReview(review));
+            repositoryClient.postReviewComment(owner, repo, prNumber, formatReview(review));
             log.info("Agentic review completed for PR #{} in {}/{}", prNumber, owner, repo);
             return true;
         } catch (Exception e) {
