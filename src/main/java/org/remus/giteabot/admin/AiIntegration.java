@@ -46,22 +46,23 @@ public class AiIntegration {
     private int retryTruncatedChunkChars = 60000;
 
     /**
-     * If {@code true} (the current default), the agent loop uses the
-     * battle-tested JSON-in-prompt tool-calling path (the historical
-     * behaviour). If {@code false}, tool descriptors are sent natively via
-     * the provider's {@code tools}/{@code tool_use}/{@code tool_calls} API
-     * and the model's structured calls are dispatched directly.
+     * If {@code false} (the current default), tool descriptors are sent
+     * natively via the provider's {@code tools}/{@code tool_use}/{@code
+     * tool_calls} API and the model's structured calls are dispatched
+     * directly. If {@code true}, the agent loop falls back to the legacy
+     * JSON-in-prompt tool-calling path (the historical behaviour).
      *
-     * <p>Native function calling is currently considered <strong>experimental</strong>:
-     * it works well with frontier models but is sensitive to provider API
-     * changes and to weaker / smaller models that misuse tools. Operators
-     * who want to opt in flip the inverse {@code enableNativeToolCalling}
-     * switch in the admin UI (see the transient accessors below). New
-     * integrations default to legacy mode; native mode is expected to
-     * become the default once the upstream APIs stabilise further.
+     * <p>Native function calling is the <strong>recommended</strong> route
+     * for frontier models and is therefore enabled by default for new
+     * integrations. The legacy JSON path remains available as a fallback for
+     * weaker / smaller models or self-hosted backends where native tool use
+     * misbehaves in agentic workflows; operators flip the inverse
+     * {@code enableNativeToolCalling} switch in the admin UI (see the
+     * transient accessors below). llama.cpp always runs in legacy mode
+     * regardless of this flag.
      */
     @Column(name = "use_legacy_tool_calling", nullable = false)
-    private boolean useLegacyToolCalling = true;
+    private boolean useLegacyToolCalling = false;
 
     /**
      * UI-facing inverse of {@link #useLegacyToolCalling}. The admin form
@@ -73,10 +74,6 @@ public class AiIntegration {
     @Transient
     public boolean isEnableNativeToolCalling() {
         return !useLegacyToolCalling;
-    }
-
-    public void setEnableNativeToolCalling(boolean enableNativeToolCalling) {
-        this.useLegacyToolCalling = !enableNativeToolCalling;
     }
 
     @Column(nullable = false, updatable = false)

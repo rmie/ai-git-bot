@@ -65,6 +65,14 @@ public class AgentReviewWorkflow implements PrWorkflow {
     }
 
     @Override
+    public String description() {
+        return "Reviews the pull request with an LLM that can iteratively call read-only "
+                + "repository and MCP tools to gather context before writing its findings as a "
+                + "Markdown comment. Read-only — it never commits, pushes or posts a formal "
+                + "review action.";
+    }
+
+    @Override
     public PrWorkflowCategory category() {
         return PrWorkflowCategory.REVIEW;
     }

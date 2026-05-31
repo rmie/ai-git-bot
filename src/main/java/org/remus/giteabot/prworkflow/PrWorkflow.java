@@ -32,6 +32,18 @@ public interface PrWorkflow {
     String displayName();
 
     /**
+     * Short, human-readable summary (one or two sentences) of what the
+     * workflow does and when it triggers, shown beneath the workflow name in
+     * the workflow-selection UI.
+     *
+     * <p>The default implementation returns an empty string so the UI can
+     * omit the description line for workflows that do not supply one.</p>
+     */
+    default String description() {
+        return "";
+    }
+
+    /**
      * Coarse category for grouping in UI and for default-enable decisions.
      */
     PrWorkflowCategory category();

@@ -59,6 +59,13 @@ public class UnitTestWorkflow implements PrWorkflow {
     }
 
     @Override
+    public String description() {
+        return "Generates white-box unit tests for the pull-request diff, runs them with the "
+                + "project's own test runner, and (optionally) commits the passing tests onto the "
+                + "PR branch. Works on a checkout of the PR head — no preview deployment needed.";
+    }
+
+    @Override
     public PrWorkflowCategory category() {
         return PrWorkflowCategory.TESTING;
     }
