@@ -25,6 +25,7 @@ on `PrWorkflowRegistry`:
 |----------------|----------|--------------------------------------------------------------------------------------------------------|
 | `review`       | REVIEW   | The classical PR review — diff → LLM → inline + summary comments. Always-on for every bot by default. |
 | `e2e-test`     | TESTING  | Plans, authors and runs Playwright specs against a per-PR preview deployment. Opt-in per bot.         |
+| `unit-test-author` | TESTING | Generates white-box unit tests for the PR diff, runs them with the project's own test runner and commits them onto the PR branch. No deployment target needed. Opt-in per bot. See [`../PR_WORKFLOWS_UNIT_TEST.md`](../PR_WORKFLOWS_UNIT_TEST.md). |
 
 Workflows are reusable — adding a new one is a matter of implementing
 `PrWorkflow` and letting Spring DI register it (see

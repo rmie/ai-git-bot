@@ -162,7 +162,20 @@ public class ToolCatalog {
                     objectSchema(
                             prop("path",  "string", "Workspace-relative path of the artifact to attach."),
                             prop("title", "string", "Optional comment header; defaults to the file name."),
-                            required("path")))
+                            required("path"))),
+
+            // ---- unit-test-author tool (E2E role; operates on the real checkout) ----
+            entry("unit-test-write", ToolKind.PR_WORKFLOW, EnumSet.of(Role.E2E),
+                    "Write a generated unit-test file into the repository checkout and persist "
+                            + "(or update) the matching UnitTestCase row. The path is checkout-relative "
+                            + "and must live under the project's conventional test source set "
+                            + "(e.g. src/test/java/..., tests/..., *_test.go) — production code is "
+                            + "off-limits. Absolute paths or `..` traversal are rejected.",
+                    objectSchema(
+                            prop("path",    "string", "Checkout-relative path of the test file (e.g. \"src/test/java/com/acme/FooTest.java\")."),
+                            prop("content", "string", "Full UTF-8 file content."),
+                            prop("title",   "string", "Optional human-readable test-case title; used in the PR comment summary."),
+                            required("path", "content")))
     );
 
     /**

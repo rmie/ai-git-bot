@@ -9,7 +9,9 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -144,6 +146,48 @@ public class WorkspaceService {
             return true;
         }
         return !statusResult.output().isBlank();
+    }
+
+    /**
+     * Returns the workspace-relative paths of every file Git currently sees as
+     * changed (added, modified, renamed or untracked) in {@code workspaceDir}.
+     * Parsed from {@code git status --porcelain}; rename entries surface their
+     * destination path. Used by callers that need to assert which files are
+     * about to be committed — e.g. the unit-test workflow's pre-commit guard.
+     *
+     * @return the changed paths (forward slashes), never {@code null}.
+     */
+    public List<String> listChangedFiles(Path workspaceDir) {
+        List<String> changed = new ArrayList<>();
+        if (workspaceDir == null) {
+            return changed;
+        }
+        CommandResult statusResult = runCommand(workspaceDir.toFile(),
+                new String[]{"git", "status", "--porcelain"}, 10);
+        if (!statusResult.success() || statusResult.output() == null) {
+            log.warn("Could not list changed files via git status: {}",
+                    statusResult.output());
+            return changed;
+        }
+        for (String line : statusResult.output().split("\\R")) {
+            if (line.isBlank()) {
+                continue;
+            }
+            // Porcelain v1 format: "XY <path>" or "XY <old> -> <new>".
+            String entry = line.length() > 3 ? line.substring(3).trim() : line.trim();
+            int arrow = entry.indexOf(" -> ");
+            if (arrow >= 0) {
+                entry = entry.substring(arrow + 4).trim();
+            }
+            // Drop surrounding quotes Git adds for paths with special chars.
+            if (entry.length() >= 2 && entry.startsWith("\"") && entry.endsWith("\"")) {
+                entry = entry.substring(1, entry.length() - 1);
+            }
+            if (!entry.isBlank()) {
+                changed.add(entry.replace('\\', '/'));
+            }
+        }
+        return changed;
     }
 
     /**

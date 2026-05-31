@@ -121,6 +121,14 @@ public class E2ETestWorkflow implements PrWorkflow {
     }
 
     @Override
+    public String description() {
+        return "Deploys a preview of the pull request to its configured deployment target, then "
+                + "generates and runs end-to-end tests against the live preview and posts a "
+                + "Markdown summary. Requires a deployment target; supports re-run / regenerate "
+                + "slash commands.";
+    }
+
+    @Override
     public PrWorkflowCategory category() {
         return PrWorkflowCategory.TESTING;
     }

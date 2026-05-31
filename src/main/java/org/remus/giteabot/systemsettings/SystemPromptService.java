@@ -62,6 +62,9 @@ public class SystemPromptService {
         if (systemPrompt.getE2eRunnerSystemPrompt() == null || systemPrompt.getE2eRunnerSystemPrompt().isBlank()) {
             throw new IllegalArgumentException("E2E Runner System-Prompt is required");
         }
+        if (systemPrompt.getUnitTestAuthorSystemPrompt() == null || systemPrompt.getUnitTestAuthorSystemPrompt().isBlank()) {
+            throw new IllegalArgumentException("Unit-Test Author System-Prompt is required");
+        }
         boolean duplicateName = systemPrompt.getId() == null
                 ? systemPromptRepository.existsByName(systemPrompt.getName())
                 : systemPromptRepository.existsByNameAndIdNot(systemPrompt.getName(), systemPrompt.getId());

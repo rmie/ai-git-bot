@@ -19,6 +19,12 @@ default for every bot. Future milestones add additional workflows
 > tools before writing its review. See
 > [`PR_WORKFLOWS_AGENTIC_REVIEW.md`](PR_WORKFLOWS_AGENTIC_REVIEW.md).
 
+> **Unit-Test Author.** An opt-in, read-write workflow (category `TESTING`,
+> key `unit-test-author`) that generates white-box unit tests for the PR diff,
+> runs them with the project's own test runner and commits them onto the PR
+> branch. No deployment target / browser required. See
+> [`PR_WORKFLOWS_UNIT_TEST.md`](PR_WORKFLOWS_UNIT_TEST.md).
+
 ## Components
 
 
@@ -421,6 +427,8 @@ skipped with a clear PR comment until an operator wires one up.
 
 - [Concept & architecture](agentic-workflows/CONCEPT_AND_ARCHITECTURE.md)
 - [Implementation plan (M1–M7)](agentic-workflows/INTERNALS.md)
+- [Agentic PR Review workflow](PR_WORKFLOWS_AGENTIC_REVIEW.md)
+- [Unit-Test Author workflow](PR_WORKFLOWS_UNIT_TEST.md)
 - [Webhook recipes for CI systems](PR_WORKFLOWS_WEBHOOK_RECIPES.md)
 - [ARCHITECTURE.md](ARCHITECTURE.md) — overall system design
 - [AGENT.md](AGENT.md) — coding/writer agents reused by future PR workflows
