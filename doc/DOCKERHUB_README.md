@@ -13,6 +13,7 @@ AI-Git-Bot turns those chores into **repeatable, automated workflows** that run 
 | 🧾 **Writing a good issue** before any code is written | A **writer bot** inspects related issues + the repo (read-only), asks the *minimum* clarifying questions, and produces a structured `AI Created Issue: …` with acceptance criteria. |
 | 🔍 **Reviewing PRs consistently** when reviewers are swamped | A **review bot** posts inline + summary review feedback every time it is requested as reviewer; large diffs are chunked, `@bot` mentions keep follow-up Q&A in the PR thread. |
 | 🧪 **Writing regression E2E tests** for the bug you just fixed | The **Full-stack QA** workflow plans, authors, deploys, and runs Playwright tests per PR, posts the report as a comment, and tears the environment down on PR close. |
+| 🔬 **Writing unit tests for the code in a PR** | The **AI Unit Tests** workflow generates focused white-box tests for the PR diff, runs them with the project's own runner, commits them onto the PR branch, and posts the result + coverage. No preview environment needed. |
 | 🛠️ **Implementing boring follow-up issues** (rename, dep bump, small refactor) | A **coding bot** reads the source, drafts the change in a workspace, validates with the project's own build tooling (Maven / Gradle / npm / Go / Cargo / .NET), and opens a PR. |
 | 🔁 **Re-running tests / regenerating coverage** when something flaked | `@bot rerun-tests` re-executes the suite; `@bot regenerate-tests <feedback>` re-plans the suite with operator hints. |
 | 🧹 **Tearing down stale preview environments** | The PR-close lifecycle hook calls the deployment target's `teardown` action (webhook, MCP tool, static no-op, or a CI workflow dispatch via the `CI_ACTION` strategy). |
@@ -28,7 +29,15 @@ AI-Git-Bot turns those chores into **repeatable, automated workflows** that run 
 | **Issue → Better Issue** (writer agent) | Issue assigned to a writer bot | A structured `AI Created Issue` with acceptance criteria | ✅ |
 | **Interactive Q&A** | `@bot` mention in PR / inline review comment | Threaded reply with file + diff context | ✅ |
 | **Full-stack QA** (E2E tests) | PR opened on a bot with an `e2e-test` workflow + deployment target | Generated Playwright suite, run report, environment teardown on PR close | ✅ |
+| **AI Unit Tests** | PR opened on a bot with the `unit-test-author` workflow (or `@bot generate-tests`) | White-box unit tests generated for the diff, run with the project's own runner, committed onto the PR branch, result + coverage posted as a PR comment | ✅ |
 | **Suite promotion** | Operator opt-in per suite | Follow-up PR that "graduates" a generated suite into the repo | ✅ shipped |
+
+## Recent additions in 1.9.0
+
+- **AI Unit Tests** (`unit-test-author`) add a PR-native white-box test authoring workflow that runs on a checkout of the PR head and uses the project's own runner (`mvn`, `gradle`, `npm`, `pytest`, `go`, `cargo`, `dotnet`, `bundle`, `make`, `gcc`, `g++`).
+- **Per-bot User Whitelist** lets operators restrict which Git usernames may trigger AI-spending interactions such as PR opens/syncs, `@bot` mentions, inline comments, and issue-agent runs.
+- **Dark theme support** adds an admin-UI navbar toggle with persisted auto / dark / light preference.
+- **Repository discovery metadata** now ships with `SECURITY.md`, `CITATION.cff`, `codemeta.json`, `llms.txt`, and `llms-full.txt` so humans, catalogs, search engines, and LLM tooling all get an up-to-date project entry point.
 
 ## 🌍 Where the E2E workflow deploys its preview environment
 
@@ -53,6 +62,8 @@ Then:
 3. Configure AI and Git integrations via the web UI
 4. Create a **Coding bot** or **Writer bot** and configure webhooks in your Git provider
 5. (Optional) Add a deployment target and enable the **Full-stack QA** workflow on the bot
+6. (Optional) Enable **AI Unit Tests** in the bot's workflow configuration when you want generated white-box tests for every PR
+7. (Optional) Set a **User Whitelist** on public repos so unknown users cannot burn your AI budget
 
 ## Bot Types
 
@@ -64,13 +75,15 @@ Read-only issue improvement. Inspects related issues and repo context in a sandb
 
 ## 🧱 Under the hood: an AI- and Git-agnostic gateway
 
-The reason a single bot serves four Git platforms and five AI providers is structural — every Git platform plugs in through a `RepositoryApiClient` SPI, every AI provider through an `AiClient` SPI, and tool calls (built-in + MCP) flow through a unified router. That's *enabling infrastructure*, not the headline feature — the headline is the workflows above, which happen to work everywhere because of this design.
+The reason a single bot serves five Git-platform integrations and five AI-provider families is structural — every Git platform plugs in through a `RepositoryApiClient` SPI, every AI provider through an `AiClient` SPI, and tool calls (built-in + MCP) flow through a unified router. That's *enabling infrastructure*, not the headline feature — the headline is the workflows above, which happen to work everywhere because of this design.
 
 - 🔗 One configuration, many repositories
 - 🔀 Mix & match any supported AI provider with any supported Git platform
 - 🛡️ Centralised control of API keys, tokens, prompts, and tool whitelists
 - 🔐 AES-256-GCM at rest for every credential
 - 🧩 MCP-ready with per-tool whitelisting
+- 🚧 Optional per-bot caller whitelist to protect public repos from unwanted token spend
+- 🌓 Auto / dark / light theme toggle in the admin UI
 - 📊 Single dashboard with stats + audit across every bot and workflow run
 - 🪶 One Docker image + one PostgreSQL database. No Kubernetes required.
 
@@ -188,6 +201,9 @@ Built-in health check runs every 30s with a 30s start period.
 - [Architecture](https://github.com/tmseidel/ai-git-bot/blob/main/doc/ARCHITECTURE.md)
 - [Agent Documentation](https://github.com/tmseidel/ai-git-bot/blob/main/doc/AGENT.md)
 - [PR Workflows guide](https://github.com/tmseidel/ai-git-bot/blob/main/doc/PR_WORKFLOWS.md) — review / E2E / deployment targets / slash commands
+- [Unit-Test Author workflow](https://github.com/tmseidel/ai-git-bot/blob/main/doc/PR_WORKFLOWS_UNIT_TEST.md) — AI unit-test generation, runners, slash commands, write-safety model
+- [Agentic Review workflow](https://github.com/tmseidel/ai-git-bot/blob/main/doc/PR_WORKFLOWS_AGENTIC_REVIEW.md) — read-only repo/MCP-assisted PR review
+- [Bot Tool Configurations](https://github.com/tmseidel/ai-git-bot/blob/main/doc/BOT_TOOL_CONFIGURATIONS.md)
 - [PR Workflows roadmap + user stories](https://github.com/tmseidel/ai-git-bot/blob/main/doc/agentic-workflows/README.md) — persona-driven stories for `STATIC` / `WEBHOOK` / `MCP` / `CI_ACTION`
 - [MCP Server Handling](https://github.com/tmseidel/ai-git-bot/blob/main/doc/MCP_SERVER_HANDLING.md)
 - [Gitea Setup Guide](https://github.com/tmseidel/ai-git-bot/blob/main/doc/GITEA_SETUP.md)
@@ -195,6 +211,10 @@ Built-in health check runs every 30s with a 30s start period.
 - [GitLab Setup Guide](https://github.com/tmseidel/ai-git-bot/blob/main/doc/GITLAB_SETUP.md)
 - [Bitbucket Setup Guide](https://github.com/tmseidel/ai-git-bot/blob/main/doc/BITBUCKET_SETUP.md)
 - [Deployment Guide](https://github.com/tmseidel/ai-git-bot/blob/main/doc/DEPLOYMENT.md)
+- [Security Policy](https://github.com/tmseidel/ai-git-bot/blob/main/SECURITY.md)
+- [Citation Metadata](https://github.com/tmseidel/ai-git-bot/blob/main/CITATION.cff)
+- [CodeMeta](https://github.com/tmseidel/ai-git-bot/blob/main/codemeta.json)
+- [LLM Index](https://github.com/tmseidel/ai-git-bot/blob/main/llms.txt)
 
 ## License
 

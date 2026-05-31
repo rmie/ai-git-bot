@@ -177,7 +177,7 @@ When a PR is opened with the bot already assigned as reviewer — or the bot is 
 
 ## 🧱 Under the hood: an AI- and Git-agnostic gateway
 
-The reason a single bot can serve four Git platforms and five AI providers is that AI-Git-Bot is structured as a small **gateway**: every Git platform plugs in through a `RepositoryApiClient` SPI, every AI provider through an `AiClient` SPI, and tool calls (built-in + MCP) flow through a unified `AgentToolRouter`. That's useful — but it's *enabling infrastructure*, not the headline feature. The headline feature is the **workflows above**, which happen to work everywhere because of this design.
+The reason a single bot can serve five Git-platform integrations and five AI-provider families is that AI-Git-Bot is structured as a small **gateway**: every Git platform plugs in through a `RepositoryApiClient` SPI, every AI provider through an `AiClient` SPI, and tool calls (built-in + MCP) flow through a unified `AgentToolRouter`. That's useful — but it's *enabling infrastructure*, not the headline feature. The headline feature is the **workflows above**, which happen to work everywhere because of this design.
 
 If you do care about the plumbing, see the [Architecture documentation](doc/ARCHITECTURE.md). At a glance:
 
@@ -213,6 +213,8 @@ If you do care about the plumbing, see the [Architecture documentation](doc/ARCH
 - **Session memory per PR**, persisted in PostgreSQL, so follow-up questions stay context-aware
 - **Reusable named system prompts** for review / coding / writer personas — assign one per bot
 - **Per-bot built-in tool whitelist** ([BOT_TOOL_CONFIGURATIONS.md](doc/BOT_TOOL_CONFIGURATIONS.md))
+- **Per-bot User Whitelist** — optional username allow-list that prevents unknown users from triggering AI-spending interactions on public repos
+- **Light / dark admin UI theme** — navbar toggle cycles between auto, dark, and light
 - **Self-hostable end-to-end** including local LLMs (Ollama, llama.cpp) — nothing has to leave your infrastructure
 - **Lightweight ops** — one Docker image, one PostgreSQL database. No Kubernetes required.
 - **Health endpoint** — `/actuator/health` for orchestrators
@@ -296,7 +298,10 @@ This starts:
    - Go to **Bots → New Bot**
    - Choose **Coding bot** for pull-request review/issue implementation, or **Writer bot** for technical-writing issue drafts
    - Select your AI and Git integrations
+   - Choose a **Workflow Configuration** (leave empty for the default review-only setup; enable **AI Unit Tests** or **Full-stack QA** as needed)
+   - If you use **Full-stack QA**, select a **Deployment Target**
    - Select a system prompt entry from **System settings**
+   - Optionally set a **User Whitelist** for public repositories so unknown users cannot trigger token-spending interactions
    - Copy the generated **Webhook URL**
 
 ### 4. Configure Webhooks
@@ -343,6 +348,10 @@ The bot receives webhooks from your Git provider, fetches PR diffs, sends them t
 | [Bot Tool Configurations](doc/BOT_TOOL_CONFIGURATIONS.md) | Per-bot whitelist of built-in agent tools — admin UI, runtime enforcement, default config, migration |
 | [Architecture](doc/ARCHITECTURE.md) | Component diagrams, request flows, webhook routing |
 | [Agent](doc/AGENT.md) | Coding agent and technical writer agent — setup, tools, and workflows |
+| [PR Workflows](doc/PR_WORKFLOWS.md) | Workflow configurations, orchestration, deployment targets, and PR workflow lifecycle |
+| [Unit-Test Author Workflow](doc/PR_WORKFLOWS_UNIT_TEST.md) | AI unit-test generation for PR diffs, supported runners, slash commands, and write-safety guards |
+| [E2E Workflow](doc/PR_WORKFLOWS_E2E.md) | Full-stack QA workflow, deployment callbacks, preview environments, and suite lifecycle |
+| [Agentic Review Workflow](doc/PR_WORKFLOWS_AGENTIC_REVIEW.md) | Read-only agentic PR review with repository and MCP tool access |
 | [Tool Calling KB](doc/TOOL_CALLING.md) | Why provider tool APIs differ, abstractions, fallbacks, and what to do when a model misbehaves (incl. the legacy tool-calling switch) |
 | **Git Provider Setup** | |
 | [Gitea Setup](doc/GITEA_SETUP.md) | Bot user creation, permissions, API tokens for Gitea |

@@ -6,7 +6,7 @@
   "url": "https://github.com/tmseidel/ai-git-bot",
   "issueTracker": "https://github.com/tmseidel/ai-git-bot/issues",
   "license": "https://spdx.org/licenses/MIT.html",
-  "version": "1.8.0",
+  "version": "1.9.0",
   "programmingLanguage": [
     "Java",
     "HTML",
@@ -27,7 +27,11 @@
   "keywords": [
     "AI code review",
     "code review bot",
+    "pull request automation",
     "coding agent",
+    "AI unit tests",
+    "unit test author",
+    "white-box test generation",
     "technical writer agent",
     "issue implementation agent",
     "self-hosted AI",
@@ -49,7 +53,7 @@
     "Docker",
     "PostgreSQL"
   ],
-  "description": "AI-Git-Bot is a lightweight, self-hostable gateway application that connects Git platforms with AI providers for pull-request code reviews, interactive PR conversations, autonomous issue implementation, and technical-writing issue refinement.",
+  "description": "AI-Git-Bot is a lightweight, self-hostable gateway application that connects Git platforms with AI providers for pull-request code reviews, interactive PR conversations, AI unit-test authoring, autonomous issue implementation, and technical-writing issue refinement.",
   "author": [
     {
       "@type": "Person",

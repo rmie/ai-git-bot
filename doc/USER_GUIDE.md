@@ -4,10 +4,11 @@
 
 AI-Git-Bot is a **Gateway application** that provides a web-based management interface for creating and managing AI-powered code review bots. Each bot connects an AI provider (Anthropic, OpenAI, Google AI, Ollama, or llama.cpp) with a Git provider (Gitea, GitHub, GitHub Enterprise, GitLab, or Bitbucket Cloud) and has its own unique webhook URL. The Gateway architecture allows you to manage multiple bots with different configurations across different Git platforms — all from a single dashboard.
 
-Besides classic pull-request review bots, AI-Git-Bot also supports **issue-based agent workflows**:
+Besides classic pull-request review bots, AI-Git-Bot also supports **issue-based agent workflows** and **opt-in PR workflows**:
 
 - **Coding bots** can implement assigned issues and open pull requests.
 - **Writer bots** can improve vague issues into structured, implementation-ready follow-up issues.
+- **Workflow configurations** let you opt bots into PR Review, Agentic PR Review, Full-stack QA (E2E), and AI Unit Tests without changing every bot globally.
 
 All AI and Git configuration is managed exclusively through the web UI and stored in the database. There are no environment variables for AI providers, Git connections, or bot usernames.
 
@@ -34,6 +35,8 @@ The dashboard (`/dashboard`) provides an overview of all your bots and key stati
 - **AI Tokens**: Total tokens sent to and received from AI providers
 
 The bot table shows each bot's name, status, integrations, and recent activity.
+
+Use the theme toggle in the navbar to cycle between **auto**, **dark**, and **light**. The preference is stored in your browser.
 
 ## Managing AI Integrations
 
@@ -246,11 +249,60 @@ Bots are the core entities that connect an AI provider with a Git provider. Navi
    - **System Prompt**: Select one of the prompt entries configured under **System settings → System prompts**. Use **Preview** next to the dropdown to review the code-review, issue-agent, writer-agent, and the three E2E (planner / author / runner) instructions before saving. The preview opens as an expandable panel view so long prompts can be inspected section by section.
    - **MCP Configuration** *(optional)*: Select a saved MCP configuration. Use **Details** next to the dropdown to open a read-only list of the currently selected MCP tools.
    - **Tool Configuration** *(required)*: Select a saved built-in tool configuration. New bots default to **Default** (all built-in tools enabled). Use **Details** next to the dropdown to open a read-only list of the built-in tools enabled for the selected configuration. See [Tool Configurations](#tool-configurations) below and [Bot Tool Configurations](BOT_TOOL_CONFIGURATIONS.md) for the full reference.
+   - **Workflow Configuration** *(optional)*: Select which PR workflows should run for this bot. Leave empty to inherit the auto-bootstrapped default configuration, which is **review-only**. Use **Details** next to the dropdown to inspect the selected workflows and any persisted parameters.
+   - **Deployment Target** *(optional)*: Select the per-PR preview environment used by workflows that need a live deployment, such as **Full-stack QA** / E2E tests.
    - **AI Integration**: Select an AI integration from the dropdown
    - **Git Integration**: Select a Git integration from the dropdown
+   - **User Whitelist** *(optional)*: Restrict AI-spending interactions to a set of Git usernames. This is recommended for public repositories.
    - **Enabled**: Whether the bot is active
    - **Agent Enabled**: Whether the AI agent feature (issue implementation) is active for a coding bot. This option is hidden for writer bots.
 3. Click **Save**
+
+## Workflow Configurations
+
+Workflow configurations are managed in **System settings → Workflow configurations**. They are named whitelists of PR workflows that run on every pull-request webhook for bots using that configuration.
+
+If a bot's **Workflow Configuration** field is left empty, it inherits the auto-bootstrapped **default** configuration, which is **review-only**.
+
+### Why use workflow configurations?
+
+- Keep conservative bots on classic **PR Review** only.
+- Opt selected bots into **Agentic PR Review**, **Full-stack QA** (E2E), or **AI Unit Tests** without affecting every repository.
+- Persist workflow-specific parameters, such as E2E or AI-unit-test options, in one reusable place.
+
+### Create or edit a workflow configuration
+
+1. Open **System settings → Workflow configurations**.
+2. Click **Add**, **Clone**, or **Edit**.
+3. Enter a descriptive name such as *Review only*, *Review + AI Unit Tests*, or *Review + E2E*.
+4. Click **Save and select workflows**.
+
+### Select which PR workflows are enabled
+
+The workflow-selection screen provides:
+
+- one row per registered workflow with display name, stable workflow key, category, and description
+- expand/collapse controls for workflows that expose configurable parameters
+- persisted workflow parameters per configuration
+- sequential execution in stable order (lexicographic by workflow key)
+
+### Built-in workflows
+
+| Workflow | Key | Category | Notes |
+|---|---|---|---|
+| **PR Review** | `review` | `REVIEW` | Default classic AI review comment workflow. |
+| **Agentic PR Review** | `agentic-review` | `REVIEW` | Read-only repo/MCP-assisted review before posting findings. |
+| **E2E Tests** | `e2e-test` | `TESTING` | Requires a **Deployment Target** because it tests against a live preview. |
+| **AI Unit Tests** | `unit-test-author` | `TESTING` | Generates white-box unit tests for the PR diff and runs them with the project's own test runner. |
+
+See [PR Workflows](PR_WORKFLOWS.md), [E2E Workflow](PR_WORKFLOWS_E2E.md), [Unit-Test Author Workflow](PR_WORKFLOWS_UNIT_TEST.md), and [Agentic Review Workflow](PR_WORKFLOWS_AGENTIC_REVIEW.md) for the full behavior of each workflow.
+
+### The Default workflow configuration
+
+- A configuration named **Default** is always present.
+- It cannot be renamed or deleted.
+- New or unassigned bots inherit it automatically.
+- It starts as **review-only**; clone it when you want a customised workflow set.
 
 ## MCP Configurations and Tool Selection
 

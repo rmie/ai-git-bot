@@ -14,7 +14,7 @@ This file provides a compact, LLM-friendly overview of AI-Git-Bot. It is intende
 
 ## One-sentence summary
 
-AI-Git-Bot is a self-hosted AI gateway that connects Git platforms with AI providers to perform reviewer-triggered pull-request reviews, interactive PR conversations, autonomous issue implementation, and technical-writing issue refinement.
+AI-Git-Bot is a self-hosted AI gateway that connects Git platforms with AI providers to perform reviewer-triggered pull-request reviews, interactive PR conversations, AI unit-test authoring, autonomous issue implementation, and technical-writing issue refinement.
 
 ## What the project does
 
@@ -59,7 +59,13 @@ Supported AI/provider styles include:
    - It can create a linked implementation-ready issue with assumptions, acceptance criteria, and testable requirements.
    - It uses a read-only issue drafting workflow and does not modify repository files.
 
-5. Self-hosted AI governance
+5. AI unit-test author workflow
+   - Bots can opt into the `unit-test-author` PR workflow.
+   - It generates focused white-box unit tests for the PR diff, runs them with the repository's own test runner, and can commit them onto the PR branch.
+   - Supported runners include Maven, Gradle, npm, pytest, Go, Cargo, .NET, Bundle, Make, GCC, and G++.
+   - It can also be triggered explicitly with `@bot generate-tests` or re-run with `@bot rerun-unit-tests`.
+
+6. Self-hosted AI governance
    - Teams can run the gateway in their own infrastructure.
    - Credentials are centrally configured and encrypted at rest.
    - Local LLM setups via Ollama or llama.cpp help with compliance and data residency requirements.
@@ -68,9 +74,13 @@ Supported AI/provider styles include:
 
 ### Overview and operation
 
-- `README.md`: main project overview, feature list, diagrams, screenshots, quick start, and documentation index.
+- `README.md`: main project overview, feature list, diagrams, screenshots, quick start, and documentation index.  
 - `doc/USER_GUIDE.md`: web UI guide for creating AI integrations, Git integrations, bots, prompts, and operating workflows.
-- `doc/DEPLOYMENT.md`: Docker Compose deployment, configuration, environment variables, and production notes.
+- `doc/PR_WORKFLOWS.md`: workflow configurations, PR-workflow orchestration, deployment targets, and lifecycle details.
+- `doc/PR_WORKFLOWS_UNIT_TEST.md`: AI unit-test workflow, supported runners, slash commands, and write-safety model.
+- `doc/PR_WORKFLOWS_E2E.md`: Full-stack QA workflow and preview-environment lifecycle.
+- `doc/PR_WORKFLOWS_AGENTIC_REVIEW.md`: read-only agentic PR review workflow.
+- `doc/DEPLOYMENT.md`: Docker Compose deployment, configuration, environment variables, and production notes.     
 - `doc/LOCAL_DEVELOPMENT.md`: local build/test instructions and project structure.
 - `CHANGELOG.md`: release and unreleased change notes.
 - `SECURITY.md`: vulnerability reporting and security expectations.
@@ -81,6 +91,7 @@ Supported AI/provider styles include:
 
 - `doc/ARCHITECTURE.md`: gateway architecture, request flow, persistence, and component diagrams.
 - `doc/AGENT.md`: coding agent and technical writer agent design, prompts, tools, and workflow details.
+- `doc/BOT_TOOL_CONFIGURATIONS.md`: per-bot built-in tool whitelists for agent execution.
 - `doc/MCP_SERVER_HANDLING.md`: MCP server JSON configuration, selected-tool persistence, bot details UI, and transparency.
 
 ### Git platform setup
@@ -143,15 +154,17 @@ Run with Docker Compose:
 docker compose up -d
 ```
 
-After startup, open `http://localhost:8080`, create the initial admin account, configure AI and Git integrations, create a bot, and register the bot webhook URL in the chosen Git platform.
+After startup, open `http://localhost:8080`, create the initial admin account, configure AI and Git integrations, create a bot, choose an appropriate workflow configuration, and register the bot webhook URL in the chosen Git platform.
 
 ## Configuration concepts
 
 - AI integrations: provider type, API endpoint/key/model, and provider-specific options.
 - Git integrations: provider type, base URL, token, and repository access configuration.
-- Bots: connect an AI integration, a Git integration, bot type, prompts, and webhook behavior.
-- System prompts: reusable persona/instruction templates for review, coding-agent, and writer-agent workflows.
-- MCP server configurations: JSON-based remote tool definitions plus a persisted per-configuration whitelist.
+- Bots: connect an AI integration, a Git integration, bot type, prompts, workflow configuration, deployment target, and webhook behavior.
+- Workflow configurations: named whitelists of PR workflows (review, agentic review, E2E tests, AI unit tests) plus their persisted parameters.
+- System prompts: reusable persona/instruction templates for review, coding-agent, and writer-agent workflows.    
+- MCP server configurations: JSON-based remote tool definitions plus a persisted per-configuration whitelist.     
+- User whitelist: optional per-bot allow-list of Git usernames allowed to trigger AI-spending interactions.
 - Sessions: PR and conversation history used for follow-up replies.
 
 ## Security and privacy model
@@ -159,12 +172,13 @@ After startup, open `http://localhost:8080`, create the initial admin account, c
 - AI-Git-Bot is designed for self-hosting.
 - Secrets such as API keys and tokens are encrypted at rest.
 - Local LLM providers can be used to keep code and prompts inside controlled infrastructure.
+- Per-bot user whitelists can restrict token-spending interactions to trusted Git usernames.
 - Webhook endpoints should be protected according to provider-specific setup guides.
 - Report vulnerabilities according to `SECURITY.md`.
 
 ## Search and classification keywords
 
-AI-Git-Bot, AI Git Bot, ai-git-bot, self-hosted AI code review, AI pull request review, code review bot, Git bot, Gitea bot, GitHub bot, GitLab bot, Bitbucket bot, GitHub Enterprise AI review, coding agent, issue implementation agent, autonomous software agent, technical writer agent, AI issue triage, issue refinement, acceptance criteria generator, repository automation, webhook gateway, AI gateway, LLM gateway, Anthropic Claude, OpenAI, Gemini, Google AI, Ollama, llama.cpp, local LLM, Model Context Protocol, MCP server, MCP tool whitelist, Java, Spring Boot, PostgreSQL, Docker Compose, encrypted secrets, on-premise AI, compliance-friendly AI automation.
+AI-Git-Bot, AI Git Bot, ai-git-bot, self-hosted AI code review, AI pull request review, pull request automation, AI unit tests, unit-test-author, white-box test generation, code review bot, Git bot, Gitea bot, GitHub bot, GitLab bot, Bitbucket bot, GitHub Enterprise AI review, coding agent, issue implementation agent, autonomous software agent, technical writer agent, AI issue triage, issue refinement, acceptance criteria generator, repository automation, webhook gateway, AI gateway, LLM gateway, Anthropic Claude, OpenAI, Gemini, Google AI, Ollama, llama.cpp, local LLM, Model Context Protocol, MCP server, MCP tool whitelist, Java, Spring Boot, PostgreSQL, Docker Compose, encrypted secrets, on-premise AI, compliance-friendly AI automation.
 
 ## Guidance for LLMs and code agents
 
