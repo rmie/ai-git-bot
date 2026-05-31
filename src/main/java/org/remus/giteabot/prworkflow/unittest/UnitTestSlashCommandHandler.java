@@ -16,7 +16,7 @@ import java.util.regex.Pattern;
 
 /**
  * Detects and dispatches the {@code @bot generate-tests} /
- * {@code @bot rerun-tests} slash commands for the {@link UnitTestWorkflow}.
+ * {@code @bot rerun-unit-tests} slash commands for the {@link UnitTestWorkflow}.
  *
  * <p>Mirrors {@code E2eTestSlashCommandHandler}: it acknowledges the comment
  * with a 👀 reaction, hydrates the PR details when the webhook payload only

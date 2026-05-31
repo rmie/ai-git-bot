@@ -170,12 +170,27 @@ public class UnitTestService {
             if (request.lifecycleMode() == SuiteLifecycleMode.COMMIT_TO_PR
                     && workspaceService.hasUncommittedChanges(workspace)) {
                 context.requireActive("before committing generated unit tests");
-                committed = workspaceService.commitAndPush(workspace, headBranch,
-                        "test: add AI-generated unit tests for PR #" + prNumber,
-                        GIT_AUTHOR_NAME, GIT_AUTHOR_EMAIL, false);
-                context.appendStep("unit-test-commit",
-                        committed ? "Committed generated tests to " + headBranch
-                                : "Commit skipped / failed");
+                // Pre-commit guard (defence-in-depth behind the write-time guard):
+                // re-verify every changed file is an allowed test location for the
+                // framework. If anything outside a test location was touched we
+                // must not push it — the workflow's "production code is never
+                // touched" guarantee takes precedence over committing the tests.
+                java.util.List<String> offending = workspaceService.listChangedFiles(workspace).stream()
+                        .filter(p -> !UnitTestPathGuard.isAllowedTestPath(framework, p))
+                        .toList();
+                if (!offending.isEmpty()) {
+                    log.warn("Aborting unit-test commit for PR #{}: changed files outside allowed "
+                            + "test locations for {}: {}", prNumber, framework.key(), offending);
+                    context.appendStep("unit-test-commit",
+                            "Commit aborted — non-test files changed: " + offending);
+                } else {
+                    committed = workspaceService.commitAndPush(workspace, headBranch,
+                            "test: add AI-generated unit tests for PR #" + prNumber,
+                            GIT_AUTHOR_NAME, GIT_AUTHOR_EMAIL, false);
+                    context.appendStep("unit-test-commit",
+                            committed ? "Committed generated tests to " + headBranch
+                                    : "Commit skipped / failed");
+                }
             }
 
             // Run the project's own test runner for the report (after committing,

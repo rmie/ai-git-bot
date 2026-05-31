@@ -24,11 +24,31 @@ class UnitTestFrameworkTest {
     }
 
     @Test
-    void everyFrameworkHasARunCommandAndPrefixes() {
+    void everyFrameworkHasARunCommandAndTestLocationRule() {
         for (UnitTestFramework f : UnitTestFramework.values()) {
             assertThat(f.defaultRunCommand()).isNotEmpty();
-            assertThat(f.allowedTestPrefixes()).isNotEmpty();
+            // Every framework must define at least one way to recognise a test
+            // location — a dedicated test-root prefix, a test directory segment,
+            // or a test filename suffix (Go relies solely on *_test.go).
+            boolean hasRule = !f.allowedTestPrefixes().isEmpty()
+                    || !f.allowedTestPathSegments().isEmpty()
+                    || !f.allowedTestFileSuffixes().isEmpty();
+            assertThat(hasRule)
+                    .as("framework %s must define a test-location rule", f)
+                    .isTrue();
         }
+    }
+
+    @Test
+    void productionSourceRootsAreNeverWritableTestLocations() {
+        // Regression guard: bare production source roots must never be accepted
+        // as test locations (npm/cargo previously allowed src/).
+        assertThat(UnitTestPathGuard.isAllowedTestPath(UnitTestFramework.NPM, "src/index.js")).isFalse();
+        assertThat(UnitTestPathGuard.isAllowedTestPath(UnitTestFramework.CARGO, "src/lib.rs")).isFalse();
+        // But genuine co-located / dedicated test files are still allowed.
+        assertThat(UnitTestPathGuard.isAllowedTestPath(UnitTestFramework.NPM, "src/util/__tests__/foo.js")).isTrue();
+        assertThat(UnitTestPathGuard.isAllowedTestPath(UnitTestFramework.NPM, "src/foo.test.ts")).isTrue();
+        assertThat(UnitTestPathGuard.isAllowedTestPath(UnitTestFramework.CARGO, "tests/integration.rs")).isTrue();
     }
 }
 

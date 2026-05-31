@@ -36,14 +36,25 @@ touched. Three independent layers enforce this:
 1. **Tool surface** — the author agent advertises a single write tool,
    `unit-test-write`. No general `patch-file` / `delete-file` / build tool is
    offered to this stage.
-2. **Sandbox + test-directory guard** — `UnitTestToolExecutor` rejects any
+2. **Sandbox + test-location guard** — `UnitTestToolExecutor` rejects any
    path that escapes the checkout (absolute paths, `..` traversal, symlinks)
-   **and** any path that is not under the resolved framework's conventional
-   test source directory (e.g. `src/test/` for Maven/Gradle, `tests/` for
-   pytest, `*_test.go` for Go).
-3. **Workflow side-effects** — only the PR's own branch is pushed, and the
-   commit is created **before** the test run so build artefacts can never
-   pollute it.
+   **and** any path that is not a legitimate test location for the resolved
+   framework, as decided by `UnitTestPathGuard`. A path qualifies only when it
+   sits under a dedicated test root (e.g. `src/test/` for Maven/Gradle,
+   `tests/` for pytest/cargo, `test/`/`tests/`/`__tests__/` for npm), in a
+   `__tests__/` segment anywhere (the `src/**/__tests__/` convention), or
+   carries a test filename convention (`*_test.go`, `*.test.js`, `*.spec.ts`).
+   Bare production source roots such as `src/index.js` or `src/lib.rs` are
+   **rejected**. (Cargo's inline `#[cfg(test)]` unit tests live inside `src/`
+   modules and are therefore intentionally out of scope — only the dedicated
+   `tests/` integration directory is writable.)
+3. **Pre-commit guard** — before pushing, `UnitTestService` re-checks every
+   file Git reports as changed against the same `UnitTestPathGuard`. If
+   anything outside a test location was touched, the commit is **aborted**
+   (the tests are still reported, but never pushed). Only the PR's own branch
+   is pushed, and the commit is created **before** the test run so build
+   artefacts can never pollute it.
+
 
 ## Flow
 

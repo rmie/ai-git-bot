@@ -4,13 +4,13 @@ import lombok.extern.slf4j.Slf4j;
 import org.remus.giteabot.prworkflow.unittest.UnitTestCase;
 import org.remus.giteabot.prworkflow.unittest.UnitTestCaseRepository;
 import org.remus.giteabot.prworkflow.unittest.UnitTestCaseStatus;
+import org.remus.giteabot.prworkflow.unittest.UnitTestPathGuard;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
@@ -23,12 +23,17 @@ import java.util.Map;
  * <ol>
  *   <li><b>Sandbox</b> — the resolved path must stay inside the checkout
  *       (no absolute paths, no {@code ..} traversal, no symlinks).</li>
- *   <li><b>Test-directory guard</b> — the path must start with one of the
- *       framework's conventional test source prefixes, so the agent can only
- *       add tests, never touch production code.</li>
- *   <li><b>New-or-test-only</b> — the executor only ever writes; the workflow
- *       additionally asserts (before pushing) that nothing outside the test
- *       directories changed.</li>
+ *   <li><b>Test-location guard</b> — the path must resolve to a legitimate
+ *       test location for the framework per
+ *       {@link org.remus.giteabot.prworkflow.unittest.UnitTestPathGuard}
+ *       (dedicated test root, {@code __tests__}-style segment, or a test
+ *       filename convention such as {@code *_test.go}). Bare production
+ *       source roots like {@code src/} are rejected, so the agent can only
+ *       add tests, never overwrite application code.</li>
+ *   <li><b>Pre-commit guard</b> — the executor only ever writes; before the
+ *       generated tests are pushed, {@code UnitTestService} re-checks every
+ *       changed file against the same {@code UnitTestPathGuard} and aborts the
+ *       commit if anything outside a test location was touched.</li>
  * </ol>
  */
 @Slf4j
@@ -73,11 +78,13 @@ public class UnitTestToolExecutor {
         String title = optString(args, "title");
 
         String normalized = path.replace('\\', '/');
-        if (!isUnderAllowedTestDir(ctx, normalized)) {
-            return "ERROR: path '" + path + "' is not inside an allowed test directory for "
-                    + ctx.framework().key() + " (allowed prefixes: "
-                    + ctx.framework().allowedTestPrefixes() + ") — the agent may only write tests, "
-                    + "never production code";
+        if (!UnitTestPathGuard.isAllowedTestPath(ctx.framework(), normalized)) {
+            return "ERROR: path '" + path + "' is not an allowed test location for "
+                    + ctx.framework().key() + " (allowed test roots: "
+                    + ctx.framework().allowedTestPrefixes() + ", segments: "
+                    + ctx.framework().allowedTestPathSegments() + ", filename suffixes: "
+                    + ctx.framework().allowedTestFileSuffixes() + ") — the agent may only write "
+                    + "tests, never production code";
         }
 
         Path target = resolveInsideWorkspace(ctx.workspace(), normalized);
@@ -116,20 +123,6 @@ public class UnitTestToolExecutor {
                 + " (UnitTestCase id=" + persisted.getId() + ")";
     }
 
-    private static boolean isUnderAllowedTestDir(UnitTestToolContext ctx, String normalizedPath) {
-        List<String> prefixes = ctx.framework().allowedTestPrefixes();
-        for (String prefix : prefixes) {
-            if (prefix.isEmpty()) {
-                // Go: tests live next to code — only require the *_test.go convention.
-                if (normalizedPath.endsWith("_test.go")) {
-                    return true;
-                }
-            } else if (normalizedPath.startsWith(prefix)) {
-                return true;
-            }
-        }
-        return false;
-    }
 
     /**
      * Resolves a caller-supplied relative path inside the checkout, rejecting
