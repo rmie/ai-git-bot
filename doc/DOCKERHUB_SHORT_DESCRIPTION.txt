@@ -1,1 +1,1 @@
-AI-Git-Bot — Intelligent Gateway between Git & AI. Half Bot, half Agent. Multi-platform (Gitea/GitHub/GitLab/Bitbucket), multi-AI (Anthropic/OpenAI/Ollama/llama.cpp), web UI, coding agent for issue implementation, and writer bot for issue drafting.
+AI-Git-Bot — self-hosted Git+AI automation for Gitea/GitHub/GHE/GitLab/Bitbucket: PR reviews, PR conversations, AI unit-test authoring, coding-agent issue implementation, and writer-bot issue drafting with Anthropic/OpenAI/Gemini/Ollama/llama.cpp.

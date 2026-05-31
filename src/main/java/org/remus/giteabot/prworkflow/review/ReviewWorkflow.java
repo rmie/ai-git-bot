@@ -58,6 +58,13 @@ public class ReviewWorkflow implements PrWorkflow {
     }
 
     @Override
+    public String description() {
+        return "Posts an AI code review as a single PR comment whenever a pull request is opened "
+                + "or updated, then optionally approves or requests changes based on the bot's "
+                + "configured post-review action.";
+    }
+
+    @Override
     public PrWorkflowCategory category() {
         return PrWorkflowCategory.REVIEW;
     }

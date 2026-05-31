@@ -44,6 +44,9 @@ public class SystemPromptService {
         if (systemPrompt.getReviewSystemPrompt() == null || systemPrompt.getReviewSystemPrompt().isBlank()) {
             throw new IllegalArgumentException("Review System-Prompt is required");
         }
+        if (systemPrompt.getReviewAgentSystemPrompt() == null || systemPrompt.getReviewAgentSystemPrompt().isBlank()) {
+            throw new IllegalArgumentException("Review-Agent System-Prompt is required");
+        }
         if (systemPrompt.getIssueAgentSystemPrompt() == null || systemPrompt.getIssueAgentSystemPrompt().isBlank()) {
             throw new IllegalArgumentException("Issue-Agent System-Prompt is required");
         }
@@ -58,6 +61,9 @@ public class SystemPromptService {
         }
         if (systemPrompt.getE2eRunnerSystemPrompt() == null || systemPrompt.getE2eRunnerSystemPrompt().isBlank()) {
             throw new IllegalArgumentException("E2E Runner System-Prompt is required");
+        }
+        if (systemPrompt.getUnitTestAuthorSystemPrompt() == null || systemPrompt.getUnitTestAuthorSystemPrompt().isBlank()) {
+            throw new IllegalArgumentException("Unit-Test Author System-Prompt is required");
         }
         boolean duplicateName = systemPrompt.getId() == null
                 ? systemPromptRepository.existsByName(systemPrompt.getName())

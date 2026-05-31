@@ -71,6 +71,10 @@
                             <span class="badge bg-body-tertiary text-body ms-2" th:text="${row.category}"></span>
                             <span th:if="${row.prWorkflow == null}" class="badge bg-warning ms-2">Not registered</span>
                         </label>
+                        <!-- Short description of what the workflow does -->
+                        <div th:if="${row.prWorkflow != null and row.prWorkflow.description() != null and !row.prWorkflow.description().isEmpty()}"
+                             class="form-text mt-1 mb-0"
+                             th:text="${row.prWorkflow.description()}"></div>
                     </div>
                 </div>
 

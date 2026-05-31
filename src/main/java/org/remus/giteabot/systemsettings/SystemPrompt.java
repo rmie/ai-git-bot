@@ -23,6 +23,9 @@ public class SystemPrompt {
     private String reviewSystemPrompt;
 
     @Column(nullable = false, columnDefinition = "TEXT")
+    private String reviewAgentSystemPrompt;
+
+    @Column(nullable = false, columnDefinition = "TEXT")
     private String issueAgentSystemPrompt;
 
     @Column(nullable = false, columnDefinition = "TEXT")
@@ -36,6 +39,9 @@ public class SystemPrompt {
 
     @Column(nullable = false, columnDefinition = "TEXT")
     private String e2eRunnerSystemPrompt;
+
+    @Column(nullable = false, columnDefinition = "TEXT")
+    private String unitTestAuthorSystemPrompt;
 
     @Column(nullable = false)
     private boolean defaultEntry = false;

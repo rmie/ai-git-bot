@@ -168,11 +168,13 @@ public class SystemSettingsController {
                     SystemPrompt clone = new SystemPrompt();
                     clone.setName("Copy of " + source.getName());
                     clone.setReviewSystemPrompt(source.getReviewSystemPrompt());
+                    clone.setReviewAgentSystemPrompt(source.getReviewAgentSystemPrompt());
                     clone.setIssueAgentSystemPrompt(source.getIssueAgentSystemPrompt());
                     clone.setWriterAgentSystemPrompt(source.getWriterAgentSystemPrompt());
                     clone.setE2ePlannerSystemPrompt(source.getE2ePlannerSystemPrompt());
                     clone.setE2eAuthorSystemPrompt(source.getE2eAuthorSystemPrompt());
                     clone.setE2eRunnerSystemPrompt(source.getE2eRunnerSystemPrompt());
+                    clone.setUnitTestAuthorSystemPrompt(source.getUnitTestAuthorSystemPrompt());
                     model.addAttribute("systemPrompt", clone);
                     model.addAttribute("activeNav", "system-settings");
                     return "system-settings/form";
@@ -210,11 +212,13 @@ public class SystemSettingsController {
                 .map(systemPrompt -> ResponseEntity.ok(Map.of(
                         "name", systemPrompt.getName(),
                         "reviewSystemPrompt", systemPrompt.getReviewSystemPrompt(),
+                        "reviewAgentSystemPrompt", systemPrompt.getReviewAgentSystemPrompt(),
                         "issueAgentSystemPrompt", systemPrompt.getIssueAgentSystemPrompt(),
                         "writerAgentSystemPrompt", systemPrompt.getWriterAgentSystemPrompt(),
                         "e2ePlannerSystemPrompt", systemPrompt.getE2ePlannerSystemPrompt(),
                         "e2eAuthorSystemPrompt", systemPrompt.getE2eAuthorSystemPrompt(),
-                        "e2eRunnerSystemPrompt", systemPrompt.getE2eRunnerSystemPrompt())))
+                        "e2eRunnerSystemPrompt", systemPrompt.getE2eRunnerSystemPrompt(),
+                        "unitTestAuthorSystemPrompt", systemPrompt.getUnitTestAuthorSystemPrompt())))
                 .orElseGet(() -> ResponseEntity.notFound().build());
     }
 

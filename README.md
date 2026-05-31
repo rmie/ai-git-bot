@@ -6,6 +6,8 @@
 [![GitHub stars](https://img.shields.io/github/stars/tmseidel/ai-git-bot)](https://github.com/tmseidel/ai-git-bot/stargazers)
 [![GitHub issues](https://img.shields.io/github/issues/tmseidel/ai-git-bot)](https://github.com/tmseidel/ai-git-bot/issues)
 
+🌐 Languages: **English** · [中文](README.zh.md) · [한국어](README.ko.md) · [日本語](README.ja.md)
+
 > **Automate the necessary-but-uncomfortable parts of software development — directly inside the Git tools your team already uses.**
 
 Every team has a list of *"we know we should be doing this"* engineering chores. Writing a properly scoped issue *before* coding starts. Adding a regression E2E test for that login bug. Re-reviewing a PR after the third force-push. Tearing down a stale preview environment. These chores are **necessary** (skipping them rots the codebase) but **uncomfortable** (they aren't the fun part, and they get cut first under deadline pressure).
@@ -30,6 +32,7 @@ Every team has a list of *"we know we should be doing this"* engineering chores.
 | 🧾 **Writing a good issue** before any code is written | Vague bug reports get queued and re-clarified in chat days later. Acceptance criteria are missing. | Assign a **writer bot** to the issue → it inspects related issues + the repo (read-only), asks the *minimum* clarifying questions, and produces a structured `AI Created Issue: …` with acceptance criteria. |
 | 🔍 **Reviewing PRs consistently** even when the reviewer is swamped | Reviews are skimmed, regressions slip in, the same comments keep getting written by hand. | A **review bot** runs the same review every time the bot is requested as reviewer — large diffs are chunked, comments land inline, and `@bot` mentions keep the discussion in the PR. |
 | 🧪 **Writing regression E2E tests** for the bug you just fixed | "We'll add a test later" — and we never do. Manual QA is repeated for every PR. | Assign a deployment target + the `Full-stack QA` workflow → the bot **plans, authors, deploys, and runs** Playwright tests per PR, posts the report as a PR comment, and tears the environment down on close. |
+| 🔬 **Writing unit tests for the code in a PR** | New behaviour ships without tests; coverage quietly slips. | Enable the `unit-test-author` workflow → the bot reads the PR diff, **writes white-box unit tests next to the existing ones**, runs them with the project's own runner (`mvn` / `gradle` / `npm` / `pytest` / `go` / `cargo` / `dotnet` / `bundle` / `make` / `gcc` / `g++`), commits them onto the PR branch, and posts the result + coverage. No preview env needed. |
 | 🛠️ **Implementing the boring follow-up issues** (rename, dependency bump, small refactor) | They pile up; senior engineers don't want them; juniors get blocked on them. | Assign an issue to a **coding bot** — it reads the source, drafts the change in a workspace, validates with the project's own build tooling (Maven / Gradle / npm / Go / Cargo / .NET), and opens a PR. |
 | 🔁 **Re-running tests / regenerating coverage** when something flaked | Engineer manually re-runs locally, copies the report, pastes a screenshot. | `@bot rerun-tests` re-executes the existing suite; `@bot regenerate-tests <feedback>` re-plans the suite with operator hints. |
 | 🧹 **Tearing down stale preview environments** | Forgotten PR previews accumulate, burn cluster budget, leak data. | PR-close lifecycle hook calls the deployment target's `teardown` action — webhook, MCP tool, static no-op, or a CI workflow dispatch (the `CI_ACTION` strategy). |
@@ -51,6 +54,7 @@ Each workflow is a **first-class, named PR workflow** you can enable per bot via
 | **Issue → Better Issue (writer agent)** | Issue assigned to a *writer* bot | A structured `AI Created Issue` with acceptance criteria  |
 | **Interactive Q&A** | `@bot` mention in any PR or inline review comment | Threaded reply with file/diff context  |
 | **Full-stack QA (E2E tests)** | PR opened on a bot with an `e2e-test` workflow + deployment target | Generated Playwright suite, run report posted to PR, environment torn down on PR close  |
+| **Unit tests (test author)** | PR opened on a bot with the `unit-test-author` workflow (or `@bot generate-tests`) | White-box unit tests generated for the diff, run with the project's own runner, committed onto the PR branch, result + coverage posted as a PR comment ([details](doc/PR_WORKFLOWS_UNIT_TEST.md)) |
 | **Suite promotion** | Operator opts in per suite | A follow-up PR that "graduates" a generated suite into the repo ([see user story](doc/agentic-workflows/SUITE_PROMOTION_USER_STORY.md)) |
 
 > See the [PR Workflows guide](doc/PR_WORKFLOWS.md) and [Agent documentation](doc/AGENT.md) for the operator-facing details.
@@ -70,9 +74,9 @@ Each workflow is a **first-class, named PR workflow** you can enable per bot via
 > | Provider | Maturity |
 > |---|---|
 > | **Gitea** | ✅ **Well-tested** — primary target, exercised end-to-end (incl. webhooks, PR review, coding agent, writer agent, E2E full-stack QA) on every release. |
-> | **GitHub / GitHub Enterprise** | ⚠️ Experimental — implemented from the REST/Webhook docs; basic flows have been smoke-tested but not exercised at scale. |
-> | **GitLab** | ⚠️ Experimental — same caveat as GitHub. |
-> | **Bitbucket Cloud** | ⚠️ Experimental — same caveat. |
+> | **GitHub / GitHub Enterprise** | ✅ **Well-tested** — the project itself uses these integrations and workflows extensively in day-to-day development, so the GitHub feature set is exercised regularly in real usage in addition to targeted testing. |
+> | **GitLab** | ⚠️ Experimental — implemented from the REST/Webhook docs; basic flows have been smoke-tested but not exercised at scale. |
+> | **Bitbucket Cloud** | ⚠️ Experimental — implemented from the REST/Webhook docs; basic flows have been smoke-tested but not exercised at scale. |
 >
 > The **Full-stack QA / E2E PR review workflow** is the most complex
 > moving part (deployment targets, generated test suites, callbacks,
@@ -173,7 +177,7 @@ When a PR is opened with the bot already assigned as reviewer — or the bot is 
 
 ## 🧱 Under the hood: an AI- and Git-agnostic gateway
 
-The reason a single bot can serve four Git platforms and five AI providers is that AI-Git-Bot is structured as a small **gateway**: every Git platform plugs in through a `RepositoryApiClient` SPI, every AI provider through an `AiClient` SPI, and tool calls (built-in + MCP) flow through a unified `AgentToolRouter`. That's useful — but it's *enabling infrastructure*, not the headline feature. The headline feature is the **workflows above**, which happen to work everywhere because of this design.
+The reason a single bot can serve five Git-platform integrations and five AI-provider families is that AI-Git-Bot is structured as a small **gateway**: every Git platform plugs in through a `RepositoryApiClient` SPI, every AI provider through an `AiClient` SPI, and tool calls (built-in + MCP) flow through a unified `AgentToolRouter`. That's useful — but it's *enabling infrastructure*, not the headline feature. The headline feature is the **workflows above**, which happen to work everywhere because of this design.
 
 If you do care about the plumbing, see the [Architecture documentation](doc/ARCHITECTURE.md). At a glance:
 
@@ -209,6 +213,8 @@ If you do care about the plumbing, see the [Architecture documentation](doc/ARCH
 - **Session memory per PR**, persisted in PostgreSQL, so follow-up questions stay context-aware
 - **Reusable named system prompts** for review / coding / writer personas — assign one per bot
 - **Per-bot built-in tool whitelist** ([BOT_TOOL_CONFIGURATIONS.md](doc/BOT_TOOL_CONFIGURATIONS.md))
+- **Per-bot User Whitelist** — optional username allow-list that prevents unknown users from triggering AI-spending interactions on public repos
+- **Light / dark admin UI theme** — navbar toggle cycles between auto, dark, and light
 - **Self-hostable end-to-end** including local LLMs (Ollama, llama.cpp) — nothing has to leave your infrastructure
 - **Lightweight ops** — one Docker image, one PostgreSQL database. No Kubernetes required.
 - **Health endpoint** — `/actuator/health` for orchestrators
@@ -292,7 +298,10 @@ This starts:
    - Go to **Bots → New Bot**
    - Choose **Coding bot** for pull-request review/issue implementation, or **Writer bot** for technical-writing issue drafts
    - Select your AI and Git integrations
+   - Choose a **Workflow Configuration** (leave empty for the default review-only setup; enable **AI Unit Tests** or **Full-stack QA** as needed)
+   - If you use **Full-stack QA**, select a **Deployment Target**
    - Select a system prompt entry from **System settings**
+   - Optionally set a **User Whitelist** for public repositories so unknown users cannot trigger token-spending interactions
    - Copy the generated **Webhook URL**
 
 ### 4. Configure Webhooks
@@ -339,6 +348,10 @@ The bot receives webhooks from your Git provider, fetches PR diffs, sends them t
 | [Bot Tool Configurations](doc/BOT_TOOL_CONFIGURATIONS.md) | Per-bot whitelist of built-in agent tools — admin UI, runtime enforcement, default config, migration |
 | [Architecture](doc/ARCHITECTURE.md) | Component diagrams, request flows, webhook routing |
 | [Agent](doc/AGENT.md) | Coding agent and technical writer agent — setup, tools, and workflows |
+| [PR Workflows](doc/PR_WORKFLOWS.md) | Workflow configurations, orchestration, deployment targets, and PR workflow lifecycle |
+| [Unit-Test Author Workflow](doc/PR_WORKFLOWS_UNIT_TEST.md) | AI unit-test generation for PR diffs, supported runners, slash commands, and write-safety guards |
+| [E2E Workflow](doc/PR_WORKFLOWS_E2E.md) | Full-stack QA workflow, deployment callbacks, preview environments, and suite lifecycle |
+| [Agentic Review Workflow](doc/PR_WORKFLOWS_AGENTIC_REVIEW.md) | Read-only agentic PR review with repository and MCP tool access |
 | [Tool Calling KB](doc/TOOL_CALLING.md) | Why provider tool APIs differ, abstractions, fallbacks, and what to do when a model misbehaves (incl. the legacy tool-calling switch) |
 | **Git Provider Setup** | |
 | [Gitea Setup](doc/GITEA_SETUP.md) | Bot user creation, permissions, API tokens for Gitea |

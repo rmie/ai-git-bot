@@ -1,6 +1,6 @@
 # AI-Git-Bot
 
-> Lightweight, self-hostable AI gateway that connects Git platforms with AI providers for reviewer-triggered pull-request reviews, PR conversations, autonomous issue implementation, and technical-writing issue drafting.
+> Lightweight, self-hostable AI gateway that connects Git platforms with AI providers for reviewer-triggered pull-request reviews, PR conversations, AI unit-test authoring, autonomous issue implementation, and technical-writing issue drafting.
 
 AI-Git-Bot is a Java/Spring Boot web application for teams that want centralized, self-hosted AI automation across Gitea, GitHub, GitHub Enterprise, GitLab, and Bitbucket Cloud. It supports cloud AI providers and local LLM runtimes, stores configuration centrally, and posts results back to the Git platform as reviews, comments, issue drafts, or pull requests.
 
@@ -12,26 +12,32 @@ License: MIT
 
 - AI-powered pull-request code reviews triggered by reviewer assignment or re-request.
 - Interactive PR and inline review conversations with session history.
+- AI Unit Tests workflow that generates white-box tests for PR diffs, runs them with the project's own runner, and can commit them onto the PR branch.
 - Coding agent that can implement assigned issues, validate changes, and open pull requests.
 - Technical writer agent that turns vague issues into actionable, testable follow-up issues.
 - Central gateway for multiple Git platforms and multiple AI providers.
 - Provider support for Anthropic Claude, OpenAI, Google AI / Gemini, Ollama, and llama.cpp.
 - Optional Model Context Protocol (MCP) server integration with persisted tool whitelists.
+- Optional per-bot user whitelist to restrict who may trigger AI-spending interactions.
 - Self-hosted deployment with Docker Compose and encrypted secrets.
 
 ## Keywords
 
-ai code review, code review bot, coding agent, issue implementation agent, technical writer agent, AI issue triage, self-hosted AI, Git automation, Gitea bot, GitHub bot, GitHub Enterprise bot, GitLab bot, Bitbucket bot, Anthropic Claude, OpenAI, Google Gemini, Ollama, llama.cpp, local LLM, MCP, Model Context Protocol, Spring Boot, Java 21, Docker, PostgreSQL
+ai code review, code review bot, pull request automation, AI unit tests, unit test author, white-box test generation, coding agent, issue implementation agent, technical writer agent, AI issue triage, self-hosted AI, Git automation, Gitea bot, GitHub bot, GitHub Enterprise bot, GitLab bot, Bitbucket bot, Anthropic Claude, OpenAI, Google Gemini, Ollama, llama.cpp, local LLM, MCP, Model Context Protocol, Spring Boot, Java 21, Docker, PostgreSQL
 
 ## Essential documentation
 
 - [README](README.md): project overview, features, screenshots, quick start, and documentation index.
 - [User Guide](doc/USER_GUIDE.md): web UI usage, bot creation, AI integrations, Git integrations, and operating workflows.
+- [PR Workflows](doc/PR_WORKFLOWS.md): workflow configurations, deployment targets, orchestration, and lifecycle.
+- [Unit-Test Author Workflow](doc/PR_WORKFLOWS_UNIT_TEST.md): AI unit-test generation, supported runners, slash commands, and write-safety model.
 - [Architecture](doc/ARCHITECTURE.md): components, request flows, persistence, webhook routing, and system diagrams.
 - [Agent Documentation](doc/AGENT.md): coding-agent and writer-agent workflows, tools, prompts, validation, and behavior.
 - [MCP Server Handling](doc/MCP_SERVER_HANDLING.md): MCP JSON setup, tool whitelist selection, transparency, and bot details.
 - [Deployment](doc/DEPLOYMENT.md): Docker Compose deployment, environment variables, and production setup.
 - [Local Development](doc/LOCAL_DEVELOPMENT.md): build, test, and project structure for contributors.
+- [Security Policy](SECURITY.md): vulnerability reporting and operator security guidance.
+- [Citation Metadata](CITATION.cff): software citation metadata for GitHub and software catalogs.
 - [CodeMeta](codemeta.json): machine-readable software metadata for catalogs and crawlers.
 
 ## Setup guides
@@ -66,7 +72,7 @@ Docker quick start:
 docker compose up -d
 ```
 
-Then open `http://localhost:8080`, create the admin account, configure AI/Git integrations, create a bot, and register the generated webhook URL in the Git provider.
+Then open `http://localhost:8080`, create the admin account, configure AI/Git integrations, create a bot, choose an appropriate workflow configuration, and register the generated webhook URL in the Git provider.
 
 ## LLM guidance
 

@@ -21,6 +21,8 @@ import org.remus.giteabot.prworkflow.e2e.E2eTestPrCloseHandler;
 import org.remus.giteabot.prworkflow.e2e.E2eTestSlashCommandHandler;
 import org.remus.giteabot.prworkflow.review.CodeReviewServiceFactory;
 import org.remus.giteabot.prworkflow.review.ReviewWorkflow;
+import org.remus.giteabot.prworkflow.unittest.UnitTestSlashCommandHandler;
+import org.remus.giteabot.prworkflow.unittest.UnitTestWorkflow;
 import org.remus.giteabot.repository.RepositoryApiClient;
 import org.remus.giteabot.review.CodeReviewService;
 import org.remus.giteabot.systemsettings.BotToolSelectionService;
@@ -62,6 +64,7 @@ public class BotWebhookService {
     private final CodeReviewServiceFactory codeReviewServiceFactory;
     private final E2eTestPrCloseHandler e2eTestPrCloseHandler;
     private final E2eTestSlashCommandHandler e2eTestSlashCommandHandler;
+    private final UnitTestSlashCommandHandler unitTestSlashCommandHandler;
     private final WorkflowSelectionService workflowSelectionService;
 
     public BotWebhookService(AiClientFactory aiClientFactory,
@@ -80,6 +83,7 @@ public class BotWebhookService {
                               CodeReviewServiceFactory codeReviewServiceFactory,
                               E2eTestPrCloseHandler e2eTestPrCloseHandler,
                               E2eTestSlashCommandHandler e2eTestSlashCommandHandler,
+                              UnitTestSlashCommandHandler unitTestSlashCommandHandler,
                               WorkflowSelectionService workflowSelectionService) {
         this.aiClientFactory = aiClientFactory;
         this.giteaClientFactory = giteaClientFactory;
@@ -97,6 +101,7 @@ public class BotWebhookService {
         this.codeReviewServiceFactory = codeReviewServiceFactory;
         this.e2eTestPrCloseHandler = e2eTestPrCloseHandler;
         this.e2eTestSlashCommandHandler = e2eTestSlashCommandHandler;
+        this.unitTestSlashCommandHandler = unitTestSlashCommandHandler;
         this.workflowSelectionService = workflowSelectionService;
     }
 
@@ -128,6 +133,8 @@ public class BotWebhookService {
      * Routing order:
      * <ol>
      *   <li>{@link E2eTestSlashCommandHandler} — recognised E2E slash commands.</li>
+     *   <li>{@link UnitTestSlashCommandHandler} — recognised unit-test slash
+     *       commands ({@code @bot generate-tests} / {@code @bot rerun-unit-tests}).</li>
      *   <li>{@link CodeReviewService#handleBotCommand(WebhookPayload, String)} —
      *       general-purpose review fallback, <em>only</em> when the
      *       {@link ReviewWorkflow review workflow} is enabled on the bot's
@@ -151,6 +158,9 @@ public class BotWebhookService {
         }
         try {
             if (e2eTestSlashCommandHandler.tryHandle(bot, payload)) {
+                return;
+            }
+            if (unitTestSlashCommandHandler.tryHandle(bot, payload)) {
                 return;
             }
             if (isWorkflowEnabled(bot, ReviewWorkflow.KEY)) {
@@ -212,6 +222,9 @@ public class BotWebhookService {
                     bot.getName(), prNumber);
             try {
                 if (e2eTestSlashCommandHandler.tryHandle(bot, payload)) {
+                    return;
+                }
+                if (unitTestSlashCommandHandler.tryHandle(bot, payload)) {
                     return;
                 }
                 if (isWorkflowEnabled(bot, ReviewWorkflow.KEY)) {
@@ -445,17 +458,28 @@ public class BotWebhookService {
     }
 
     private String buildUnrecognisedCommandReply(Bot bot) {
+        String mention = bot.getUsername() == null ? "bot" : bot.getUsername();
         StringBuilder sb = new StringBuilder();
         sb.append("🤖 Sorry, I did not understand that command.\n\n");
         sb.append("This bot is not configured to run code reviews, so I can only respond ");
         sb.append("to the slash commands listed below. Anything else will be ignored.\n\n");
-        if (isWorkflowEnabled(bot, E2ETestWorkflow.KEY)) {
+        boolean e2eEnabled = isWorkflowEnabled(bot, E2ETestWorkflow.KEY);
+        boolean unitEnabled = isWorkflowEnabled(bot, UnitTestWorkflow.KEY);
+        if (e2eEnabled || unitEnabled) {
             sb.append("Available commands:\n");
-            sb.append("- `@").append(bot.getUsername() == null ? "bot" : bot.getUsername())
-                    .append(" rerun-tests` — re-run the most recent E2E test suite for this PR.\n");
-            sb.append("- `@").append(bot.getUsername() == null ? "bot" : bot.getUsername())
-                    .append(" regenerate-tests [feedback]` — regenerate the E2E test suite from scratch, ")
-                    .append("optionally with free-form feedback for the planner.\n");
+            if (e2eEnabled) {
+                sb.append("- `@").append(mention)
+                        .append(" rerun-tests` — re-run the most recent E2E test suite for this PR.\n");
+                sb.append("- `@").append(mention)
+                        .append(" regenerate-tests [feedback]` — regenerate the E2E test suite from scratch, ")
+                        .append("optionally with free-form feedback for the planner.\n");
+            }
+            if (unitEnabled) {
+                sb.append("- `@").append(mention)
+                        .append(" generate-tests` — generate white-box unit tests for this PR and commit them to the branch.\n");
+                sb.append("- `@").append(mention)
+                        .append(" rerun-unit-tests` — regenerate and re-run the unit-test suite for this PR.\n");
+            }
         } else {
             sb.append("No interactive commands are configured for this bot.\n");
         }
