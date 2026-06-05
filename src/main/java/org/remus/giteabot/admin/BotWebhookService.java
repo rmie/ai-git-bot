@@ -179,10 +179,13 @@ public class BotWebhookService {
     /**
      * Handles a comment on a PR discussion thread.
      * <p>
+     * Access control: if the bot has no {@code userWhitelist}, any user mentioning the bot
+     * may interact.  If a whitelist is configured, only the PR author <em>or</em> users listed
+     * in the whitelist may interact — all other commenters are ignored.
+     * <p>
      * Routes to the agent when an agent session exists for the PR (i.e. the PR was created by the
-     * agent and can be continued).  The agent-session path intentionally skips the PR-author check
-     * because the coding agent is the PR author; human follow-up comments must still reach the agent.
-     * For manually created PRs (no active session), only the PR author may issue commands.
+     * agent and can be continued).  For manually created PRs (no active session), the comment is
+     * routed to the code-review handler.
      */
     @Async
     public void handlePrComment(Bot bot, WebhookPayload payload) {
@@ -190,7 +193,7 @@ public class BotWebhookService {
             log.debug("[Bot '{}'] Writer bot ignores pull request comment", bot.getName());
             return;
         }
-        if (!isCallerAllowed(bot, payload)) {
+        if (!isPrCommenterAllowed(bot, payload)) {
             return;
         }
         String owner = payload.getRepository().getOwner().getLogin();
@@ -203,8 +206,6 @@ public class BotWebhookService {
                 || agentSessionService.getSessionByPr(owner, repo, prNumber).isPresent();
 
         if (hasAgentSession && bot.isAgentEnabled()) {
-            // Agent-session path: no author restriction – the coding agent created the PR,
-            // so any human commenter should be able to continue the implementation workflow.
             log.debug("[Bot '{}'] Agent session found for PR #{}, routing to agent", bot.getName(), prNumber);
             try {
                 createIssueImplementationService(bot).handleIssueComment(payload);
@@ -213,11 +214,6 @@ public class BotWebhookService {
                 botService.recordError(bot, e.getMessage());
             }
         } else {
-            // Code-review path: only the PR author may issue bot commands.
-            if (!isPullRequestAuthor(payload)) {
-                log.debug("[Bot '{}'] Ignoring pull request comment from non-author", bot.getName());
-                return;
-            }
             log.debug("[Bot '{}'] No agent session for PR #{}, routing to code-review handler",
                     bot.getName(), prNumber);
             try {
@@ -494,6 +490,40 @@ public class BotWebhookService {
             return payload.getIssue().getNumber();
         }
         return payload.getNumber();
+    }
+
+    /**
+     * Access-control check specific to {@link #handlePrComment(Bot, WebhookPayload)}.
+     *
+     * <p>Semantics:</p>
+     * <ul>
+     *   <li>If the bot has <strong>no</strong> {@code userWhitelist} → every commenter is allowed.</li>
+     *   <li>If a whitelist <strong>is</strong> configured → only the PR author <em>or</em> users
+     *       present in the whitelist may interact; everyone else is rejected.</li>
+     * </ul>
+     */
+    boolean isPrCommenterAllowed(Bot bot, WebhookPayload payload) {
+        if (bot == null) {
+            return true;
+        }
+        Set<String> allowed = botService.getAllowedUsernames(bot);
+        if (allowed.isEmpty()) {
+            // No whitelist → everyone may interact with the bot on PRs.
+            return true;
+        }
+        // Whitelist exists → allow PR author or whitelisted users.
+        if (isPullRequestAuthor(payload)) {
+            return true;
+        }
+        String caller = resolveCallerUsername(payload);
+        if (botService.isUsernameInSet(allowed, caller)) {
+            return true;
+        }
+        log.info("[Bot '{}'] Ignoring PR comment from '{}' — not PR author and not in whitelist ({} entries)",
+                bot.getName(),
+                caller == null ? "<unknown>" : caller,
+                allowed.size());
+        return false;
     }
 
     /**

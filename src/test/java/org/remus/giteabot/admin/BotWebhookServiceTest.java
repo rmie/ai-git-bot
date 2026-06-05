@@ -28,6 +28,7 @@ import org.springframework.dao.DataIntegrityViolationException;
 
 import java.nio.file.Path;
 import java.util.Optional;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -803,8 +804,9 @@ class BotWebhookServiceTest {
         }
 
         @Test
-        void noAgentSession_nonAuthorComment_isIgnored() {
-            // No agent session and commenter is NOT the PR author → code-review path rejects it.
+        void noAgentSession_noWhitelist_nonAuthorComment_isAllowed() {
+            // No whitelist configured → any user mentioning the bot may interact,
+            // even if they are NOT the PR author.
             WebhookPayload nonAuthorPayload = buildPrCommentPayload(OWNER, REPO, PR_NUMBER, COMMENT_ID,
                     "@claude_bot please review");
             nonAuthorPayload.getComment().getUser().setLogin("other_user");
@@ -817,9 +819,79 @@ class BotWebhookServiceTest {
 
             botWebhookService.handlePrComment(createBot("bot", "claude_bot", true), nonAuthorPayload);
 
-            // Non-author on code-review path → no command handled
+            // Non-author but no whitelist → code-review path is entered
+            verify(sessionService).getOrCreateSession(OWNER, REPO, PR_NUMBER, "system-prompt:1");
+            verify(agentSessionService, never()).setStatus(any(), any());
+        }
+
+        @Test
+        void noAgentSession_whitelist_nonAuthorNotInWhitelist_isIgnored() {
+            // Whitelist configured and commenter is neither PR author nor in whitelist → rejected.
+            WebhookPayload nonAuthorPayload = buildPrCommentPayload(OWNER, REPO, PR_NUMBER, COMMENT_ID,
+                    "@claude_bot please review");
+            nonAuthorPayload.getComment().getUser().setLogin("stranger");
+            nonAuthorPayload.getSender().setLogin("stranger");
+
+            Bot bot = createBot("bot", "claude_bot", true);
+            bot.setUserWhitelist("alice, bob");
+            Set<String> allowedSet = Set.of("alice", "bob");
+            when(botService.getAllowedUsernames(bot)).thenReturn(allowedSet);
+            when(botService.isUsernameInSet(eq(allowedSet), eq("stranger"))).thenReturn(false);
+
+            botWebhookService.handlePrComment(bot, nonAuthorPayload);
+
             verify(sessionService, never()).getOrCreateSession(any(), any(), any(), any());
             verify(agentSessionService, never()).setStatus(any(), any());
+        }
+
+        @Test
+        void noAgentSession_whitelist_prAuthorNotInWhitelist_isAllowed() {
+            // Whitelist configured but commenter IS the PR author (not in whitelist) → allowed.
+            WebhookPayload authorPayload = buildPrCommentPayload(OWNER, REPO, PR_NUMBER, COMMENT_ID,
+                    "@claude_bot please review");
+            // PR author is "tom" (default), commenter is also "tom"
+            // Whitelist does NOT contain "tom"
+
+            when(agentSessionService.getSessionByIssue(OWNER, REPO, PR_NUMBER))
+                    .thenReturn(Optional.empty());
+            when(agentSessionService.getSessionByPr(OWNER, REPO, PR_NUMBER))
+                    .thenReturn(Optional.empty());
+
+            Bot bot = createBot("bot", "claude_bot", true);
+            bot.setUserWhitelist("alice, bob");
+            Set<String> allowedSet = Set.of("alice", "bob");
+            when(botService.getAllowedUsernames(bot)).thenReturn(allowedSet);
+
+            botWebhookService.handlePrComment(bot, authorPayload);
+
+            // PR author is allowed even though not in the whitelist
+            verify(sessionService).getOrCreateSession(OWNER, REPO, PR_NUMBER, "system-prompt:1");
+        }
+
+        @Test
+        void noAgentSession_whitelist_nonAuthorInWhitelist_isAllowed() {
+            // Whitelist configured and commenter is in whitelist (not PR author) → allowed.
+            WebhookPayload whitelistedPayload = buildPrCommentPayload(OWNER, REPO, PR_NUMBER, COMMENT_ID,
+                    "@claude_bot please review");
+            whitelistedPayload.getComment().getUser().setLogin("alice");
+            whitelistedPayload.getSender().setLogin("alice");
+            // PR author is "tom" (default), commenter "alice" is NOT the author but IS in whitelist
+
+            when(agentSessionService.getSessionByIssue(OWNER, REPO, PR_NUMBER))
+                    .thenReturn(Optional.empty());
+            when(agentSessionService.getSessionByPr(OWNER, REPO, PR_NUMBER))
+                    .thenReturn(Optional.empty());
+
+            Bot bot = createBot("bot", "claude_bot", true);
+            bot.setUserWhitelist("alice, bob");
+            Set<String> allowedSet = Set.of("alice", "bob");
+            when(botService.getAllowedUsernames(bot)).thenReturn(allowedSet);
+            when(botService.isUsernameInSet(eq(allowedSet), eq("alice"))).thenReturn(true);
+
+            botWebhookService.handlePrComment(bot, whitelistedPayload);
+
+            // Whitelisted user is allowed even though not the PR author
+            verify(sessionService).getOrCreateSession(OWNER, REPO, PR_NUMBER, "system-prompt:1");
         }
 
         @Test
