@@ -1,5 +1,6 @@
 package org.remus.giteabot.admin;
 
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.remus.giteabot.ai.AiClient;
 import org.remus.giteabot.ai.AiProviderMetadata;
@@ -18,6 +19,7 @@ import java.util.concurrent.ConcurrentMap;
  */
 @Slf4j
 @Service
+@RequiredArgsConstructor
 public class AiClientFactory {
 
     private final AiIntegrationService aiIntegrationService;
@@ -25,12 +27,6 @@ public class AiClientFactory {
 
     /** Cache key = integrationId, value = (updatedAt-millis, client). */
     private final ConcurrentMap<Long, CachedClient> cache = new ConcurrentHashMap<>();
-
-    public AiClientFactory(AiIntegrationService aiIntegrationService,
-                           AiProviderRegistry providerRegistry) {
-        this.aiIntegrationService = aiIntegrationService;
-        this.providerRegistry = providerRegistry;
-    }
 
     /**
      * Returns an {@link AiClient} configured according to the given integration.

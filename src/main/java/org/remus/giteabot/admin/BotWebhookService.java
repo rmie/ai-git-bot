@@ -1,5 +1,6 @@
 package org.remus.giteabot.admin;
 
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.remus.giteabot.agent.IssueImplementationContext;
 import org.remus.giteabot.agent.IssueImplementationService;
@@ -46,6 +47,7 @@ import java.util.Set;
  */
 @Slf4j
 @Service
+@RequiredArgsConstructor
 public class BotWebhookService {
 
     private final AiClientFactory aiClientFactory;
@@ -66,44 +68,6 @@ public class BotWebhookService {
     private final E2eTestSlashCommandHandler e2eTestSlashCommandHandler;
     private final UnitTestSlashCommandHandler unitTestSlashCommandHandler;
     private final WorkflowSelectionService workflowSelectionService;
-
-    public BotWebhookService(AiClientFactory aiClientFactory,
-                             GiteaClientFactory giteaClientFactory,
-                             PromptService promptService,
-                             AgentConfigProperties agentConfig,
-                             AgentSessionService agentSessionService,
-                             ToolExecutionService toolExecutionService,
-                             ToolCatalog toolCatalog,
-                             WorkspaceService workspaceService,
-                              BotService botService,
-                              McpOrchestrationService mcpOrchestrationService,
-                              McpToolSelectionService mcpToolSelectionService,
-                              BotToolSelectionService botToolSelectionService,
-                              PrWorkflowOrchestrator prWorkflowOrchestrator,
-                              CodeReviewServiceFactory codeReviewServiceFactory,
-                              E2eTestPrCloseHandler e2eTestPrCloseHandler,
-                              E2eTestSlashCommandHandler e2eTestSlashCommandHandler,
-                              UnitTestSlashCommandHandler unitTestSlashCommandHandler,
-                              WorkflowSelectionService workflowSelectionService) {
-        this.aiClientFactory = aiClientFactory;
-        this.giteaClientFactory = giteaClientFactory;
-        this.promptService = promptService;
-        this.agentConfig = agentConfig;
-        this.agentSessionService = agentSessionService;
-        this.toolExecutionService = toolExecutionService;
-        this.toolCatalog = toolCatalog;
-        this.workspaceService = workspaceService;
-        this.botService = botService;
-        this.mcpOrchestrationService = mcpOrchestrationService;
-        this.mcpToolSelectionService = mcpToolSelectionService;
-        this.botToolSelectionService = botToolSelectionService;
-        this.prWorkflowOrchestrator = prWorkflowOrchestrator;
-        this.codeReviewServiceFactory = codeReviewServiceFactory;
-        this.e2eTestPrCloseHandler = e2eTestPrCloseHandler;
-        this.e2eTestSlashCommandHandler = e2eTestSlashCommandHandler;
-        this.unitTestSlashCommandHandler = unitTestSlashCommandHandler;
-        this.workflowSelectionService = workflowSelectionService;
-    }
 
     /**
      * Reviews a pull request via the {@link PrWorkflowOrchestrator}, which

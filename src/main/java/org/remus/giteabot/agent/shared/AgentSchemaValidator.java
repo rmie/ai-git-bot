@@ -7,6 +7,7 @@ import com.networknt.schema.SpecificationVersion;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.annotation.PostConstruct;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.remus.giteabot.config.AgentConfigProperties;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -46,6 +47,7 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 @Slf4j
 @Component
+@RequiredArgsConstructor
 public class AgentSchemaValidator {
 
     private final ObjectMapper objectMapper = AgentJackson.mapper();
@@ -55,12 +57,6 @@ public class AgentSchemaValidator {
     private final Map<String, Counter> counters = new ConcurrentHashMap<>();
     private final MeterRegistry meterRegistry;
     private final AgentConfigProperties config;
-
-    @Autowired
-    public AgentSchemaValidator(MeterRegistry meterRegistry, AgentConfigProperties config) {
-        this.meterRegistry = meterRegistry;
-        this.config = config;
-    }
 
     @PostConstruct
     void init() {
