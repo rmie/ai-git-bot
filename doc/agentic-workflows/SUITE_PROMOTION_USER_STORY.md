@@ -2,7 +2,7 @@
 
 > **Audience:** stakeholders / QA leads asking *"now that the bot
 > generates E2E tests per PR, how do those tests stop being throwaway?"*
-> **Companion:** [doc/PR_WORKFLOWS_E2E.md § Suite lifecycle modes](../PR_WORKFLOWS_E2E.md#suite-lifecycle-modes-m7)
+> **Companion:** [doc/PR_WORKFLOWS_E2E.md § Suite lifecycle modes](../PR_WORKFLOWS_E2E.md#suite-lifecycle-modes)
 > for the per-mode protocol, and
 > [systemtest/README-suite-promotion.md](../../systemtest/README-suite-promotion.md)
 > for a laptop reproduction.

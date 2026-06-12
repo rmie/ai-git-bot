@@ -28,7 +28,10 @@ ai code review, code review bot, pull request automation, AI unit tests, unit te
 ## Essential documentation
 
 - [README](README.md): project overview, features, screenshots, quick start, and documentation index.
-- [User Guide](doc/USER_GUIDE.md): web UI usage, bot creation, AI integrations, Git integrations, and operating workflows.
+- [Documentation Hub](doc/README.md): documentation index organized by audience (user, administrator, tester, developer).
+- [Using the Bot](doc/USING_THE_BOT.md): end-user guide for interacting with bots from the Git platform — reviews, @mentions, slash commands, issue assignment.
+- [Testing Guide](doc/TESTING_GUIDE.md): self-contained docker-compose system-test stacks and bug-reporting guidance.
+- [Admin Guide](doc/USER_GUIDE.md): web UI usage, bot creation, AI integrations, Git integrations, and operating workflows.
 - [PR Workflows](doc/PR_WORKFLOWS.md): workflow configurations, deployment targets, orchestration, and lifecycle.
 - [Unit-Test Author Workflow](doc/PR_WORKFLOWS_UNIT_TEST.md): AI unit-test generation, supported runners, slash commands, and write-safety model.
 - [Architecture](doc/ARCHITECTURE.md): components, request flows, persistence, webhook routing, and system diagrams.
