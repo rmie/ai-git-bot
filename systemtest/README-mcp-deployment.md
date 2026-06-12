@@ -5,7 +5,7 @@ per-PR preview deploy by calling regular MCP tools on a server you
 control. Companion to
 [`doc/agentic-workflows/MCP_DEPLOYMENT_USER_STORY.md`](../doc/agentic-workflows/MCP_DEPLOYMENT_USER_STORY.md)
 (the *why*) and
-[`doc/MCP_SERVER_HANDLING.md` § 6](../doc/MCP_SERVER_HANDLING.md#6-exposing-deployment-style-tools-m5)
+[`doc/MCP_SERVER_HANDLING.md` § 6](../doc/MCP_SERVER_HANDLING.md#6-exposing-deployment-style-tools)
 (the *protocol*).
 
 ## 1. Boot the scenario

@@ -27,10 +27,9 @@ on `PrWorkflowRegistry`:
 | `e2e-test`     | TESTING  | Plans, authors and runs Playwright specs against a per-PR preview deployment. Opt-in per bot.         |
 | `unit-test-author` | TESTING | Generates white-box unit tests for the PR diff, runs them with the project's own test runner and commits them onto the PR branch. No deployment target needed. Opt-in per bot. See [`../PR_WORKFLOWS_UNIT_TEST.md`](../PR_WORKFLOWS_UNIT_TEST.md). |
 
-Workflows are reusable — adding a new one is a matter of implementing
-`PrWorkflow` and letting Spring DI register it (see
-[`CONCEPT_AND_ARCHITECTURE.md` § 9](./CONCEPT_AND_ARCHITECTURE.md#9-intervention-in-the-existing-code)
-and [`INTERNALS.md` § Writing a workflow](./INTERNALS.md#writing-a-new-workflow)).
+Workflows are reusable extension points; see
+[`CONCEPT_AND_ARCHITECTURE.md`](./CONCEPT_AND_ARCHITECTURE.md) for the concept
+and [`INTERNALS.md`](./INTERNALS.md) for the developer source map.
 
 The four deployment strategies the `e2e-test` workflow can target:
 
@@ -52,8 +51,8 @@ four `suiteLifecycle` modes (`ephemeral` / `commit-to-pr` / `offer-as-pr`
 
 | Document | Purpose | Audience |
 |---|---|---|
-| **[CONCEPT_AND_ARCHITECTURE.md](./CONCEPT_AND_ARCHITECTURE.md)** | The *why* and the *what*: motivation, conceptual model, high-level architecture, data model, deployment abstraction, the E2E workflow, UI sketches, agent modelling, risks. | Architects, tech leads, anyone forming a mental model of the feature. |
-| **[INTERNALS.md](./INTERNALS.md)** | The *how it's wired*: package layout, SPI shapes, persistence schema, Spring beans, extension points, cross-cutting concerns. | Engineers extending the SPI, debugging a workflow run, adding a new strategy. |
+| **[CONCEPT_AND_ARCHITECTURE.md](./CONCEPT_AND_ARCHITECTURE.md)** | The *why* and the *what*: motivation, conceptual model, high-level architecture, data model, deployment abstraction, the E2E workflow, and risks. | Architects, tech leads, anyone forming a mental model of the feature. |
+| **[INTERNALS.md](./INTERNALS.md)** | Short developer source map, conceptual extension points, and workflow state machine. | Engineers extending or debugging workflows. |
 | **[STATIC_DEPLOYMENT_USER_STORY.md](./STATIC_DEPLOYMENT_USER_STORY.md)** | Persona-driven feature description for the `STATIC` strategy. | Frontend leads on Vercel / Netlify / Render. |
 | **[WEBHOOK_DEPLOYMENT_USER_STORY.md](./WEBHOOK_DEPLOYMENT_USER_STORY.md)** | Persona-driven feature description for the `WEBHOOK` strategy. | DevOps engineers running Jenkins / TeamCity / custom CI. |
 | **[MCP_DEPLOYMENT_USER_STORY.md](./MCP_DEPLOYMENT_USER_STORY.md)** | Persona-driven feature description for the `MCP` strategy. | Platform engineers running internal MCP servers. |
