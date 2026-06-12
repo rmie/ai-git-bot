@@ -291,7 +291,7 @@ stateDiagram-v2
 `teardown()` is optional. When supported by the strategy, it runs at the
 latest on `pullRequest closed/merged` (hook into `handlePrClosed()`).
 
-## 7. First concrete use case: `E2ETestWorkflow`
+## 7. First concrete use case: `e2e-test`
 
 ### 7.1 Flow
 
@@ -368,126 +368,9 @@ while follow-up PR modes use a dedicated branch such as
    automatically promoted into `tests/e2e/` (whitelist path, the human reviews
    it in the follow-up PR).
 
-Configurable per `WorkflowSelection`.
+Configurable per workflow selection.
 
-## 8. UI sketch (as simple as possible)
-
-Three UI touchpoints — all reuse the existing admin UI pattern (table +
-detail modal, as used for MCP and tool configurations).
-
-### 8.1 System settings → **Workflow configurations** (new)
-
-```
-┌────────────────────────────────────────────────────────────────────┐
-│ Workflow configurations                           [ + Add ]        │
-├────────────────────────────────────────────────────────────────────┤
-│ Name              | Workflows enabled            | Used by | Edit │
-│ Default           | review                       |   3     | ✎    │
-│ Full-stack QA     | review, e2e-test             |   1     | ✎    │
-│ Backend only      | review, security-scan        |   0     | ✎    │
-└────────────────────────────────────────────────────────────────────┘
-```
-
-Edit dialog (`Add / Edit workflow configuration`):
-
-```
-Name: [ Full-stack QA                                    ]
-Enabled workflows:
-  ☑ review              (always-on recommended)
-  ☑ e2e-test            [ Configure… ]
-  ☐ security-scan
-  ☐ doc-diff
-  ☐ perf-smoke
-[ Cancel ]                            [ Save ]
-```
-
-`Configure…` opens the per-workflow params panel (e.g. for `e2e-test`:
-framework hint, suite lifecycle, max test count, timeout).
-
-### 8.2 System settings → **Deployment targets** (new)
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│ Deployment targets                              [ + Add ]       │
-├─────────────────────────────────────────────────────────────────┤
-│ Name           | Strategy        | Preview URL template  | ✎   │
-│ Staging-K8s    | WEBHOOK         | https://pr-{n}.…     | ✎   │
-│ Vercel-auto    | STATIC          | https://pr-{n}.…     | ✎   │
-│ GH-Actions     | CI_ACTION       | (from action output)  | ✎   │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-The edit dialog shows different fields per strategy
-(webhook URL + secret / workflow-file path / MCP tool name / URL template).
-
-### 8.3 Bots → **Edit bot** (extended)
-
-Two additional optional dropdowns:
-
-```
-Workflow configuration:  [ Default            ▾ ]   [ Details ]
-Deployment target:       [ — none —           ▾ ]   [ Details ]
-```
-
-`Details` shows read-only which workflows are active, respectively which
-strategy/fields the target uses (secrets masked).
-
-### 8.4 Dashboard → **Workflow runs** (new, read-only)
-
-```
-Repo            PR    Workflow    Status         Preview            Duration
-acme/web        #142  e2e-test    ✅ SUCCESS     pr-142.preview…    1m 42s
-acme/web        #143  e2e-test    🟡 RUNNING     pr-143.preview…    34s
-acme/api        #88   e2e-test    ❌ FAILED       —                 22s   [logs]
-```
-
-Click on a row → detail view with steps, generated tests, and full log
-excerpt (analogous to existing bot detail pages).
-
-## 9. Intervention in the existing code
-
-Incremental, additive throughout:
-
-1. **`PrWorkflow` interface** + `PrWorkflowRegistry` (analogous to
-   `AiProviderRegistry` / `RepositoryProviderRegistry`).
-2. `BotWebhookService.reviewPullRequest()` calls the new
-   `PrWorkflowOrchestrator.run(bot, payload)` instead of the LLM directly. The
-   current code is moved 1:1 into a `ReviewWorkflow` implementation → no
-   behaviour change for existing bots.
-3. **New endpoints** `/api/workflow-callback/{runId}/{secret}` in
-   `UnifiedWebhookController` (with a dedicated secret per `PrWorkflowRun`).
-4. **New services**: `PrWorkflowOrchestrator`, `PrTestSuiteService`,
-   `DeploymentTargetService`, `WorkflowConfigurationService` + repositories.
-5. **New built-in tools** in `ToolCatalog` (category `PR_WORKFLOW`),
-   automatically added by `DefaultBotToolConfigurationInitializer` (additive
-   migration — see [BOT_TOOL_CONFIGURATIONS.md](../BOT_TOOL_CONFIGURATIONS.md)).
-6. **Flyway migration** `V13__pr_workflows.sql` for the five new tables.
-7. **MCP recommendation in docs/UI**: a preconfigured template for
-   `playwright-mcp` in the MCP-configurations help text.
-
-## 10. Agent modelling — what is really "the agent" here?
-
-Three cooperating agents, all with the same loop pattern
-(`requestTools → runTools`) as the coding agent:
-
-| Agent | Role | Context | Tools |
-|---|---|---|---|
-| **TestPlannerAgent** | Which journeys to test, which framework, how many cases | Diff, repo tree, existing tests, PR description | `cat`, `rg`, `tree`, `get-issue` |
-| **TestAuthorAgent** | Writing concrete test code | Plan + relevant source files + framework doc snippets | `cat`, `pr-test-write`, optionally `patch-file` (only in the test workspace) |
-| **TestRunnerAgent** | Executing, interpreting, optionally correcting | Plan + suite + preview URL | `pr-test-run`, `preview-status`, `attach-artifact`, optionally MCP Playwright |
-
-These three agents run **sequentially** within the same `PrWorkflowRun`, but
-keep **separate conversations** with the LLM — this keeps the context window
-small and allows different models per step (`TestPlannerAgent` may be cheap,
-`TestAuthorAgent` needs the stronger model). Configurable via the existing
-`AiIntegration` selection per workflow parameter.
-
-**Reuse**: all three agents extend the existing `AgentStrategy`/`AgentLoop`
-infrastructure (see [AGENT.md](../AGENT.md) — "Provider-native function
-calling"). That means native tool calls, plan persistence, schema validation
-and telemetry work without extra effort.
-
-## 11. Risks and open questions
+## 8. Risks and open questions
 
 | Risk | Mitigation |
 |---|---|
@@ -498,11 +381,11 @@ and telemetry work without extra effort.
 | Data protection for preview env vs. test data | Hint in the UI; workflow param `useSyntheticData`; MCP tool `seed-test-data` (optional). |
 | Parallel workflow runs per PR (race) | DB constraint `unique(botId, prNumber, workflowKey, status in RUNNING/WAITING)` + cancel-on-resync. |
 
-## 12. Summary
+## 9. Summary
 
-- **`PrWorkflow`** is a generic, registrable extension of the PR path.
-  The classic review runs as the first workflow (`ReviewWorkflow`) → zero
-  risk for existing bots.
+- **PR workflows** are generic, registrable extensions of the PR path.
+  The classic review remains the first workflow, so existing bots keep their
+  default behavior.
 - The first concrete new workflow is **`e2e-test`**, modelled as three
   cooperating agents (`Planner`, `Author`, `Runner`) on the existing
   agent-loop infrastructure.
@@ -513,9 +396,6 @@ and telemetry work without extra effort.
 - The **test suite lives per PR** and can optionally be promoted into
   the repository via a follow-up PR or a direct commit (see
   [`SUITE_PROMOTION_USER_STORY.md`](./SUITE_PROMOTION_USER_STORY.md)).
-- The UI stays true to the existing pattern (three small new areas:
-  workflow configurations, deployment targets, workflow runs) and adds
-  two optional dropdowns on the bot form.
 - Existing market solutions (Copilot Workspace, GitLab Duo, Qodo,
   Aider/Sweep, Playwright MCP) provide building blocks, but no complete
   solution with our multi-provider / multi-LLM gateway focus — exactly

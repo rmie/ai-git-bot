@@ -1,341 +1,87 @@
 # PR Workflows
 
-> The PR-workflow subsystem is part of every AI-Git-Bot release since
-> **1.7.0**. Conceptual overview: [`agentic-workflows/CONCEPT_AND_ARCHITECTURE.md`](agentic-workflows/CONCEPT_AND_ARCHITECTURE.md).
+PR workflows are administrator-configured actions that run from pull-request webhooks. They let one bot perform one or more ordered tasks such as AI review, agentic review, unit-test generation, or E2E testing.
 
-The PR-review path is now built on a small, pluggable Service Provider
-Interface called **`PrWorkflow`**. Every pull-request webhook event passes
-through a central **`PrWorkflowOrchestrator`** that resolves the configured
-workflow, persists a `pr_workflow_runs` row, invokes the workflow and emits
-metrics.
+> The PR-workflow subsystem is available since **1.7.0**. Developer architecture notes live in [`agentic-workflows/CONCEPT_AND_ARCHITECTURE.md`](agentic-workflows/CONCEPT_AND_ARCHITECTURE.md) and the source code.
 
-The legacy review code (LLM call + comment posting) is now packaged as the
-first workflow — `ReviewWorkflow`, key `review` — and continues to run by
-default for every bot. Future milestones add additional workflows
-(`e2e-test`, `security-scan`, …) and a per-bot configuration UI.
+## Built-in workflows
 
-> **Agentic PR Review.** An opt-in, read-only agentic alternative to the
-> one-shot `review` workflow — the LLM can iteratively call repository and MCP
-> tools before writing its review. See
-> [`PR_WORKFLOWS_AGENTIC_REVIEW.md`](PR_WORKFLOWS_AGENTIC_REVIEW.md).
+| Key | UI name | Default? | What it does |
+|---|---|---|---|
+| `review` | PR Review | Enabled on the seeded `Default` configuration | Posts a one-shot AI code review comment and applies the bot's configured post-review action. |
+| `agentic-review` | Agentic PR Review | Opt-in | Lets the model read repository/MCP context before posting a Markdown review comment. Read-only. See [`PR_WORKFLOWS_AGENTIC_REVIEW.md`](PR_WORKFLOWS_AGENTIC_REVIEW.md). |
+| `unit-test-author` | AI Unit Tests | Opt-in | Generates and runs unit tests for the PR diff; can commit passing tests to the PR branch. See [`PR_WORKFLOWS_UNIT_TEST.md`](PR_WORKFLOWS_UNIT_TEST.md). |
+| `e2e-test` | E2E Tests | Opt-in | Deploys or locates a PR preview, generates/runs E2E tests, and posts a summary. Requires a deployment target. See [`PR_WORKFLOWS_E2E.md`](PR_WORKFLOWS_E2E.md). |
 
-> **Unit-Test Author.** An opt-in, read-write workflow (category `TESTING`,
-> key `unit-test-author`) that generates white-box unit tests for the PR diff,
-> runs them with the project's own test runner and commits them onto the PR
-> branch. No deployment target / browser required. See
-> [`PR_WORKFLOWS_UNIT_TEST.md`](PR_WORKFLOWS_UNIT_TEST.md).
-
-## Components
-
-
-```mermaid
-flowchart LR
-    Webhook["UnifiedWebhookController"] --> BWS["BotWebhookService"]
-    BWS --> Orchestrator["PrWorkflowOrchestrator"]
-    Orchestrator --> Registry["PrWorkflowRegistry"]
-    Registry --> Review["ReviewWorkflow"]
-    Orchestrator --> RunSvc["PrWorkflowRunService"]
-    RunSvc --> Runs[("pr_workflow_runs")]
-    RunSvc --> Steps[("pr_workflow_steps")]
-    Orchestrator --> Metrics["PrWorkflowMetrics<br/>(Prometheus)"]
-    Review --> Factory["CodeReviewServiceFactory"]
-    Factory --> CodeReview["CodeReviewService (per-bot)"]
-```
-
-| Class | Role |
-|---|---|
-| `PrWorkflow` | SPI implemented by every workflow. Stable `key()`, `displayName()`, `category()`, `run(PrWorkflowContext)`. |
-| `PrWorkflowRegistry` | Auto-discovers all `PrWorkflow` beans, validates unique lower-case kebab-case keys, exposes lookup. |
-| `PrWorkflowOrchestrator` | Single entry point. Starts a run, invokes the workflow, persists the terminal status, records metrics. Captures and rethrows runtime exceptions. |
-| `PrWorkflowContext` | Immutable record handed to `run(...)`: bot, payload, run id, append-step callback. |
-| `WorkflowResult` | Outcome (`SUCCESS`, `FAILED`, `SKIPPED`, `WAITING_DEPLOY`) + short summary. |
-| `PrWorkflowRunService` | CRUD + lifecycle for runs and steps. Cancels superseded in-flight runs on every `start(...)`. |
-| `PrWorkflowMetrics` | `prworkflow.run_total{workflow,status}` counter and `prworkflow.run_duration_seconds{workflow}` timer. |
-| `ReviewWorkflow` | First implementation; wraps the legacy `CodeReviewService.reviewPullRequest(...)` + `postReviewAction(...)` flow. |
-| `CodeReviewServiceFactory` | Per-bot construction of `CodeReviewService`, shared between `ReviewWorkflow` and the remaining `BotWebhookService` handlers. |
-| `AgentReviewWorkflow` | Read-only **agentic** review (key `agentic-review`). Runs an `AgentLoop` with the read-only `ReviewAgentStrategy` so the LLM can explore the repo via context/MCP tools before commenting. See [`PR_WORKFLOWS_AGENTIC_REVIEW.md`](PR_WORKFLOWS_AGENTIC_REVIEW.md). |
-
-## Lifecycle
-
-```mermaid
-stateDiagram-v2
-    [*] --> RUNNING: PrWorkflowRunService.start(...)
-    RUNNING --> SUCCESS: WorkflowResult.success / .skipped
-    RUNNING --> FAILED: exception / WorkflowResult.failed
-    RUNNING --> WAITING_DEPLOY: WorkflowResult.waitingDeploy
-    RUNNING --> CANCELLED: superseded by newer run for same PR
-    WAITING_DEPLOY --> RUNNING: deployment callback
-    WAITING_DEPLOY --> CANCELLED: superseded by newer run for same PR
-```
-
-> There is intentionally **no** `QUEUED` intermediate state — the orchestrator
-> owns the transition from "webhook received" to "workflow executing" inside a
-> single synchronous call to `PrWorkflowRunService.start(...)`, which inserts
-> the row directly in `RUNNING`. No separate scheduler observes a
-> pre-execution row.
-
-**Cancel-on-resync.** When a PR receives a `synchronize` (push) event while a
-previous run for the same `(bot, repo, pr, workflow)` tuple is still active,
-the orchestrator transitions the previous run to `CANCELLED` before starting
-the new one. This prevents racing comments/reviews against an outdated diff.
-
-## Persisted data model
-
-```mermaid
-erDiagram
-    pr_workflow_runs ||--|{ pr_workflow_steps : "steps"
-    bots ||--o{ pr_workflow_runs : "owns"
-
-    pr_workflow_runs {
-        BIGINT id PK
-        BIGINT bot_id FK
-        VARCHAR repo_owner
-        VARCHAR repo_name
-        BIGINT pr_number
-        VARCHAR workflow_key
-        VARCHAR status
-        VARCHAR summary
-        TIMESTAMP started_at
-        TIMESTAMP finished_at
-    }
-    pr_workflow_steps {
-        BIGINT id PK
-        BIGINT run_id FK
-        INT step_order
-        VARCHAR name
-        VARCHAR status
-        TEXT log_excerpt
-        TIMESTAMP created_at
-    }
-```
-
-The schema is created by Flyway migration `V13__prworkflow_runs.sql` (mirrored
-for H2 and PostgreSQL). Step log excerpts are truncated at 8&nbsp;KB and the
-run summary at 2&nbsp;000 characters — long-form output stays in the
-application log.
-
-## Observability
-
-Two Micrometer meters are exposed at `/actuator/prometheus`:
-
-| Metric | Tags | Meaning |
-|---|---|---|
-| `prworkflow.run_total` | `workflow`, `status` | One increment per terminal run. |
-| `prworkflow.run_duration_seconds` | `workflow` | Wall-clock duration of one terminal run. |
-
-A reference Grafana dashboard ships under `doc/observability/` for these meters.
-
-## Writing a new workflow
-
-```java
-@Component
-public class SecurityScanWorkflow implements PrWorkflow {
-
-    @Override public String key()                  { return "security-scan"; }
-    @Override public String displayName()          { return "Security Scan"; }
-    @Override public PrWorkflowCategory category() { return PrWorkflowCategory.SECURITY; }
-
-    @Override
-    public WorkflowResult run(PrWorkflowContext context) {
-        context.appendStep("scan-start", "Running scan for PR #"
-                + context.payload().getPullRequest().getNumber());
-        // … do the work …
-        return WorkflowResult.success("No issues found");
-    }
-}
-```
-
-That is enough — the registry picks the bean up via Spring DI, and the
-orchestrator can invoke it via `orchestrator.run(bot, payload, "security-scan")`
-or — once enabled in a `WorkflowConfiguration` (see below) — automatically as
-part of `orchestrator.runAll(bot, payload)`.
+Developers adding new workflow types should start from the source code and developer architecture notes rather than this operator guide.
 
 ## Workflow configurations
 
-Operators decide **which** `PrWorkflow`s run for a given bot via reusable
-**workflow configurations**. A configuration is an ordered whitelist of
-workflow keys plus per-key tuning parameters; the same configuration can be
-shared by many bots.
+A **workflow configuration** is a reusable ordered selection of PR workflows plus per-workflow parameters. Assign one configuration to many bots, or leave a bot on the seeded `Default` configuration.
 
-### Data model
+Admin UI:
 
-```mermaid
-erDiagram
-    bots ||--o| workflow_configurations : "uses (nullable FK)"
-    workflow_configurations ||--|{ workflow_selections : "enabled workflows"
+1. **System settings → Workflow configurations** — list, add, edit, clone, and delete configurations.
+2. **Workflows for «name»** — tick workflow keys and edit their parameter fields. Workflows run sequentially in stable order.
+3. **Bots → New / Edit bot → Workflow Configuration** — choose a configuration or leave **(use default)**.
 
-    workflow_configurations {
-        BIGINT id PK
-        VARCHAR name UK
-        BOOLEAN default_entry
-        TIMESTAMP created_at
-        TIMESTAMP updated_at
-    }
-    workflow_selections {
-        BIGINT id PK
-        BIGINT workflow_configuration_id FK
-        VARCHAR workflow_key
-        TEXT params_json
-    }
-```
-
-Tables are created by `V14__workflow_configurations.sql` (H2 + PostgreSQL).
-The unique constraint `(workflow_configuration_id, workflow_key)` prevents
-duplicate entries within the same configuration.
-
-### Services
-
-| Class | Role |
-|---|---|
-| `WorkflowConfiguration` / `WorkflowSelection` | JPA entities under `org.remus.giteabot.prworkflow.config`. |
-| `WorkflowConfigurationService` | CRUD + clone, guards the `defaultEntry` (cannot be renamed, deleted or lose its flag) and blocks deletion while bots still reference the configuration. |
-| `WorkflowSelectionService` | Add/remove/update selections; validates `params_json` against the workflow's `paramsSchema()` via `WorkflowParamsValidator`; exposes `enabledWorkflowKeys(configurationId)` in deterministic alphabetical order. |
-| `DefaultWorkflowConfigurationInitializer` | `ApplicationRunner` that on every startup (a) creates the `Default` configuration if missing, (b) additively enables every newly registered `REVIEW`-category workflow, and (c) backfills bots whose `workflow_configuration_id` is still null. Workflows with `category != REVIEW` are **never** auto-enabled — operators must opt in explicitly. |
-
-### Orchestrator dispatch
-
-`BotWebhookService.reviewPullRequest(...)` no longer asks for a specific
-workflow key; it delegates to:
-
-```java
-prWorkflowOrchestrator.runAll(bot, payload);
-```
-
-`runAll(...)` resolves the bot's configuration (falling back to `ReviewWorkflow`
-alone if `bot.workflowConfiguration` is null), iterates the enabled keys in
-deterministic order and invokes each `PrWorkflow` sequentially. One failing
-workflow does **not** abort the remaining ones — every invocation is wrapped
-by `run(bot, payload, key)`, so its terminal status is persisted independently
-in `pr_workflow_runs`.
-
-Unregistered workflow keys (e.g. an entry persisted before a workflow bean was
-removed) are logged with `WARN` and skipped.
+The workflow-selection page shows each workflow's display name, key, category, description, and editable parameter fields. Unavailable saved workflow keys are shown as **Not registered** instead of failing the whole configuration.
 
 ## Trigger conditions
 
-PR workflows are invoked only when the webhook handler decides that the event
-is relevant for the bot. Two mutually reinforcing conditions gate every
-create/open event across all four Git providers (GitHub, Gitea, Bitbucket,
-GitLab):
+PR workflows run only when the webhook is relevant for the bot. Across GitHub, Gitea, GitLab, and Bitbucket, a new/open PR triggers when either condition is true:
 
 | Condition | Default | Effect |
 |---|---|---|
-| Bot is listed as a **requested reviewer** on the PR | always checked | Triggers the workflow when the bot is explicitly asked to review. |
-| Bot has **Run on PR creation** enabled | `false` | Triggers the workflow on every new PR, regardless of reviewer assignment. |
+| Bot is requested as reviewer | Always checked | Runs when developers explicitly request the bot. |
+| **Run workflow when PR is opened** | Off | Runs for every new/open PR even without reviewer assignment. |
 
-The effective predicate is:
+The bot form exposes this as **Run workflow when PR is opened**. It applies to PR/MR create/open events only; synchronize/push, review-requested, comment, approval, and close events keep their own handling.
 
-```java
-bot.isRunOnPrCreation() || hasBotReviewer(payload)
-```
+When a new push updates a PR while an older run of the same workflow is still active, the older run is cancelled so comments and actions do not race against stale code.
 
-> **Scope.** The flag applies exclusively to PR/MR **create** and **open**
-> events. It does *not* affect `synchronize` (push), `updated`, `closed`,
-> `review_requested`, comment or approval events — those follow their own
-> rules unchanged.
+## Operator-visible status
 
-### Configuration
+Workflow runs and steps are persisted and visible through the application UI/logs where supported. Terminal states are success, failed, skipped, waiting for deployment, or cancelled. Long logs stay in application logs; UI excerpts are intentionally short.
 
-On the **Bots → New / Edit bot** form, the toggle lives in the **Workflow
-Configuration** section:
+Prometheus metrics are available when actuator/Prometheus is enabled for your deployment. Use them for dashboards and alerting, but normal administration should start from the bot comments, run status, and application logs.
 
-> ☐ **Run workflow when PR is opened**
-> When enabled, the bot executes its configured PR workflow when a pull request is created or opened, even if the bot is not assigned as reviewer.
+## Upgrade behaviour
 
-The field is persisted as `bots.run_on_pr_creation BOOLEAN NOT NULL DEFAULT
-FALSE` (Flyway migration `V25__bots_run_on_pr_creation.sql`, mirrored for
-H2 and PostgreSQL). Existing bots keep their previous behaviour (flag off);
-no manual migration step is required.
+Existing installations are migrated to a `Default` workflow configuration containing only `review`, preserving previous review behaviour. New review-category workflows may be added to `Default` by migrations/startup initialization, but testing workflows are opt-in. Existing bots with no explicit workflow configuration inherit the default.
 
-### Use cases
+Deployment-target migrations add the target tables and optional bot assignment. Existing bots have no deployment target until an operator configures one; preview-aware workflows are skipped with a clear PR comment.
 
-- **Mandatory review policy.** Enable the flag on a compliance bot that must
-  review every PR in a repository, even when developers forget to add it as
-  a reviewer.
-- **Selective review.** Leave the flag off (default) so the bot only runs
-  when explicitly requested — useful for expensive agentic reviews or bots
-  shared across many repositories.
-
-### Admin UI
-
-Three touchpoints, all reusing the existing table-plus-modal pattern:
-
-1. **System settings → Workflow configurations**
-   (`/system-settings/workflow-configurations/`):
-   list, add, edit, clone, delete. The edit page exposes a sub-page
-   `…/{id}/workflows` for selecting which workflow keys are enabled and
-   editing their `params_json` against the workflow's `paramsSchema()`.
-2. **Bots → New / Edit bot**: a **Workflow Configuration** dropdown plus a
-   **Details** modal that loads `…/{id}/selected-workflows` (JSON) to show
-   the enabled workflow keys without leaving the bot form. New bots default
-   to the `Default` configuration.
-3. **System settings overview**: the new entry appears next to MCP and tool
-   configurations.
-
-### Upgrade behaviour
-
-- `V14__workflow_configurations.sql` adds the `workflow_configurations` /
-  `workflow_selections` tables and the nullable `bots.workflow_configuration_id`
-  column.
-- `V15__workflow_configurations_default.sql` (idempotent) seeds the `Default`
-  configuration, enables the built-in `review` workflow on it and backfills
-  every bot whose `workflow_configuration_id` is still null. After the two
-  migrations run, every existing bot keeps behaving exactly as before
-  (running only the `review` workflow); no startup-time Java code is involved.
-
+<a id="deployment-targets-m3"></a>
 ## Deployment targets
 
-Workflows that need a per-PR preview environment (e.g. the `E2ETestWorkflow`
-such as `E2ETestWorkflow`) do not deploy anything themselves — they delegate to an
-operator-managed **deployment target** that wraps a pluggable
-`DeploymentStrategy`. Four strategies ship today:
+Some workflows need a live per-PR preview URL, especially `e2e-test`. A **deployment target** tells the bot how to obtain that preview. Create targets under **System settings → Deployment targets**, then assign one under **Bots → Edit bot → Deployment Target**.
 
-| Strategy | Awaits callback? | Use case |
+Target form fields:
+
+| Field | Purpose |
+|---|---|
+| **Name** | Label shown in the bot dropdown. |
+| **Strategy** | One of `STATIC`, `WEBHOOK`, `MCP`, `CI_ACTION`. |
+| **Preview URL template** | Required for `STATIC`; optional/informational for others. Supports `{prNumber}`, `{sha}`, `{branch}`. |
+| **Timeout (seconds)** | Maximum wait for readiness/callback. |
+| **Strategy config (JSON)** | Strategy-specific JSON pasted into the UI. |
+
+Configuration JSON is encrypted at rest when `APP_ENCRYPTION_KEY` is configured.
+
+### Strategy overview
+
+| Strategy | Waits for callback? | Use when |
 |---|---|---|
-| `WEBHOOK` | yes | Bot POSTs a signed JSON envelope to a CI job (Jenkins, GitLab pipeline trigger, GitHub `repository_dispatch`, Argo CD). The CI side calls back when the preview URL is ready. |
-| `STATIC`  | no  | Provider already auto-provisions a per-PR preview (Vercel, Netlify, Render, GitLab review apps). The bot expands a URL template, optionally probes a `/healthz` until reachable, then proceeds synchronously. |
-| `MCP` | no  | Internal platform MCP server already exposes deploy / status / teardown tools. The bot calls them like any other MCP tool and polls via the status tool. See [MCP_SERVER_HANDLING.md → Exposing deployment tools](MCP_SERVER_HANDLING.md#6-exposing-deployment-style-tools). |
-| `CI_ACTION` | yes (poller-driven) | Bot dispatches the Git host's native CI (GitHub Actions, Gitea Actions, GitLab CI, Bitbucket Pipelines) using the existing integration token. A scheduled poller drives the run forward; workflows may additionally POST to the bot's `callbackUrl` to expose a dynamic preview URL. See [PR_WORKFLOWS_CI_ACTIONS.md](PR_WORKFLOWS_CI_ACTIONS.md). |
+| `STATIC` | No | Your platform already creates deterministic PR previews, such as Vercel, Netlify, Render, or GitLab review apps. |
+| `WEBHOOK` | Yes | The bot must trigger external CI/CD, and that system will call back with the preview URL. |
+| `MCP` | No | An internal MCP server exposes deploy/status/teardown tools selected in the MCP configuration. |
+| `CI_ACTION` | Poller-driven, optional callback | The bot should dispatch native GitHub/Gitea Actions, GitLab CI, or Bitbucket Pipelines using the Git integration token. |
 
-### Lifecycle
+### `STATIC` config
 
-```mermaid
-stateDiagram-v2
-    [*] --> RUNNING: orchestrator picks workflow
-    RUNNING --> WAITING_DEPLOY: workflow asks for preview env
-    WAITING_DEPLOY --> RUNNING: DeploymentCallback(READY, previewUrl)
-    WAITING_DEPLOY --> FAILED: DeploymentCallback(FAILED) | timeout
-    RUNNING --> SUCCESS: workflow finishes
-    RUNNING --> FAILED: workflow throws
-```
+Use `STATIC` when the preview URL is predictable from PR data.
 
-### Strategy configuration JSON
-
-Stored encrypted at rest (`deployment_targets.config_json`) via
-`EncryptionService` when `APP_ENCRYPTION_KEY` is configured.
-
-**`WEBHOOK`**
-```json
-{
-  "webhookUrl": "https://ci.acme.io/jobs/preview/build",
-  "sharedSecret": "hex-or-arbitrary-string-for-hmac",
-  "headers": { "X-Trigger-Source": "ai-git-bot" }
-}
-```
-Outbound request:
-```
-POST {webhookUrl}
-Content-Type: application/json
-X-AI-Bot-Signature: sha256=<hex hmac-sha256 of body using sharedSecret>
-X-AI-Bot-Run-Id:   {runId}
-
-{ "runId": 42, "prNumber": 1234, "sha": "abc…", "branch": "feature/x",
-  "repoOwner": "acme", "repoName": "web",
-  "callbackUrl": "https://bot.acme.io/api/workflow-callback/42/<callbackSecret>",
-  "callbackSecret": "<callbackSecret>" }
-```
-
-**`STATIC`**
 ```json
 {
   "healthcheckPath": "/healthz",
@@ -344,92 +90,96 @@ X-AI-Bot-Run-Id:   {runId}
   "extraHeaders": { "X-Probe": "ai-bot" }
 }
 ```
-`previewUrlTemplate` (configured on the target row, not in the JSON) supports
-the placeholders `{prNumber}`, `{sha}` and `{branch}`. Set
-`"healthcheckPath": ""` to skip the readiness probe entirely.
 
-**`MCP`**
+Set **Preview URL template** separately, for example:
+
+```text
+https://pr-{prNumber}.preview.example.com
+```
+
+Set `"healthcheckPath": ""` to skip probing.
+
+### `WEBHOOK` config
+
+Use `WEBHOOK` when an external system must build/deploy the preview.
+
+```json
+{
+  "webhookUrl": "https://ci.acme.io/jobs/preview/build",
+  "sharedSecret": "hex-or-arbitrary-string-for-hmac",
+  "headers": { "X-Trigger-Source": "ai-git-bot" }
+}
+```
+
+The bot sends a signed JSON envelope containing PR/repo identifiers plus `callbackUrl` and `callbackSecret`. The CI system should verify `X-AI-Bot-Signature` with `sharedSecret`, deploy the preview, then call the callback URL with the per-run callback secret.
+
+### `MCP` config
+
+Use `MCP` when a selected MCP server tool can create or locate the preview.
+
 ```json
 {
   "mcpConfigurationId": 7,
-  "deployTool":   "platform/deploy_pr_preview",
-  "statusTool":   "platform/get_preview_status",
+  "deployTool": "platform/deploy_pr_preview",
+  "statusTool": "platform/get_preview_status",
   "teardownTool": "platform/teardown_preview",
   "argsTemplate": {
     "project": "shop-web",
-    "branch":  "{branch}",
-    "ref":     "{sha}",
-    "pr":      "{prNumber}"
+    "branch": "{branch}",
+    "ref": "{sha}",
+    "pr": "{prNumber}"
   }
 }
 ```
-- `mcpConfigurationId` references a row from **System settings → MCP
-  configurations**. Every referenced tool name **must** be on that MCP
-  configuration's whitelist (`McpToolSelectionService`); the save is
-  rejected otherwise. The strategy enforces the same check a second time
-  at runtime, so disabling a tool after the fact safely degrades to a
-  `REJECTED` deployment.
-- `statusTool` and `teardownTool` are optional. Omit them when the deploy
-  tool returns a ready preview URL synchronously (the strategy then reports
-  `READY` directly) or when the MCP side cleans up on its own.
-- `argsTemplate` is the **raw argument document** passed to the deploy
-  tool. Any string leaf is run through a `{placeholder}` substitution with
-  the same keys exposed by the webhook envelope (`prNumber`, `sha`,
-  `branch`, `repoOwner`, `repoName`, `runId`, `callbackUrl`,
-  `callbackSecret`). Numbers, booleans and nested maps/lists pass through
-  unchanged. Omit `argsTemplate` to fall back to a flat envelope of all
-  placeholders.
-- The strategy is **poll-based** (`awaitsCallback == false`): the bot's
-  scheduled poller calls `statusTool` with `{ runId, prNumber, repoOwner,
-  repoName, handle }` and upgrades the run from `PENDING` → `READY` when
-  the response contains a `previewUrl` (or `status: "ready"|"succeeded"`).
-  An MCP server is therefore not required to deliver an HTTP callback into
-  the bot.
 
-The deploy tool may return any of these shapes (all keys optional):
+`mcpConfigurationId` points to **System settings → MCP configurations**. Tool names must be whitelisted there. `statusTool` and `teardownTool` are optional. String values in `argsTemplate` support `{prNumber}`, `{sha}`, `{branch}`, `{repoOwner}`, `{repoName}`, `{runId}`, `{callbackUrl}`, and `{callbackSecret}`.
+
+### `CI_ACTION` config
+
+Use `CI_ACTION` to dispatch the Git provider's native CI.
+
 ```json
-{ "previewUrl": "https://pr-42.preview.acme.io" }   // READY
-{ "handle": { "deploymentId": "d-1" } }              // PENDING
-{ "status": "failed", "error": "quota exceeded" }    // FAILED
+{
+  "workflowRef": "preview.yml",
+  "refTemplate": "refs/heads/{branch}",
+  "previewUrlOutput": "preview_url",
+  "pollIntervalSeconds": 15,
+  "inputs": {
+    "callbackUrl": "{callbackUrl}",
+    "prNumber": "{prNumber}",
+    "sha": "{sha}"
+  }
+}
 ```
 
-### Callback channel
+`workflowRef` is the workflow file, pipeline trigger token, or provider-specific pipeline pattern. `refTemplate` must usually resolve to an existing branch or tag; GitHub Actions also supports `refs/pull/{prNumber}/head` for fork PRs. See [`PR_WORKFLOWS_CI_ACTIONS.md`](PR_WORKFLOWS_CI_ACTIONS.md) for provider recipes.
 
-Inbound endpoints, served by `WorkflowCallbackController`:
+## Async deployment callbacks
 
-```
+`WEBHOOK` and some `CI_ACTION` setups call back when the preview is ready:
+
+```text
 POST /api/workflow-callback/{runId}/{secret}
 Content-Type: application/json
-X-AI-Bot-Signature: sha256=<hex>        (optional but recommended)
+X-AI-Bot-Signature: sha256=<hex>   # recommended
 
-{ "status": "READY|FAILED",
-  "previewUrl": "https://pr-42.preview.acme.io",
-  "errorMessage": "..." }
+{ "status": "READY", "previewUrl": "https://pr-42.preview.acme.io" }
 ```
 
-```
+Optional log chunks can be sent to:
+
+```text
 POST /api/workflow-log/{runId}/{secret}
 Content-Type: text/plain
-
-<raw log chunk, truncated to 4 KB on the server side>
 ```
 
-Authentication: the `{secret}` path segment is compared to the per-run
-`pr_workflow_runs.callback_secret` in constant time; mutating endpoints also
-HMAC-verify the body via `X-AI-Bot-Signature` when the header is present.
-**The HMAC key for inbound callbacks is the per-run `callbackSecret`** (also
-delivered to the CI side in the outbound trigger payload), *not* the
-target's `sharedSecret`. Using the per-run secret means a leaked signature
-cannot be replayed against other runs and the bot does not have to re-load
-the (encrypted) target config to verify.
-Once a run reaches a terminal status the callback is a no-op (HTTP 409) so a
-replayed `SUCCESS` cannot flip a `FAILED` run back to green.
+The `{secret}` is the per-run `callbackSecret` delivered in the trigger payload. If you sign callbacks, sign with that callback secret, not the target's `sharedSecret`.
 
-### Verification recipe (Bash)
+Verification recipe:
 
 ```bash
 RUN_ID=42
-# Both delivered to the CI side in the trigger payload.
+CALLBACK_SECRET="from-trigger-payload"
 CALLBACK_URL="https://bot.acme.io/api/workflow-callback/$RUN_ID/$CALLBACK_SECRET"
 BODY='{"status":"READY","previewUrl":"https://pr-1234.preview.acme.io"}'
 SIG="sha256=$(printf %s "$BODY" | openssl dgst -sha256 -hmac "$CALLBACK_SECRET" -hex | awk '{print $2}')"
@@ -440,41 +190,15 @@ curl -fsS -X POST \
   "$CALLBACK_URL"
 ```
 
-### Operator UI
+## Multi-instance caveat
 
-* **System settings → Deployment targets** (`/system-settings/deployment-targets/`)
-  exposes a list (card on the settings landing) plus a per-target form with
-  the strategy-type selector, preview URL template, timeout and the
-  per-strategy `configJson`. The form also shows the fully-qualified
-  callback URL pattern for copy/paste into the remote CI config.
-* **Bots → Edit bot**: an optional **Deployment target** dropdown. Bots
-  without a target simply skip preview-aware workflows.
-
-### Multi-instance caveat
-
-`DeploymentCallbackNotifier` uses an in-process `SynchronousQueue` keyed by
-run id — a callback delivered to instance B cannot wake an orchestrator
-thread blocked on instance A. The persisted state update still happens, so
-the next webhook re-sync picks it up, but production multi-instance
-deployments should run a sticky load balancer (or move the notifier to
-Redis pub/sub).
-
-### Upgrade behaviour
-
-`V16__deployment_targets.sql` adds the `deployment_targets` table, the
-nullable `bots.deployment_target_id` FK, and three new columns on
-`pr_workflow_runs` (`preview_url`, `callback_secret`,
-`deployment_handle_json`). Existing bots come up with no deployment target;
-the only impact is that preview-aware workflows are
-skipped with a clear PR comment until an operator wires one up.
+Deployment callbacks update persisted state, but the in-process waiter is local to one application instance. In multi-instance production deployments, use sticky routing for callback traffic or expect the next webhook/poller cycle to observe the persisted update.
 
 ## See also
 
-- [Concept & architecture](agentic-workflows/CONCEPT_AND_ARCHITECTURE.md)
-- [Implementation plan (M1–M7)](agentic-workflows/INTERNALS.md)
 - [Agentic PR Review workflow](PR_WORKFLOWS_AGENTIC_REVIEW.md)
 - [Unit-Test Author workflow](PR_WORKFLOWS_UNIT_TEST.md)
+- [E2E workflow](PR_WORKFLOWS_E2E.md)
+- [CI Actions deployment recipes](PR_WORKFLOWS_CI_ACTIONS.md)
 - [Webhook recipes for CI systems](PR_WORKFLOWS_WEBHOOK_RECIPES.md)
-- [ARCHITECTURE.md](ARCHITECTURE.md) — overall system design
-- [AGENT.md](AGENT.md) — coding/writer agents reused by future PR workflows
-
+- [AGENT.md](AGENT.md) — issue coding/writer agents

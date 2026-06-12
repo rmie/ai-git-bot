@@ -122,9 +122,9 @@ Three things make this special:
 Each strategy ships with:
 
 - A persona-driven user story in
-  [`doc/agentic-workflows/`](../doc/agentic-workflows/README.md).
+  [`doc/agentic-workflows/`](../agentic-workflows/README.md).
 - A laptop-runnable scenario under
-  [`systemtest/`](../systemtest/README.md) so a developer can verify
+  [`systemtest/`](../../systemtest/README.md) so a developer can verify
   the integration in under two minutes — no real production CI needed.
 - Per-strategy WireMock-style unit tests and integration coverage.
 
@@ -260,7 +260,7 @@ Most teams adopt one chore at a time. The progression we recommend:
 5. **Month 2 — pick the deployment strategy that matches the rest of
    your estate.** `WEBHOOK` for Jenkins, `CI_ACTION` for GitHub
    Actions, `MCP` for an internal platform server. The four user
-   stories under [`doc/agentic-workflows/`](../doc/agentic-workflows/README.md)
+   stories under [`doc/agentic-workflows/`](../agentic-workflows/README.md)
    tell you which one to pick.
 6. **Quarter 1 — flip suite promotion to `offer-as-pr` or
    `promote-on-merge`.** The generated coverage stops evaporating and
@@ -291,23 +291,23 @@ There is no big-bang migration. Every step above is opt-in per bot.
 
 ## Appendix — proof points and pointers
 
-- Architecture overview: [`doc/ARCHITECTURE.md`](../doc/ARCHITECTURE.md)
-- Agentic PR workflows feature docs: [`doc/agentic-workflows/`](../doc/agentic-workflows/README.md)
+- Architecture overview: [`doc/ARCHITECTURE.md`](../ARCHITECTURE.md)
+- Agentic PR workflows feature docs: [`doc/agentic-workflows/`](../agentic-workflows/README.md)
 - Per-feature operator recipes:
-  [`doc/PR_WORKFLOWS.md`](../doc/PR_WORKFLOWS.md),
-  [`doc/PR_WORKFLOWS_E2E.md`](../doc/PR_WORKFLOWS_E2E.md),
-  [`doc/PR_WORKFLOWS_CI_ACTIONS.md`](../doc/PR_WORKFLOWS_CI_ACTIONS.md),
-  [`doc/PR_WORKFLOWS_WEBHOOK_RECIPES.md`](../doc/PR_WORKFLOWS_WEBHOOK_RECIPES.md)
-- MCP integration: [`doc/MCP_SERVER_HANDLING.md`](../doc/MCP_SERVER_HANDLING.md)
-- Per-bot tool whitelist: [`doc/BOT_TOOL_CONFIGURATIONS.md`](../doc/BOT_TOOL_CONFIGURATIONS.md)
+  [`doc/PR_WORKFLOWS.md`](../PR_WORKFLOWS.md),
+  [`doc/PR_WORKFLOWS_E2E.md`](../PR_WORKFLOWS_E2E.md),
+  [`doc/PR_WORKFLOWS_CI_ACTIONS.md`](../PR_WORKFLOWS_CI_ACTIONS.md),
+  [`doc/PR_WORKFLOWS_WEBHOOK_RECIPES.md`](../PR_WORKFLOWS_WEBHOOK_RECIPES.md)
+- MCP integration: [`doc/MCP_SERVER_HANDLING.md`](../MCP_SERVER_HANDLING.md)
+- Per-bot tool whitelist: [`doc/BOT_TOOL_CONFIGURATIONS.md`](../BOT_TOOL_CONFIGURATIONS.md)
 - Hands-on laptop scenarios (one per feature):
-  [`systemtest/README.md`](../systemtest/README.md)
+  [`systemtest/README.md`](../../systemtest/README.md)
 - Persona-driven user stories:
-  [`STATIC`](../doc/agentic-workflows/STATIC_DEPLOYMENT_USER_STORY.md),
-  [`WEBHOOK`](../doc/agentic-workflows/WEBHOOK_DEPLOYMENT_USER_STORY.md),
-  [`MCP`](../doc/agentic-workflows/MCP_DEPLOYMENT_USER_STORY.md),
-  [`CI_ACTION`](../doc/agentic-workflows/CI_ACTION_DEPLOYMENT_USER_STORY.md),
-  [Suite promotion](../doc/agentic-workflows/SUITE_PROMOTION_USER_STORY.md)
+  [`STATIC`](../agentic-workflows/STATIC_DEPLOYMENT_USER_STORY.md),
+  [`WEBHOOK`](../agentic-workflows/WEBHOOK_DEPLOYMENT_USER_STORY.md),
+  [`MCP`](../agentic-workflows/MCP_DEPLOYMENT_USER_STORY.md),
+  [`CI_ACTION`](../agentic-workflows/CI_ACTION_DEPLOYMENT_USER_STORY.md),
+  [Suite promotion](../agentic-workflows/SUITE_PROMOTION_USER_STORY.md)
 - Docker image: [`tmseidel/ai-git-bot` on Docker Hub](https://hub.docker.com/r/tmseidel/ai-git-bot)
 - Source: [`github.com/tmseidel/ai-git-bot`](https://github.com/tmseidel/ai-git-bot)
 - License: MIT

@@ -2,7 +2,7 @@
 
 > **Audience:** stakeholders, platform engineers, anyone asking *"why would I
 > pick `MCPDeploymentStrategy` over `WEBHOOK` or `CI_ACTION`?"*
-> **Companion:** [doc/MCP_SERVER_HANDLING.md § 6](../MCP_SERVER_HANDLING.md#6-exposing-deployment-style-tools-m5)
+> **Companion:** [doc/MCP_SERVER_HANDLING.md § 6](../MCP_SERVER_HANDLING.md#6-exposing-deployment-style-tools)
 > for the protocol details and [systemtest/README-mcp-deployment.md](../../systemtest/README-mcp-deployment.md)
 > for a runnable scenario on your laptop.
 

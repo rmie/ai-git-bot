@@ -16,7 +16,7 @@ changes. Every idea here:
 Use this list as a backlog — pick the one(s) that hurt most for the
 roles your team actually has, and convert them into user stories
 following the template in
-[`../doc/agentic-workflows/`](../doc/agentic-workflows/README.md).
+[`../doc/agentic-workflows/`](../agentic-workflows/README.md).
 
 ---
 

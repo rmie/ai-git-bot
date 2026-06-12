@@ -1,785 +1,248 @@
 # Architecture — AI-Git-Bot
 
-This document describes the high-level architecture of the AI-Git-Bot, the intelligent **Gateway** between Git platforms and AI providers. It covers component responsibilities, the Gateway design pattern, and request flows.
+AI-Git-Bot is a self-hostable Spring Boot gateway between Git platforms and AI
+providers. Operators configure one or more bots, connect each bot to a Git
+integration and an AI integration, and expose a webhook URL to the Git platform.
+The application then turns repository events into AI-assisted pull-request
+reviews, coding-agent runs, writer-agent runs, unit-test workflows, and E2E-test
+workflows.
 
-## The Gateway Concept
+This document is intentionally top-level. It describes the seams and runtime
+flows that developers need to keep in mind without cataloguing classes, packages,
+entity fields, or implementation methods.
 
-AI-Git-Bot acts as a **central gateway** that decouples Git hosting platforms from AI providers. This means:
+## Design goals
 
-- **Any Git platform** (Gitea, GitHub, GitLab, Bitbucket) can be connected with **any AI provider** (Anthropic, OpenAI, Ollama, llama.cpp)
-- Multiple bots with different configurations can run in parallel
-- All webhook routing, session management, and credential handling is centralized in a single application
-- The same AI configuration can serve multiple repositories across different Git platforms
+- **Decouple Git hosts from AI providers.** A bot can pair a supported Git
+  platform with a supported model provider without the workflow code depending
+  on either concrete API.
+- **Centralize operations.** Webhook routing, bot configuration, prompt
+  selection, credentials, run history, sessions, and tool selection live in one
+  gateway.
+- **Support self-hosting.** PostgreSQL is the production database, H2 is used for
+  local/test scenarios, and Flyway owns schema migrations for both vendors.
+- **Keep workflows pluggable.** Pull-request automation is organized around a
+  small `PrWorkflow` SPI, so new PR workflows can be added without rewriting
+  webhook translation or provider clients.
+- **Control tool access.** Built-in tools and remote MCP tools are discovered,
+  filtered, and exposed per bot/configuration instead of being globally
+  available to every model call.
 
-## System Overview
+## System overview
 
 ```mermaid
 graph LR
-    Git["Git Platform<br/>(Gitea / GitHub / GitLab / Bitbucket)"]
-    Bot["AI-Git-Bot<br/>(Gateway)"]
-    AI["AI Provider<br/>(Anthropic / OpenAI / Ollama / llama.cpp)"]
-    DB["PostgreSQL Database"]
-    MCPConfig["MCP Config + Tool Whitelist"]
-    MCPServers["Remote MCP Servers"]
+    Git["Git platform\nGitea / GitHub / GitLab / Bitbucket"]
+    Gateway["AI-Git-Bot\nSpring Boot gateway"]
+    AI["AI provider\nAnthropic / OpenAI / Gemini / Ollama / llama.cpp"]
+    DB[("Database\nPostgreSQL in production")]
+    MCP["Optional MCP servers"]
 
-    Git -- "Webhook (PR/Comment/Review event)" --> Bot
-    Bot -- "Fetch PR diff" --> Git
-    Bot -- "Post review/comment" --> Git
-    Bot -- "Fetch reviews & comments" --> Git
-    Bot -- "Add reaction" --> Git
-    Bot -- "Review diff / Chat" --> AI
-    AI -- "Review text" --> Bot
-    Bot -- "Discover tools / Call MCP tools" --> MCPServers
-    MCPConfig -- "Selected tool exposure" --> Bot
-    Bot -- "Config & Sessions" --> DB
-    MCPConfig -- "Persisted selection" --> DB
+    Git -- "webhooks" --> Gateway
+    Gateway -- "repository API" --> Git
+    Gateway -- "chat / review / tools" --> AI
+    Gateway -- "discover + call tools" --> MCP
+    Gateway -- "config, secrets, sessions, runs" --> DB
 ```
 
-The gateway sits between Git hosting platforms (Gitea, GitHub, GitLab, or Bitbucket), configurable AI providers, and optional remote MCP servers. When a pull request is opened or updated, the Git provider sends a webhook to the gateway. The gateway fetches the diff, sends it to the configured AI provider for review, and posts the review back as a PR comment. All configuration (AI integrations, Git integrations, bots, MCP configurations, MCP selected-tool whitelist) and conversation sessions are persisted in a database.
+At runtime the gateway has four major boundaries:
 
-The gateway also responds to inline review comments and submitted reviews containing bot mentions by fetching the relevant review data from the Git API and posting context-aware replies. In **agent mode**, it supports two issue-based workflows: a **coding agent** that implements issues and opens pull requests, and a **technical writer agent** that improves vague issues into structured, implementation-ready follow-up issues.
+1. **Inbound webhooks** from Git providers.
+2. **Outbound repository API calls** through `RepositoryApiClient`.
+3. **Outbound AI calls** through `AiClient`.
+4. **Optional tool calls** to built-in tools and remote MCP servers.
 
-## Component Diagram
+The code inside the gateway should prefer these boundaries over provider-specific
+logic. Provider-specific behavior belongs at the edge where payloads are
+translated or API calls are made.
 
-```mermaid
-graph TD
-    subgraph "Spring Boot Application"
-        subgraph "Web Layer"
-          UnifiedWebhookController["UnifiedWebhookController<br/><i>Single webhook endpoint</i>"]
-          ProviderWebhookHandlers["Provider Webhook Handlers<br/><i>Gitea / GitHub / GitLab / Bitbucket translation</i>"]
-            AdminControllers["Admin Controllers<br/><i>Dashboard, Bots, Integrations</i>"]
-            SetupController["SetupController<br/><i>Initial setup</i>"]
-        end
-        
-        subgraph "Service Layer"
-            BotService["BotService<br/><i>Bot CRUD</i>"]
-            BotWebhookService["BotWebhookService<br/><i>Webhook processing</i>"]
-            AiIntegrationService["AiIntegrationService<br/><i>AI config CRUD</i>"]
-            GitIntegrationService["GitIntegrationService<br/><i>Git config CRUD</i>"]
-            SessionService["SessionService<br/><i>Session lifecycle</i>"]
-            McpToolSelectionService["McpToolSelectionService<br/><i>Whitelist persistence/filtering</i>"]
-            McpOrchestrationService["McpOrchestrationService<br/><i>MCP discovery + execution</i>"]
-            BotToolConfigurationService["BotToolConfigurationService<br/><i>Built-in tool config CRUD/clone</i>"]
-            BotToolSelectionService["BotToolSelectionService<br/><i>Built-in tool whitelist persistence/filtering</i>"]
-            EncryptionService["EncryptionService<br/><i>API key encryption</i>"]
-        end
+## Core concepts
 
-        subgraph "AI Provider Layer"
-            AiClientFactory["AiClientFactory<br/><i>Client creation & caching</i>"]
-            AiProviderRegistry["AiProviderRegistry<br/><i>Provider discovery</i>"]
-            subgraph "Provider Metadata"
-                AnthropicMeta["AnthropicProviderMetadata"]
-                OpenAiMeta["OpenAiProviderMetadata"]
-                OllamaMeta["OllamaProviderMetadata"]
-                LlamaCppMeta["LlamaCppProviderMetadata"]
-            end
-            subgraph "AI Clients"
-                AiInterface["AiClient<br/><i>Interface</i>"]
-                AbstractClient["AbstractAiClient<br/><i>Chunking & retry</i>"]
-                AnthropicImpl["AnthropicAiClient"]
-                OpenAiImpl["OpenAiClient"]
-                OllamaImpl["OllamaClient"]
-                LlamaCppImpl["LlamaCppClient"]
-            end
-        end
+### Bot
 
-        subgraph "Repository Provider Layer"
-            RepoClientFactory["RepositoryClientFactory<br/><i>Client creation</i>"]
-            RepoProviderRegistry["RepositoryProviderRegistry<br/><i>Provider discovery</i>"]
-            subgraph "Repository Provider Metadata"
-                GiteaMeta["GiteaProviderMetadata"]
-                GitHubMeta["GitHubProviderMetadata"]
-                GitLabMeta["GitLabProviderMetadata"]
-                BitbucketMeta["BitbucketProviderMetadata"]
-            end
-            subgraph "Repository Clients"
-                RepoInterface["RepositoryApiClient<br/><i>Interface</i>"]
-                GiteaClient["GiteaApiClient"]
-                GitHubClient["GitHubApiClient"]
-                GitLabClient["GitLabApiClient"]
-                BitbucketClient["BitbucketApiClient"]
-            end
-        end
+A bot is the operator-facing unit of configuration. It binds together:
 
-        subgraph "Repository Layer"
-            BotRepo["BotRepository"]
-            AiIntegrationRepo["AiIntegrationRepository"]
-            GitIntegrationRepo["GitIntegrationRepository"]
-            McpConfigurationRepo["McpConfigurationRepository"]
-            McpSelectedToolRepo["McpSelectedToolRepository"]
-            BotToolConfigurationRepo["BotToolConfigurationRepository"]
-            BotToolSelectionRepo["BotToolSelectionRepository"]
-            SessionRepo["ReviewSessionRepository"]
-            AdminRepo["AdminUserRepository"]
-        end
-    end
+- a Git integration and webhook secret,
+- an AI integration and prompt/model choices,
+- enabled PR workflows and workflow parameters,
+- optional tool and MCP configuration,
+- access-control settings such as allowed users,
+- feature mode: coding bot or writer bot.
 
-    subgraph "External"
-        Gitea["Gitea"]
-        GitHub["GitHub / GitHub Enterprise"]
-        GitLab["GitLab / GitLab CE/EE"]
-        Bitbucket["Bitbucket Cloud"]
-        Anthropic["Anthropic API"]
-        OpenAI["OpenAI API"]
-        Ollama["Ollama (local)"]
-        LlamaCpp["llama.cpp (local)"]
-        PromptFiles["Prompt Files<br/><i>prompts/*.md</i>"]
-        MCPServers["Remote MCP Servers"]
-        DB["Database<br/><i>PostgreSQL / H2</i>"]
-    end
+Multiple bots can run in the same deployment. They may share an integration, use
+different model providers, or target different repositories.
 
-    UnifiedWebhookController --> BotService
-    UnifiedWebhookController --> ProviderWebhookHandlers
-    ProviderWebhookHandlers --> BotWebhookService
-    BotWebhookService --> AiClientFactory
-    BotWebhookService --> RepoClientFactory
-    BotWebhookService --> SessionService
-    BotWebhookService --> McpToolSelectionService
-    BotWebhookService --> McpOrchestrationService
-    AdminControllers --> McpToolSelectionService
-    SystemSettingsController --> McpToolSelectionService
-    McpToolSelectionService --> McpOrchestrationService
-    McpToolSelectionService --> McpSelectedToolRepo
-    McpToolSelectionService --> McpConfigurationRepo
-    AiClientFactory --> AiProviderRegistry
-    AiClientFactory --> AiIntegrationService
-    RepoClientFactory --> RepoProviderRegistry
-    RepoClientFactory --> GitIntegrationService
-    AiProviderRegistry --> AnthropicMeta
-    AiProviderRegistry --> OpenAiMeta
-    AiProviderRegistry --> OllamaMeta
-    AiProviderRegistry --> LlamaCppMeta
-    RepoProviderRegistry --> GiteaMeta
-    RepoProviderRegistry --> GitHubMeta
-    RepoProviderRegistry --> GitLabMeta
-    RepoProviderRegistry --> BitbucketMeta
-    AnthropicMeta --> AnthropicImpl
-    OpenAiMeta --> OpenAiImpl
-    OllamaMeta --> OllamaImpl
-    LlamaCppMeta --> LlamaCppImpl
-    GiteaMeta --> GiteaClient
-    GitHubMeta --> GitHubClient
-    GitLabMeta --> GitLabClient
-    BitbucketMeta --> BitbucketClient
-    AiInterface -.-> AbstractClient
-    AbstractClient -.-> AnthropicImpl
-    AbstractClient -.-> OpenAiImpl
-    AbstractClient -.-> OllamaImpl
-    AbstractClient -.-> LlamaCppImpl
-    RepoInterface -.-> GiteaClient
-    RepoInterface -.-> GitHubClient
-    RepoInterface -.-> GitLabClient
-    RepoInterface -.-> BitbucketClient
-    AnthropicImpl --> Anthropic
-    OpenAiImpl --> OpenAI
-    OllamaImpl --> Ollama
-    LlamaCppImpl --> LlamaCpp
-    GiteaClient --> Gitea
-    GitHubClient --> GitHub
-    GitLabClient --> GitLab
-    BitbucketClient --> Bitbucket
-    McpOrchestrationService --> MCPServers
-    BotRepo --> DB
-    SessionRepo --> DB
-    McpConfigurationRepo --> DB
-    McpSelectedToolRepo --> DB
-    BotToolConfigurationRepo --> DB
-    BotToolSelectionRepo --> DB
-```
+### Git integration seam
 
-## AI Provider Architecture
+The repository seam is centered on `RepositoryApiClient`. Workflow and agent code
+uses it for provider-neutral operations such as fetching pull-request diffs,
+reading repository content, posting comments/reviews, creating branches/files,
+opening pull requests, attaching artifacts, and dispatching provider-native CI
+workflows where supported.
 
-The bot uses a **provider-agnostic abstraction layer** with metadata-driven configuration:
+Provider metadata creates configured clients from persisted Git integrations and
+keeps authentication and URL conventions provider-specific. The current
+provider types are Gitea, GitHub, GitLab, and Bitbucket Cloud.
 
-### AiProviderMetadata Interface
+Webhook handlers are the other side of this seam. Each provider has its own event
+shape and headers, so provider-specific webhook code translates events into the
+common payload model used by the rest of the application.
 
-Each AI provider implements `AiProviderMetadata` to define:
-- Provider type identifier (e.g., "anthropic", "openai")
-- Default API URL
-- Suggested models list
-- Whether API key is required
-- How to build the `RestClient`
-- How to create the `AiClient` instance
+### AI integration seam
 
-```
-AiProviderMetadata (interface)
- ├── AnthropicProviderMetadata
- │    └── Default URL: https://api.anthropic.com
- │    └── Models: claude-opus-4-7, claude-sonnet-4-6, claude-haiku-4-5-20251001
- ├── OpenAiProviderMetadata
- │    └── Default URL: https://api.openai.com
- │    └── Models: gpt-5.5, gpt-5.4, gpt-5.4-mini, gpt-5.3-codex
- ├── OllamaProviderMetadata
- │    └── Default URL: http://localhost:11434
- │    └── Models: (user-configured)
- └── LlamaCppProviderMetadata
-      └── Default URL: http://localhost:8081
-      └── Models: (user-configured)
-```
+The AI seam is centered on `AiClient`. Higher-level code asks for reviews,
+chat turns, or tool-capable chat without knowing whether the request goes to a
+cloud API or a local model endpoint.
 
-### AiProviderRegistry
+Provider metadata supplies defaults, API-key requirements, and client creation.
+The current AI providers include Anthropic, OpenAI, Google Gemini, Ollama, and
+llama.cpp. Some providers can use native tool calling; others fall back to a
+textual protocol so agent workflows can still operate.
 
-Spring `@Service` that collects all `AiProviderMetadata` beans and provides:
-- List of available provider types
-- Lookup by provider type
-- Maps of default API URLs and suggested models (for UI)
+### PR workflow seam
 
-### AiClientFactory
+Pull-request automation is organized around `PrWorkflow`. The orchestrator
+chooses the workflows enabled for a bot, creates a persisted run record, invokes
+workflows sequentially, captures step logs and errors, and prevents overlapping
+runs for the same bot/repository/PR/workflow tuple.
 
-Creates and caches `AiClient` instances per `AiIntegration`:
-- Uses `AiProviderRegistry` to find the correct metadata
-- Delegates to metadata for `RestClient` and `AiClient` creation
-- Caches clients by integration ID + `updatedAt` timestamp
-- Automatically rebuilds clients when configuration changes
+Current workflow categories cover code review, agentic review, unit-test authoring,
+and E2E testing. Workflows can expose configuration parameters and can be invoked
+from normal PR events or from bot-mention slash commands where applicable.
 
-### AiClient Hierarchy
+### Deployment strategy seam
 
-```
-AiClient (interface)
- └── AbstractAiClient (abstract class — chunking, retry, message building)
-      ├── AnthropicAiClient (Anthropic Messages API)
-      ├── OpenAiClient (OpenAI Chat Completions API)
-      ├── OllamaClient (Ollama /api/chat)
-      └── LlamaCppClient (llama.cpp /v1/chat/completions with GBNF grammar)
-```
+E2E workflows may need a preview environment before tests can run. That concern
+is isolated behind `DeploymentStrategy`. A deployment target can represent a
+static preview URL, an outbound webhook to another system, a provider-native CI
+run, or an MCP-backed deployment tool. Strategies return enough persisted state
+for later polling, callback handling, and teardown when a PR closes.
 
-### Provider Differences
-
-| Feature | Anthropic | OpenAI | Ollama | llama.cpp |
-|---------|-----------|--------|--------|-----------|
-| System prompt | Top-level `system` field | `role: "system"` message | `role: "system"` message | `role: "system"` message |
-| Endpoint | `/v1/messages` | `/v1/chat/completions` | `/api/chat` | `/v1/chat/completions` |
-| Auth | `x-api-key` header | `Bearer` token | None | None |
-| Streaming | Not used | Not used | Disabled (`stream: false`) | Disabled (`stream: false`) |
-| JSON Mode | N/A | N/A | `format: "json"` | GBNF grammar |
-
-## Repository Provider Architecture
-
-The bot uses a similar **provider-agnostic abstraction layer** for Git hosting platforms:
-
-### RepositoryProviderMetadata Interface
-
-Each Git provider implements `RepositoryProviderMetadata` to define:
-- Provider type identifier (e.g., "gitea", "github")
-- Default web URL
-- How to resolve API URLs from web URLs
-- How to resolve clone URLs
-- How to build the authorization header
-- How to build the `RestClient`
-- How to create the `RepositoryApiClient` instance
-
-```
-RepositoryProviderMetadata (interface)
- ├── GiteaProviderMetadata
- │    └── Default URL: https://gitea.example.com
- │    └── Auth: token <token>
- │    └── API: Same base URL with /api/v1 paths
- ├── GitHubProviderMetadata
- │    └── Default URL: https://github.com
- │    └── Auth: Bearer <token>
- │    └── API: api.github.com (public) or <host>/api/v3 (Enterprise)
- ├── GitLabProviderMetadata
- │    └── Default URL: https://gitlab.com
- │    └── Auth: PRIVATE-TOKEN <token>
- │    └── API: Same base URL with /api/v4 paths
- └── BitbucketProviderMetadata
-      └── Default URL: https://bitbucket.org
-      └── Auth: Basic <username:token> or Bearer <token>
-      └── API: api.bitbucket.org/2.0
-```
-
-### RepositoryProviderRegistry
-
-Spring `@Service` that collects all `RepositoryProviderMetadata` beans and provides:
-- List of available provider types
-- Lookup by provider type
-- Maps of default URLs (for UI)
-
-### RepositoryApiClient Interface
-
-All Git provider clients implement this interface:
-
-```
-RepositoryApiClient (interface)
- ├── GiteaApiClient
- ├── GitHubApiClient
- ├── GitLabApiClient
- └── BitbucketApiClient
-```
-
-Methods include:
-- `getPullRequestDiff()` — Fetch PR diff
-- `postComment()` — Post PR comment
-- `postReviewComment()` — Post review with body
-- `addReaction()` — Add emoji reaction
-- `getFileContent()` — Get file content for context
-- `getIssueDetails()` / `searchIssues()` — Issue context for coding and writer agents
-- `getRepositoryTree()` / `getDefaultBranch()` — Repository context bootstrap
-- `createBranch()` / `commitFile()` / `createPullRequest()` — Coding-agent operations
-- `createIssue()` — Writer-agent output creation
-
-### Provider Differences
-
-| Feature | Gitea | GitHub | GitLab | Bitbucket Cloud |
-|---------|-------|--------|--------|-----------------|
-| Auth Header | `token <token>` | `Bearer <token>` | `PRIVATE-TOKEN: <token>` | `Basic` or `Bearer` |
-| API Base | `<url>/api/v1` | `api.github.com` or `<host>/api/v3` | `<url>/api/v4` | `api.bitbucket.org/2.0` |
-| PR Diff | `/repos/{owner}/{repo}/pulls/{pr}/diff` | `/repos/{owner}/{repo}/pulls/{pr}` with `Accept: diff` | `/projects/{id}/repository/compare` | `/repositories/{workspace}/{repo}/pullrequests/{pr}/diff` |
-| Reactions | Text-based (`:eyes:`) | Text-based (`eyes`) | Not supported (no-op) | Not supported |
-| Project ID | `{owner}/{repo}` | `{owner}/{repo}` | URL-encoded `{owner}%2F{repo}` | `{workspace}/{repo}` |
-
-## Entity Model
-
-```mermaid
-erDiagram
-    AdminUser {
-        Long id PK
-        String username UK
-        String passwordHash
-        Instant createdAt
-    }
-    
-    AiIntegration {
-        Long id PK
-        String name UK
-        String providerType
-        String apiUrl
-        String apiKey
-        String apiVersion
-        String model
-        int maxTokens
-        int maxDiffCharsPerChunk
-        int maxDiffChunks
-        int retryTruncatedChunkChars
-        Instant createdAt
-        Instant updatedAt
-    }
-    
-    GitIntegration {
-        Long id PK
-        String name UK
-        RepositoryType providerType
-        String url
-        String token
-        Instant createdAt
-        Instant updatedAt
-    }
-    
-    Bot {
-        Long id PK
-        String name UK
-        String username
-        BotType botType
-        Long systemPromptId FK
-        Long mcpConfigurationId FK
-        Long toolConfigurationId FK
-        String webhookSecret UK
-        boolean enabled
-        boolean agentEnabled
-        long webhookCallCount
-        Instant lastWebhookAt
-        String lastError
-        Instant lastErrorAt
-        Instant createdAt
-        Instant updatedAt
-    }
-    
-    ReviewSession {
-        Long id PK
-        String repoOwner
-        String repoName
-        int prNumber
-        Instant createdAt
-        Instant updatedAt
-    }
-    
-    ConversationMessage {
-        Long id PK
-        String role
-        String content
-        Instant createdAt
-    }
-
-    McpConfiguration {
-      Long id PK
-      String name UK
-      String jsonContent
-      Instant createdAt
-      Instant updatedAt
-    }
-
-    McpSelectedTool {
-      Long id PK
-      Long mcpConfigurationId FK
-      String qualifiedName UK
-      String serverName
-      String toolName
-      String title
-      String description
-    }
-
-    BotToolConfiguration {
-      Long id PK
-      String name UK
-      boolean defaultEntry
-      Instant createdAt
-      Instant updatedAt
-    }
-
-    BotToolSelection {
-      Long id PK
-      Long botToolConfigurationId FK
-      String toolName
-    }
-
-  Bot ||--o{ AiIntegration : "uses"
-  Bot ||--o{ GitIntegration : "uses"
-  Bot ||--o| McpConfiguration : "optional"
-  Bot ||--|| BotToolConfiguration : "uses (mandatory)"
-  McpConfiguration ||--|{ McpSelectedTool : "contains whitelist"
-  BotToolConfiguration ||--|{ BotToolSelection : "contains whitelist"
-  ReviewSession ||--|{ ConversationMessage : "contains"
-```
-
-## Components
-
-### Webhook Controllers
-
-#### UnifiedWebhookController
-
-- **Packages:** `org.remus.giteabot.{gitea,github,gitlab,bitbucket}`
-- Translate provider-specific webhook payloads into the common `WebhookPayload` model
-- Apply provider-specific trigger rules such as reviewer assignment/re-request behavior
-- Delegate normalized events to `BotWebhookService`
-
-#### GitHubWebhookController
-
-- **Package:** `org.remus.giteabot.github`
-- **Endpoint:** `POST /api/github-webhook/{webhookSecret}`
-- Receives GitHub webhook payloads for pull request, issue comment, and review comment events
-- Looks up Bot by webhook secret
-- Converts GitHub payload format to common event model
-- Routes events to `BotWebhookService`
-
-### BotWebhookService
-
-- **Package:** `org.remus.giteabot.admin`
-- Processes webhook events for a specific bot
-- Gets AI client from `AiClientFactory` using bot's `AiIntegration`
-- Creates Git client using bot's `GitIntegration`
-- Routes issue workflows by `BotType`:
-  - `CODING` → `IssueImplementationService` (when `agentEnabled` is true)
-  - `WRITER` → `WriterAgentService`
-- Handles:
-  - PR reviews when a provider-specific review trigger is detected (for example opened-with-reviewer or reviewer re-requested) — delegated to `PrWorkflowOrchestrator` since 1.7 (see [PR_WORKFLOWS.md](PR_WORKFLOWS.md))
-  - Bot commands (PR comments with mention)
-  - Inline review comments
-  - Review submitted events
-  - Issue assignments and issue-comment follow-ups for both issue-based agent modes
-
-### PrWorkflowOrchestrator (since 1.7)
-
-- **Package:** `org.remus.giteabot.prworkflow`
-- Central dispatcher for all PR follow-up workflows
-- Looks up `PrWorkflow` implementations via `PrWorkflowRegistry` (Spring DI auto-discovery)
-- Persists a `pr_workflow_runs` row per invocation and cancels superseded in-flight runs on PR resynchronise
-- Captures runtime exceptions, records a `FAILED` terminal state and Prometheus metrics (`prworkflow.run_total`, `prworkflow.run_duration_seconds`)
-- First implementation: `ReviewWorkflow` (key `review`) — wraps the legacy code-review path with byte-identical behaviour
-- See [PR_WORKFLOWS.md](PR_WORKFLOWS.md) for the full SPI and how to add new workflows
-
-### IssueImplementationService
-
-- **Package:** `org.remus.giteabot.agent`
-- Runs the coding-agent workflow for assigned issues
-- Prepares a writable workspace and executes file + validation tools
-- Creates feature branches, commits changes, and opens pull requests
-- Stores lifecycle state such as `PR_CREATED`, `UPDATING`, and `FAILED` in `AgentSession`
-
-### WriterAgentService
-
-- **Package:** `org.remus.giteabot.agent.writerimpl`
-- Runs the technical-writer workflow for assigned issues
-- Prepares a **read-only** workspace for repository exploration
-- Uses repository context tools and issue tools (`get-issue`, `search-issues`) to improve issue quality
-- Restricts follow-up continuation to the original issue author when clarifying questions are pending
-- Creates a linked `AI Created Issue: ...` instead of a pull request
-
-
-### MCP Orchestration and Tool Whitelist
-
-- **Orchestration location:** MCP discovery and tool execution are handled in application services, not in AI-provider clients.
-- `McpOrchestrationService` discovers tools from configured remote MCP servers and executes MCP tool calls.
-- `McpToolSelectionService` persists and serves the MCP tool whitelist per `McpConfiguration`.
-- `BotWebhookService` applies the whitelist before creating `IssueImplementationService` / `WriterAgentService`, so only selected MCP tools are appended to prompts.
-- `SystemSettingsController` provides MCP configuration + tool-selection flows; `BotController` provides a read-only selected-tools details endpoint for bot configuration.
-
-```mermaid
-flowchart LR
-    Admin["Admin UI"] --> SysCtrl["SystemSettingsController"]
-    SysCtrl --> SelSvc["McpToolSelectionService"]
-    SelSvc --> Orchestrator["McpOrchestrationService"]
-    Orchestrator --> MCPServers["Remote MCP Servers"]
-    SelSvc --> SelRepo["McpSelectedToolRepository"]
-
-    BotWebhook["BotWebhookService"] --> Orchestrator
-    BotWebhook --> SelSvc
-    SelRepo --> Filtered["Filtered MCP catalog"]
-    Filtered --> PromptRenderer["McpToolPromptRenderer"]
-    PromptRenderer --> Agents["IssueImplementationService / WriterAgentService"]
-
-    BotForm["Bots form (Details)"] --> BotCtrl["BotController selected-tools endpoint"]
-    BotCtrl --> SelSvc
-```
-
-### Built-in Tool Whitelisting (per Bot)
-
-Built-in agent tools (file, context, repository, validation) are filtered per
-bot via reusable `BotToolConfiguration` entries. Unlike MCP, this whitelist is
-**mandatory** — every `Bot` references exactly one configuration.
-
-- `ToolCatalog` is the single source of truth for built-in tools and exposes
-  filtering overloads (`nativeDescriptors(role, mcpCatalog, allowedBuiltinTools)`,
-  `fileToolNames(allowed)`, `contextToolNames(allowed)`, …) so callers
-  cannot accidentally bypass the whitelist.
-- `BotToolConfigurationService` provides CRUD + clone with guards: the
-  Default configuration is non-deletable and non-renameable, and any
-  configuration in use by at least one bot cannot be deleted.
-- `BotToolSelectionService` persists per-configuration whitelist rows and
-  resolves them into a `Set<String>` of allowed built-in tool names for the
-  runtime.
-- `DefaultBotToolConfigurationInitializer` has been retired. The Default
-  configuration row and its initial built-in tool selections are created
-  by Flyway migration V12. New built-in or validation tools shipped by
-  later releases are **not** auto-enabled — admins opt in via the System
-  settings UI.
-- `BotWebhookService` resolves the whitelist for the bot and threads it
-  through `IssueImplementationContext` / `WriterAgentService` to both the
-  prompt builders and `AgentToolRouter`.
-- `AgentToolRouter.execute(...)` rejects built-in tool calls that are not on
-  the whitelist with a `ToolResult` that tells the model the tool is disabled
-  for this bot. MCP tools are exempt (governed by `McpToolSelectionService`).
-
-```mermaid
-flowchart LR
-    Admin["Admin UI"] --> SysCtrl["SystemSettingsController"]
-    SysCtrl --> CfgSvc["BotToolConfigurationService"]
-    SysCtrl --> SelSvc2["BotToolSelectionService"]
-    CfgSvc --> CfgRepo["BotToolConfigurationRepository"]
-    SelSvc2 --> SelRepo2["BotToolSelectionRepository"]
-    SelSvc2 --> Registry["BuiltinToolRegistry"]
-    Registry --> Catalog["ToolCatalog"]
-
-    BotForm2["Bots form (Details modal)"] --> BotCtrl2["BotController selected-tools endpoint"]
-    BotCtrl2 --> SelSvc2
-
-    BotWebhook2["BotWebhookService"] --> SelSvc2
-    SelSvc2 --> Allowed["Set<String> allowed built-in tools"]
-    Allowed --> Router["AgentToolRouter (guard)"]
-    Allowed --> Strategies["Coding/Writer strategies (descriptor filter)"]
-    Allowed --> Prompts["IssueImplementationService / WriterAgentService prompt builders"]
-```
-
-For the end-to-end workflow, data model, and migration notes see
-[Bot Tool Configurations](BOT_TOOL_CONFIGURATIONS.md).
-
-### AiClientFactory
-
-- **Package:** `org.remus.giteabot.admin`
-- Creates and caches `AiClient` instances
-- Uses `AiProviderRegistry` for provider lookup
-- Rebuilds clients when integration config changes
-
-### AiProviderRegistry
-
-- **Package:** `org.remus.giteabot.ai`
-- Collects all `AiProviderMetadata` implementations via Spring DI
-- Provides provider lookup and metadata access
-
-### AiProviderMetadata Implementations
-
-- **Packages:** `org.remus.giteabot.ai.{anthropic,openai,ollama,llamacpp}`
-- Define provider-specific defaults and client creation logic
-- Registered as `@Component` beans
-
-### RepositoryProviderMetadata Implementations
-
-- **Package:** `org.remus.giteabot.repository`
-- `GiteaProviderMetadata` — Gitea API client factory
-- `GitHubProviderMetadata` — GitHub API client factory
-- `GitLabProviderMetadata` — GitLab API client factory (uses `PRIVATE-TOKEN` header, URL-encoded project paths)
-- `BitbucketProviderMetadata` — Bitbucket Cloud API client factory
-- Define provider-specific URL resolution and client creation
-- Registered as `@Component` beans
-
-### SessionService
-
-- **Package:** `org.remus.giteabot.session`
-- Manages the lifecycle of review sessions per PR
-- Stores conversation messages for context
-- Sessions identified by (repoOwner, repoName, prNumber)
-
-### EncryptionService
-
-- **Package:** `org.remus.giteabot.admin`
-- Encrypts API keys and tokens using AES-256-GCM
-- Uses `APP_ENCRYPTION_KEY` environment variable
-
-## Request Flows
-
-### Per-Bot Webhook Flow
+## Webhook-to-workflow flow
 
 ```mermaid
 sequenceDiagram
-    participant Git as Git Provider
-    participant Controller as WebhookController
-    participant BotService
-    participant BotWebhook as BotWebhookService
-    participant AiFactory as AiClientFactory
-    participant RepoFactory as RepositoryClientFactory
-    participant AI as AiClient
-    participant GitAPI as Git API
+    participant Git as Git platform
+    participant Webhook as Webhook endpoint
+    participant Router as Provider translation
+    participant Bot as Bot runtime
+    participant WF as PR workflow orchestrator
+    participant AI as AI provider
+    participant Repo as Repository API
+    participant DB as Database
 
-    Git->>Controller: POST /api/webhook/{secret}
-    Controller->>BotService: findByWebhookSecret(secret)
-    BotService-->>Controller: Bot
-    Controller->>BotWebhook: handleBotWebhookEvent(bot, payload)
-    BotWebhook->>AiFactory: getClient(bot.aiIntegration)
-    AiFactory-->>BotWebhook: AiClient (cached)
-    BotWebhook->>RepoFactory: getClient(bot.gitIntegration)
-    RepoFactory-->>BotWebhook: RepositoryApiClient
-    BotWebhook->>GitAPI: getPullRequestDiff()
-    GitAPI-->>BotWebhook: diff
-    BotWebhook->>AI: reviewDiff(diff, prompt)
-    AI-->>BotWebhook: review text
-    BotWebhook->>GitAPI: postReviewComment(review)
+    Git->>Webhook: Event with bot webhook secret
+    Webhook->>DB: Resolve enabled bot
+    Webhook->>Router: Route by configured Git provider
+    Router->>Bot: Common event payload
+    Bot->>WF: Run enabled PR workflows or agent handlers
+    WF->>DB: Persist run and steps
+    WF->>Repo: Fetch diff/context or update PR
+    WF->>AI: Request review/chat/tool turn
+    WF->>Repo: Post comments, reviews, commits, artifacts
+    WF->>DB: Store terminal status and sessions
 ```
 
-### Bot Command Flow
+The endpoint is intentionally provider-neutral: the webhook secret identifies the
+bot, and the bot's Git integration decides which provider translator receives the
+payload. After translation, the rest of the system works with a common event
+model.
 
-```mermaid
-sequenceDiagram
-    participant User
-    participant Git as Git Provider
-    participant Controller as WebhookController
-    participant BotWebhook as BotWebhookService
-    participant Session as SessionService
-    participant Factory as AiClientFactory
-    participant AI as AiClient
-    participant GitAPI as Git API
+Typical routing decisions are:
 
-    User->>Git: Comment: "@ai_bot explain this"
-    Git->>Controller: POST /api/webhook/{secret}
-    Controller->>BotWebhook: handleBotCommand(bot, payload)
-    BotWebhook->>GitAPI: addReaction(commentId, "eyes")
-    BotWebhook->>Session: getOrCreateSession(owner, repo, pr)
-    Session-->>BotWebhook: session (with history)
-    BotWebhook->>Factory: getClient(bot.aiIntegration)
-    Factory-->>BotWebhook: AiClient
-    BotWebhook->>AI: chat(history, comment, prompt)
-    AI-->>BotWebhook: response
-    BotWebhook->>Session: addMessage("user", comment)
-    BotWebhook->>Session: addMessage("assistant", response)
-    BotWebhook->>GitAPI: postComment(response)
-```
+- pull-request open/update events run the bot's enabled PR workflows;
+- PR comments mentioning the bot are treated as interactive commands or review
+  follow-ups;
+- inline review comments and submitted reviews are routed to review-context
+  handling when the review workflow is enabled;
+- issue assignment and issue comments route to the coding agent or writer agent,
+  depending on bot type;
+- PR close events clean up review state and E2E preview resources.
 
-### Technical Writer Flow
+Access control is checked before expensive work. Bots can allow everyone or
+restrict interactions to configured users, with PR-author handling for PR
+comment flows.
 
-```mermaid
-sequenceDiagram
-    participant User
-    participant Git as Git Provider
-    participant Controller as WebhookController
-    participant BotWebhook as BotWebhookService
-    participant Writer as WriterAgentService
-    participant Session as AgentSessionService
-    participant AI as AiClient
-    participant GitAPI as Git API
+## Persistence and secrets
 
-    User->>Git: Assign Writer bot to issue
-    Git->>Controller: Issue webhook
-    Controller->>BotWebhook: handleIssueAssigned(bot, payload)
-    BotWebhook->>Writer: handleIssueAssigned(payload)
-    Writer->>Session: create writer AgentSession
-    Writer->>GitAPI: post "reviewing" comment
-    Writer->>GitAPI: getIssueDetails + getRepositoryTree
-    Writer->>AI: Ask for clarifying questions or revised draft
-    alt Critical details missing
-        AI-->>Writer: clarifyingQuestions
-        Writer->>GitAPI: post questions
-    else Enough information available
-        AI-->>Writer: revisedIssueDraft + readyToCreate=true
-        Writer->>GitAPI: createIssue("AI Created Issue: ...")
-        Writer->>Session: mark ISSUE_CREATED
-    end
-```
+The database stores durable configuration and run state rather than transient
+implementation objects. Important categories include:
 
-## Webhook Routing Flow
+- admin users and setup state;
+- Git integrations, AI integrations, bots, prompts, and workflow selections;
+- MCP configurations and selected-tool whitelists;
+- review and agent conversation/session state;
+- PR workflow runs, step logs, deployment handles, and test-suite artifacts.
 
-```mermaid
-flowchart TD
-  A["Webhook received at /api/webhook/{secret}"] --> B{Bot found?}
-  B -- No --> Z["404 Not Found"]
-  B -- Yes --> C{Bot enabled?}
-  C -- No --> Y["200 'bot disabled'"]
-  C -- Yes --> D{Is bot's own action?}
-  D -- Yes --> X["200 'ignored'"]
-  D -- No --> E{comment with path?}
-  E -- Yes --> F["handleInlineComment()"]
-  E -- No --> G{comment + issue?}
-  G -- Yes --> H{Bot mentioned?}
-  H -- No --> X
-  H -- Yes --> I{Is PR?}
-  I -- Yes --> J["handleBotCommand()"]
-  I -- No --> K["handleIssueComment() → writer or coding issue flow"]
-  G -- No --> L{Issue assigned to bot?}
-  L -- Yes --> M["handleIssueAssigned() → writer or coding issue flow"]
-  L -- No --> N{pullRequest present?}
-  N -- No --> X
-  N -- Yes --> O{action = reviewed?}
-  O -- Yes --> P["handleReviewSubmitted()"]
-  O -- No --> Q{action = closed?}
-  Q -- Yes --> R["handlePrClosed()"]
-  Q -- No --> S{action = opened/synchronized?}
-  S -- Yes --> T["reviewPullRequest()"]
-  S -- No --> X
-```
+Production deployments use PostgreSQL via the Docker profile. Local development
+uses file-backed H2 by default. Flyway migrations are split by database vendor
+under `src/main/resources/db/migration/` and JPA validates the resulting schema.
 
-The issue paths above are resolved inside `BotWebhookService` by `botType`. Writer bots ignore PR-review-related handlers and only participate in issue-assignment and issue-comment flows.
+Sensitive integration values are encrypted with AES-GCM when
+`APP_ENCRYPTION_KEY` is configured. Without that key, credentials are stored in
+plain text for development convenience; production deployments should always set
+it and preserve it across restarts so existing secrets remain decryptable.
 
-## Agent Session Model
+## MCP and tool integration
 
-Issue-based workflows share the `AgentSession` entity, which stores:
+AI-Git-Bot exposes tools to agents through two channels:
 
-- repository identity (`repoOwner`, `repoName`, `issueNumber`)
-- current base branch (`branchName`)
-- the outcome reference (`prNumber` for coding agent, `generatedIssueNumber` for writer agent)
-- the original issue author (`issueAuthorUsername`) for writer follow-up authorization
-- the workflow discriminator `sessionType` (`CODING` or `WRITER`)
-- the lifecycle status (`IN_PROGRESS`, `UPDATING`, `PR_CREATED`, `ISSUE_CREATED`, `FAILED`, `COMPLETED`)
+- **Built-in tools** for repository inspection/editing, validation, artifacts,
+  and workflow-specific operations.
+- **Remote MCP tools** discovered from operator-configured MCP servers.
 
-## Docker Deployment
+MCP configuration is persisted centrally. The gateway discovers server tools,
+qualifies tool names to avoid collisions, caches catalogs, and filters exposure
+through selected-tool whitelists. Tool output is bounded before it is returned to
+agent loops so remote tools cannot flood prompts with unbounded content.
 
-```mermaid
-graph LR
-    subgraph "Docker Compose"
-        subgraph "App Container"
-            App["app.jar<br/>(Spring Boot)"]
-            Prompts["/app/prompts/<br/>File-based prompt fallbacks"]
-        end
-        subgraph "DB Container"
-            Postgres["PostgreSQL 17<br/>(Config & Sessions)"]
-            PGData["pgdata volume"]
-        end
-    end
+The model-facing tool protocol depends on provider capability. Native tool
+calling is used when the selected AI client supports it; otherwise the agent
+prompts use a textual tool-call protocol.
 
-    Host["Host filesystem<br/>./prompts/"] -- "bind mount :ro" --> Prompts
-    App -- reads --> Prompts
-    App -- "JDBC" --> Postgres
-    Postgres -- stores --> PGData
-```
+## PR workflow orchestration
 
-- All configuration (AI integrations, Git integrations, bots) is stored in the database
-- Default `system_prompts` rows are seeded by Flyway migration scripts (`V3__system_prompts.sql`, `V5__technical_writer_agent.sql`); the `prompts/` directory is only used by `PromptService` as a file-based fallback for legacy prompt overrides
-- PostgreSQL persists configuration and review sessions
-- Session data survives container restarts via the `pgdata` volume
+A PR workflow run is the durable unit of PR automation. The orchestrator records
+when a run starts, appends human-readable step logs, translates workflow results
+into terminal statuses, and marks superseded in-flight runs as cancelled. This
+allows operators and developers to reason about what happened even when webhooks
+arrive concurrently or a provider retries delivery.
 
+Review workflows gather the PR diff and repository context, send it to the
+configured model, and post the result back to the PR. Interactive review handling
+uses stored conversation context so follow-up comments can be answered with the
+history of the PR discussion.
+
+Agent workflows operate at issue or PR scope. The coding agent plans changes,
+uses repository/tool context, edits through provider APIs, validates where
+configured, and opens or updates a pull request. The writer agent focuses on
+turning vague issues into clearer implementation-ready issues rather than
+modifying code directly.
+
+Unit-test and E2E workflows are PR-scoped. Unit-test workflows generate and rerun
+white-box tests on command. E2E workflows can create or reuse preview deployments,
+plan browser-style test cases, execute them through tools, attach artifacts, and
+tear down preview resources when appropriate.
+
+## Operational mental model
+
+For most changes, ask which boundary you are touching:
+
+- A new Git host usually means adding provider metadata, a repository client, and
+  webhook translation while keeping workflows unchanged.
+- A new AI provider usually means adding provider metadata and an `AiClient`
+  implementation while keeping Git and workflow code unchanged.
+- A new PR automation behavior should normally be a `PrWorkflow`, not a new
+  webhook path.
+- A new way to provision previews should be a `DeploymentStrategy`, not E2E
+  workflow special cases.
+- A new external capability should be a built-in tool or MCP tool with explicit
+  selection/whitelisting.
+
+## Where to go deeper
+
+- Local setup, profiles, and developer commands: [LOCAL_DEVELOPMENT.md](LOCAL_DEVELOPMENT.md)
+- Source entry points: `src/main/java/org/remus/giteabot/`
+- Database migrations: `src/main/resources/db/migration/`
+- Prompt files and agent schemas: `src/main/resources/prompts/` and
+  `src/main/resources/agent/schemas/`
