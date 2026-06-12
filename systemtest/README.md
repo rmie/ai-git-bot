@@ -64,7 +64,7 @@ formatting, slash commands, and the four-provider matrix in general.
 
 | Scenario | Compose file | Notes |
 |---|---|---|
-| **Local Gitea** | [`docker-compose-local-gitea.yml`](./docker-compose-local-gitea.yml) | Gitea on `:3000` with persistent data under [`gitea/`](./gitea/). Pre-seeded with an `acme/demo` repo on first boot. Used by the suite-promotion walkthrough and by ad-hoc PR-review tests. |
+| **Local Gitea** | [`docker-compose-local-gitea.yml`](./docker-compose-local-gitea.yml) | Gitea on `:3000` with persistent data under `gitea/`. Pre-seeded with an `acme/demo` repo on first boot. Used by the suite-promotion walkthrough and by ad-hoc PR-review tests. |
 | **Local GitLab** | [`docker-compose-local-gitlab.yml`](./docker-compose-local-gitlab.yml) | Self-managed GitLab CE for exercising the `GitLabApiClient`, MR webhooks and the `attachPullRequestArtifact` upload path. Takes ~3 min on first boot. |
 
 > For real GitHub / GitHub Enterprise / Bitbucket Cloud testing there
