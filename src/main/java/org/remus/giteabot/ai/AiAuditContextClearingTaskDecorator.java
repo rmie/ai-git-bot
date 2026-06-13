@@ -9,9 +9,11 @@ import org.springframework.stereotype.Component;
  * tasks: pooled executor threads are reused, so the session id set by one
  * webhook handler must not bleed into the next task running on that thread.
  *
- * <p>Picked up automatically by Spring Boot's task execution
- * auto-configuration as the {@link TaskDecorator} of the application task
- * executor that runs all {@code @Async} webhook handlers.</p>
+ * <p>Registered as a {@code @Component} and explicitly wired into the
+ * application's {@code ThreadPoolTaskExecutor} by
+ * {@link org.remus.giteabot.config.AsyncConfig}. Spring Boot does
+ * <strong>not</strong> auto-discover {@link TaskDecorator} beans, so the
+ * explicit registration is required.</p>
  */
 @Component
 public class AiAuditContextClearingTaskDecorator implements TaskDecorator {
