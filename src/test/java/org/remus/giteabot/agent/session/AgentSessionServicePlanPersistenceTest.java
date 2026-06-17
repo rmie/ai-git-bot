@@ -12,9 +12,8 @@ import static org.mockito.Mockito.when;
 
 /**
  * Step 7.1 — verifies that {@link AgentSessionService#recordPlan} writes the
- * latest plan summary, raw JSON and timestamp on the managed entity, so
- * downstream callers no longer need to walk the conversation history to
- * recover the most recent {@code ImplementationPlan}.
+ * latest plan summary, raw JSON and timestamp to both the caller's object
+ * (for in-process reads) and the managed proxy (for DB persistence).
  */
 @ExtendWith(MockitoExtension.class)
 class AgentSessionServicePlanPersistenceTest {
@@ -34,10 +33,16 @@ class AgentSessionServicePlanPersistenceTest {
         Instant before = Instant.now();
         AgentSession result = svc.recordPlan(session, "short summary", "{\"summary\":\"short summary\"}");
 
+        // Caller's object is mutated and returned
+        assertThat(result).isSameAs(session);
         assertThat(result.getLastPlanSummary()).isEqualTo("short summary");
         assertThat(result.getLastPlanJson()).isEqualTo("{\"summary\":\"short summary\"}");
         assertThat(result.getLastPlanAt()).isAfterOrEqualTo(before);
-        assertThat(result).isSameAs(managed);
+
+        // Managed proxy also updated for DB persistence
+        assertThat(managed.getLastPlanSummary()).isEqualTo("short summary");
+        assertThat(managed.getLastPlanJson()).isEqualTo("{\"summary\":\"short summary\"}");
+        assertThat(managed.getLastPlanAt()).isAfterOrEqualTo(before);
     }
 
     @Test
@@ -53,6 +58,9 @@ class AgentSessionServicePlanPersistenceTest {
         svc.recordPlan(session, "first", "{\"v\":1}");
         svc.recordPlan(session, "second", "{\"v\":2}");
 
+        // Both caller's object and managed proxy reflect the latest values
+        assertThat(session.getLastPlanSummary()).isEqualTo("second");
+        assertThat(session.getLastPlanJson()).isEqualTo("{\"v\":2}");
         assertThat(managed.getLastPlanSummary()).isEqualTo("second");
         assertThat(managed.getLastPlanJson()).isEqualTo("{\"v\":2}");
     }

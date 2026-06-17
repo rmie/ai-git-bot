@@ -93,7 +93,7 @@ public class AgentSessionService {
         // may reference ConversationMessages deleted by a prior compactContextWindow.
         AgentSession managed = repository.getReferenceById(session.getId());
         managed.addMessage(role, content);
-        return managed;
+        return session;
     }
 
     /**
@@ -109,41 +109,53 @@ public class AgentSessionService {
      */
     @Transactional
     public AgentSession recordPlan(AgentSession session, String summary, String rawJson) {
+        // Mutate caller's object so subsequent reads (e.g. getLastPlanFromSession)
+        // see the new values, and persist via a managed proxy to avoid merge() on
+        // a detached entity whose messages collection may reference deleted rows.
+        session.setLastPlanSummary(summary);
+        session.setLastPlanJson(rawJson);
+        session.setLastPlanAt(Instant.now());
         AgentSession managed = repository.getReferenceById(session.getId());
         managed.setLastPlanSummary(summary);
         managed.setLastPlanJson(rawJson);
-        managed.setLastPlanAt(Instant.now());
-        return managed;
+        managed.setLastPlanAt(session.getLastPlanAt());
+        return session;
     }
 
     @Transactional
     public AgentSession setBranchName(AgentSession session, String branchName) {
+        session.setBranchName(branchName);
         AgentSession managed = repository.getReferenceById(session.getId());
         managed.setBranchName(branchName);
-        return managed;
+        return session;
     }
 
     @Transactional
     public AgentSession setPrNumber(AgentSession session, Long prNumber) {
+        session.setPrNumber(prNumber);
+        session.setStatus(AgentSession.AgentSessionStatus.PR_CREATED);
         AgentSession managed = repository.getReferenceById(session.getId());
         managed.setPrNumber(prNumber);
         managed.setStatus(AgentSession.AgentSessionStatus.PR_CREATED);
-        return managed;
+        return session;
     }
 
     @Transactional
     public AgentSession setGeneratedIssueNumber(AgentSession session, Long generatedIssueNumber) {
+        session.setGeneratedIssueNumber(generatedIssueNumber);
+        session.setStatus(AgentSession.AgentSessionStatus.ISSUE_CREATED);
         AgentSession managed = repository.getReferenceById(session.getId());
         managed.setGeneratedIssueNumber(generatedIssueNumber);
         managed.setStatus(AgentSession.AgentSessionStatus.ISSUE_CREATED);
-        return managed;
+        return session;
     }
 
     @Transactional
     public AgentSession setStatus(AgentSession session, AgentSession.AgentSessionStatus status) {
+        session.setStatus(status);
         AgentSession managed = repository.getReferenceById(session.getId());
         managed.setStatus(status);
-        return managed;
+        return session;
     }
 
     /**
@@ -155,6 +167,8 @@ public class AgentSessionService {
      */
     @Transactional
     public void recordTokenUsage(AgentSession session, long totalInputTokens, long totalOutputTokens) {
+        session.setTotalInputTokens(totalInputTokens);
+        session.setTotalOutputTokens(totalOutputTokens);
         AgentSession managed = repository.getReferenceById(session.getId());
         managed.setTotalInputTokens(totalInputTokens);
         managed.setTotalOutputTokens(totalOutputTokens);
