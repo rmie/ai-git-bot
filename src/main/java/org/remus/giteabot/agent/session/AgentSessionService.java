@@ -89,8 +89,7 @@ public class AgentSessionService {
 
     @Transactional
     public AgentSession addMessage(AgentSession session, String role, String content) {
-        // Re-fetch to avoid merge() on a detached entity whose messages collection
-        // may reference ConversationMessages deleted by a prior compactContextWindow.
+        session.addMessage(role, content);
         AgentSession managed = repository.getReferenceById(session.getId());
         managed.addMessage(role, content);
         return session;
