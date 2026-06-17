@@ -89,9 +89,13 @@ public class AgentSessionService {
 
     @Transactional
     public AgentSession addMessage(AgentSession session, String role, String content) {
-        session.addMessage(role, content);
         AgentSession managed = repository.getReferenceById(session.getId());
-        managed.addMessage(role, content);
+        if (managed == session) {
+            managed.addMessage(role, content);
+        } else {
+            session.addMessage(role, content);
+            managed.addMessage(role, content);
+        }
         return session;
     }
 
