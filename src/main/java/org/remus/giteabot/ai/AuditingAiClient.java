@@ -28,7 +28,7 @@ public class AuditingAiClient implements AiClient {
 
     @Override
     public String submitReviewPrompt(String systemPrompt, String modelOverride, String userMessage) {
-        return delegate.submitReviewPrompt(systemPrompt, modelOverride, userMessage);
+        return audited(() -> delegate.submitReviewPrompt(systemPrompt, modelOverride, userMessage));
     }
 
     @Override
@@ -53,6 +53,16 @@ public class AuditingAiClient implements AiClient {
     @Override
     public boolean isPromptTooLongError(HttpClientErrorException e) {
         return delegate.isPromptTooLongError(e);
+    }
+
+    @Override
+    public void reportError(Throwable error) {
+        delegate.reportError(error);
+    }
+
+    @Override
+    public String getModel() {
+        return delegate.getModel();
     }
 
     @Override

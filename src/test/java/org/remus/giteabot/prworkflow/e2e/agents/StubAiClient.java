@@ -92,6 +92,17 @@ public final class StubAiClient implements AiClient {
 
     @Override public String submitReviewPrompt(String s, String m, String u) { return ""; }
     @Override public boolean isPromptTooLongError(HttpClientErrorException e) { return false; }
+
+    @Override
+    public void reportError(Throwable error) {
+
+    }
+
+    @Override
+    public String getModel() {
+        return "";
+    }
+
     private ChatTurn nextOrEmpty() {
         ChatTurn next = scriptedTurns.poll();
         return next == null ? ChatTurn.text("") : next;

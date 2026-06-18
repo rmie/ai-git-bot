@@ -42,6 +42,16 @@ class AuditingAiClientTest {
                            String systemPrompt, String modelOverride, Integer maxTokensOverride) {
             throw new IllegalStateException("401 Unauthorized");
         }
+
+        @Override
+        public void reportError(Throwable error) {
+
+        }
+
+        @Override
+        public String getModel() {
+            return "";
+        }
     }
 
     @Test
