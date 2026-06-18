@@ -57,6 +57,7 @@ class AgentLoopNativeToolResultTest {
     @BeforeEach
     void setUp() {
         session = new AgentSession("owner", "repo", 11L, "issue title");
+        session.setId(1L); // persisted session — the loop flushes id-bearing sessions
         ctx = new AgentRunContext(session, "owner", "repo", 11L, Path.of("/tmp/ws"), "main");
         when(sessionService.toAiMessages(session)).thenReturn(List.of());
     }

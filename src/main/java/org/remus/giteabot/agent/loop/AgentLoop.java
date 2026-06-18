@@ -199,6 +199,12 @@ public final class AgentLoop {
         if (pending.isEmpty()) {
             return;
         }
+        // Transient sessions (e.g. the read-only review agent) have no id and are
+        // never persisted; drop the buffer without touching the database.
+        if (ctx.session().getId() == null) {
+            pending.clear();
+            return;
+        }
         // Pass an immutable snapshot: the caller clears the live buffer right
         // after this returns, and the service must not alias the loop's state.
         sessionService.flushMessages(
