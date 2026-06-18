@@ -123,11 +123,11 @@ public final class AgentLoop {
                         e.getClass().getSimpleName(), e.getMessage(), e);
                 throw e;
             }
-            if (decision instanceof StepDecision.Finish finish) {
+            if (decision instanceof StepDecision.Finish(LoopOutcome outcome)) {
                 log.debug("AgentLoop round {}/{} for issue #{}: strategy decided FINISH",
                         round, budget.maxRounds(), ctx.issueNumber());
                 flushRound(ctx, pending);
-                return finish.outcome();
+                return outcome;
             }
             // The user message that drove this round and the assistant turn must always be
             // recorded in the in-flight history so the next AI call sees them. For native
@@ -143,10 +143,12 @@ public final class AgentLoop {
                     .toolCalls(turn.toolCalls().isEmpty() ? null : turn.toolCalls())
                     .build());
 
-            if (decision instanceof StepDecision.ContinueWithToolResults nativeContinue) {
+            if (decision instanceof StepDecision.ContinueWithToolResults(
+                    List<StepDecision.ToolCallResult> results, String follow
+            )) {
                 log.debug("AgentLoop round {}/{} for issue #{}: strategy decided CONTINUE_WITH_TOOL_RESULTS ({} results)",
-                        round, budget.maxRounds(), ctx.issueNumber(), nativeContinue.results().size());
-                for (StepDecision.ToolCallResult r : nativeContinue.results()) {
+                        round, budget.maxRounds(), ctx.issueNumber(), results.size());
+                for (StepDecision.ToolCallResult r : results) {
                     String truncated = truncator.truncate(r.resultText());
                     history.add(AiMessage.builder()
                             .role("tool")
@@ -158,7 +160,6 @@ public final class AgentLoop {
                     pending.add(new PendingMessage("tool",
                             "[" + r.toolCallId() + "] " + truncated));
                 }
-                String follow = nativeContinue.nextUserMessage();
                 currentMessage = (follow == null || follow.isEmpty()) ? "" : follow;
                 if (!currentMessage.isEmpty()) {
                     pending.add(new PendingMessage("user", currentMessage));
