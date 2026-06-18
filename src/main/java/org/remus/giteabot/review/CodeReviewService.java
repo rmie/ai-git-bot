@@ -573,7 +573,7 @@ public class CodeReviewService {
      */
     private String reviewDiffWithChunking(String prTitle, String prBody, String diff,
                                           String systemPrompt, String additionalContext) {
-        log.info("Requesting code review from AI provider model={} (via chunking)", "see aiClient");
+        log.info("Requesting code review from AI provider model={} (via chunking)", aiClient.getModel());
         ChunkingResult chunkingResult = splitDiffIntoChunks(diff);
         List<String> reviews = new ArrayList<>();
         int failedChunks = 0;
@@ -596,6 +596,7 @@ public class CodeReviewService {
             } catch (Exception e) {
                 failedChunks++;
                 lastException = e;
+                aiClient.reportError(e);
                 log.warn("Review failed for chunk {}/{}: {}", chunkNumber, totalChunks, e.getMessage());
                 if (totalChunks > 1) {
                     reviews.add("### Diff chunk " + chunkNumber + "/" + totalChunks

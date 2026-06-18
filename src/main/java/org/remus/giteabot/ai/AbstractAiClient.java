@@ -1,5 +1,6 @@
 package org.remus.giteabot.ai;
 
+import lombok.Getter;
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.client.HttpClientErrorException;
@@ -36,26 +37,16 @@ public abstract class AbstractAiClient implements AiClient {
             as a code reviewer at all times.
             """;
 
+    @Getter
     private final String model;
     private final int maxTokens;
 
-    /**
-     * -- SETTER --
-     *  Attaches an
-     *  that receives token usage and error
-     *  reports for this client. Set by the
-     * .
-     */
     @Setter
     private AiAuditRecorder auditRecorder;
 
     protected AbstractAiClient(String model, int maxTokens) {
         this.model = model;
         this.maxTokens = maxTokens;
-    }
-
-    protected String getModel() {
-        return model;
     }
 
     protected int getMaxTokens() {
@@ -76,6 +67,21 @@ public abstract class AbstractAiClient implements AiClient {
                     outputTokens != null ? outputTokens.longValue() : 0L);
         } catch (Exception e) {
             log.warn("Failed to record AI usage: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * Reports a failed provider interaction to the attached audit recorder
+     * (no-op when no recorder is attached).
+     */
+    public void reportError(Throwable error) {
+        if (auditRecorder == null) {
+            return;
+        }
+        try {
+            auditRecorder.recordError(error);
+        } catch (Exception e) {
+            log.warn("Failed to record AI error: {}", e.getMessage());
         }
     }
 

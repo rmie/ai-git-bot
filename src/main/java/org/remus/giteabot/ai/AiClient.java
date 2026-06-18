@@ -98,9 +98,6 @@ public interface AiClient {
      */
     default boolean isPromptTooLongError(HttpClientErrorException e) {
         String body = e.getResponseBodyAsString();
-        if (body == null) {
-            return false;
-        }
         String normalized = body.toLowerCase(Locale.ROOT);
         String status = String.valueOf(e.getStatusCode().value());
         return normalized.contains("prompt is too long")
@@ -113,4 +110,17 @@ public interface AiClient {
                 || normalized.contains("token limit")
                 || ("400".equals(status) && normalized.contains("too large"));
     }
+
+    /**
+     * Reports a failed provider interaction to the attached audit recorder
+     * (no-op when no recorder is attached).
+     */
+    void reportError(Throwable error);
+
+    /**
+     * Returns the AiClients model-name
+     * @return the model name
+     */
+    String getModel();
+
 }
