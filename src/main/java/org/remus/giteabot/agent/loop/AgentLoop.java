@@ -106,7 +106,11 @@ public final class AgentLoop {
             // budget is exceeded. Two-stage: (1) head+tail truncate tool message
             // content (in-memory and persisted); (2) if the total history still
             // exceeds the context window after truncation, compact it.
-            int promptChars = currentMessage == null ? 0 : currentMessage.length();
+            // Compute total prompt character count from the full request shape:
+            // history (content + toolResult) + systemPrompt + currentMessage
+            // + native tool descriptors. When the provider reports actual
+            // inputTokens, those take precedence in TokenUsageTracker.record().
+            int promptChars = computePromptChars(history, systemPrompt, currentMessage, tools);
             tokenTracker.record(ctx.session(), turn, promptChars);
             if (tokenTracker.shouldCompactProactively(ctx.session())) {
                 log.info("AgentLoop round {}/{} for issue #{}: context budget exceeded (usage: {}%),"
@@ -131,13 +135,17 @@ public final class AgentLoop {
                 }
                 // Stage 2: if the total history still exceeds the context
                 // window budget after truncation, compact messages.
+                // Include toolResult (not just content) and tool descriptors
+                // in the estimation — these are part of every API call.
                 int historyChars = history.stream()
-                        .mapToInt(m -> m.getContent() == null ? 0 : m.getContent().length())
+                        .mapToInt(m -> (m.getContent() == null ? 0 : m.getContent().length())
+                                + (m.getToolResult() == null ? 0 : m.getToolResult().length()))
                         .sum();
                 int systemPromptChars = systemPrompt != null ? systemPrompt.length() : 0;
                 int currentMessageChars = currentMessage != null ? currentMessage.length() : 0;
+                int toolDescChars = computeToolDescChars(tools);
                 long estimatedPromptTokens = TokenUsageTracker.estimateTokens(
-                        historyChars + systemPromptChars + currentMessageChars);
+                        historyChars + systemPromptChars + currentMessageChars + toolDescChars);
                 long thresholdTokens = (long) (budget.contextWindowTokens()
                         * budget.proactiveCompactionThreshold());
                 if (estimatedPromptTokens > thresholdTokens) {
@@ -266,6 +274,32 @@ public final class AgentLoop {
 
     private static String modeTag(ToolingMode mode) {
         return mode == ToolingMode.NATIVE ? "native" : "legacy";
+    }
+
+    /** Sums content + toolResult character counts for all history messages. */
+    private static int historyMessageChars(List<AiMessage> history) {
+        return history.stream()
+                .mapToInt(m -> (m.getContent() == null ? 0 : m.getContent().length())
+                        + (m.getToolResult() == null ? 0 : m.getToolResult().length()))
+                .sum();
+    }
+
+    /** Rough character count for native tool descriptors sent with every API call. */
+    private static int computeToolDescChars(List<ToolDescriptor> tools) {
+        return tools.stream()
+                .mapToInt(t -> (t.name() == null ? 0 : t.name().length())
+                        + (t.description() == null ? 0 : t.description().length())
+                        + (t.jsonSchema() == null ? 0 : t.jsonSchema().toString().length()))
+                .sum();
+    }
+
+    /** Total character count of the full prompt: history + system + user message + tools. */
+    private static int computePromptChars(List<AiMessage> history, String systemPrompt,
+                                          String currentMessage, List<ToolDescriptor> tools) {
+        return historyMessageChars(history)
+                + (systemPrompt != null ? systemPrompt.length() : 0)
+                + (currentMessage != null ? currentMessage.length() : 0)
+                + computeToolDescChars(tools);
     }
 
     /**
