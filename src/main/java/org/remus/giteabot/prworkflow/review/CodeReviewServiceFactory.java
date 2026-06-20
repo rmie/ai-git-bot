@@ -31,7 +31,6 @@ import org.springframework.stereotype.Component;
 public class CodeReviewServiceFactory {
 
     private final AiClientFactory aiClientFactory;
-    private final GiteaClientFactory giteaClientFactory;
     private final SessionService sessionService;
     private final ReviewConfigProperties reviewConfig;
 
