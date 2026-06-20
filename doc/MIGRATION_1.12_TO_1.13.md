@@ -9,9 +9,10 @@ This release moves three diff-chunking parameters
 `ai_integrations` table onto the **workflow configuration** system
 introduced in 1.6.0 (§ 3.2 of [`MIGRATION_1.6_TO_1.7.md`](./MIGRATION_1.6_TO_1.7.md)).
 
-**The change is additive:** no data is lost, no AI integration is broken, and
-global defaults preserve the 1.12.x behaviour so that bots without a per-bot
-override continue to work exactly as before.
+**Default behaviour is preserved automatically.** Bots that relied on the
+column defaults (120 000 / 8 / 60 000) continue to work exactly as before.
+Custom per-integration values are **not migrated** — operators who need them
+must re-enter them in the workflow configuration UI after upgrade.
 
 If you are upgrading from 1.0 / 1.1, also read
 [`MIGRATION_1.0_TO_1.1.md`](./MIGRATION_1.0_TO_1.1.md) first.
@@ -59,16 +60,15 @@ ALTER TABLE ai_integrations DROP COLUMN IF EXISTS max_diff_chunks;
 ALTER TABLE ai_integrations DROP COLUMN IF EXISTS retry_truncated_chunk_chars;
 ```
 
-**No data is lost.** The values stored in these columns are **not migrated** into
-`workflow_configurations.params_json` — operators reconfigure them in the UI if
-they need custom values. This avoids accidental data loss from stale or
-inconsistent per-bot settings that may have diverged across multiple AI
-integrations.
+The values stored in these columns are **not migrated** into
+`workflow_configurations.params_json` — they are discarded when V28 runs.
+Operators who need custom values must re-enter them in the workflow UI.
 
-**Rollback.** The migration is forward-only in the Flyway sense. If you roll back
-the JAR, the columns remain dropped but the 1.12.x application ignores them
-(gracefully falls back to the column defaults at runtime if they existed, or to
-the JPA-level defaults if they don't).
+**Rollback.** If you roll back the application binary after V28 has
+executed, the `ai_integrations` columns will be gone and the 1.12.x
+application (which still maps them via JPA) may fail at startup or on
+first database access. Restore the columns from a database backup before
+rolling back the binary.
 
 ---
 

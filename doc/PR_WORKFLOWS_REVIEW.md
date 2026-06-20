@@ -1,8 +1,7 @@
 # PR Review Workflow
 
-> Available since the agentic-review feature ships (1.7.0). Workflow key:
-> **`review`**. Category: **REVIEW**. Enabled by default on the seeded
-> `Default` workflow configuration.
+> Workflow key: **`review`**. Category: **REVIEW**. Enabled by default on the
+> seeded `Default` workflow configuration.
 
 The **PR Review** workflow posts an AI code review as a single Markdown comment
 on every pull request that is opened or updated. It also handles conversational
