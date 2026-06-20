@@ -20,7 +20,7 @@ passed by the orchestrator:
 | `review` | PR open / update (synchronize) | Fetches the diff, reviews it (with chunking if needed), posts a single Markdown PR comment, and optionally applies the bot's configured post-review action (`APPROVE` / `REQUEST_CHANGES`). |
 | `botCommand` | `@bot` mention in a PR comment | Conversational follow-up — the model answers questions about the PR, explains review findings, or runs ad-hoc analysis. |
 | `inlineComment` | Bot mention in a file-diff inline comment | Responds to a comment posted against a specific diff hunk. |
-| `reviewSubmitted` | Traditional review action (approve / request changes) mentioning the bot | Processes a `?`-triggered discussion round after the operator submits a formal review. |
+| `reviewSubmitted` | Review submission event | Processes pending review comments mentioning the bot. |
 | `prClosed` | PR close | Cleans up the per-PR review session. |
 
 ## Flow
