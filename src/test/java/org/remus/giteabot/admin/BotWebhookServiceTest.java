@@ -34,6 +34,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyMap;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.startsWith;
 import static org.mockito.Mockito.atLeastOnce;
@@ -79,7 +80,7 @@ class BotWebhookServiceTest {
                 promptService, agentConfig,
                 agentSessionService, toolExecutionService, toolCatalog, workspaceService, botService,
                 mcpOrchestrationService, mcpToolSelectionService, botToolSelectionService,
-                prWorkflowOrchestrator, codeReviewServiceFactory, e2eTestPrCloseHandler,
+                prWorkflowOrchestrator, e2eTestPrCloseHandler,
                 e2eTestSlashCommandHandler, unitTestSlashCommandHandler, workflowSelectionService);
         lenient().when(mcpOrchestrationService.discoverTools(any())).thenReturn(McpToolCatalog.empty());
         lenient().when(mcpToolSelectionService.filterCatalogForPrompt(any(), any()))
@@ -87,6 +88,21 @@ class BotWebhookServiceTest {
         // Built-in tool whitelist: tests don't exercise the gating layer, so return
         // null (= unrestricted) to keep the historic test surface.
         lenient().when(botToolSelectionService.allowedBuiltinTools(any())).thenReturn(null);
+        // Wire the orchestrator mock to delegate to a real ReviewWorkflow so
+        // the existing sessionService/repositoryApiClient verifications still pass.
+        var reviewWorkflow = new org.remus.giteabot.prworkflow.review.ReviewWorkflow(
+                codeReviewServiceFactory, giteaClientFactory);
+        lenient().when(prWorkflowOrchestrator.run(
+                        any(Bot.class), any(WebhookPayload.class), eq("review"), anyMap()))
+                .thenAnswer(invocation -> {
+                    Bot b = invocation.getArgument(0);
+                    WebhookPayload p = invocation.getArgument(1);
+                    @SuppressWarnings("unchecked")
+                    java.util.Map<String, String> h = invocation.getArgument(3, java.util.Map.class);
+                    var ctx = new org.remus.giteabot.prworkflow.PrWorkflowContext(
+                            b, p, 1L, (name, log) -> { /* no-op */ }, () -> false, h);
+                    return reviewWorkflow.run(ctx);
+                });
         // M1: the CodeReviewService construction was extracted into
         // CodeReviewServiceFactory. Reproduce the legacy behaviour (real
         // CodeReviewService built from mocked AI/Git/session deps) here so
