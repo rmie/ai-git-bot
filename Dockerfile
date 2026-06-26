@@ -100,8 +100,8 @@ RUN set -eux; \
     fi; \
     groupadd -g 1000 appgroup; \
     useradd -m -u 1000 -g appgroup -s /bin/bash appuser; \
-    mkdir -p /app /app/prompts; \
-    chown -R appuser:appgroup /app /home/appuser
+    mkdir -p /app /app/prompts /data; \
+    chown -R appuser:appgroup /app /data /home/appuser
 
 # ---------------------------------------------------------------------------
 # Playwright + Cypress — installed GLOBALLY under /usr/local/lib/node_modules
