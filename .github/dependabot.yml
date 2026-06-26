@@ -1,0 +1,20 @@
+version: 2
+updates:
+  # Keep Maven dependencies (pom.xml) up-to-date
+  - package-ecosystem: "maven"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+
+  # Keep GitHub Actions up-to-date
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+
+  # Keep Docker dependencies (Dockerfile, docker-compose.yml) up-to-date
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
