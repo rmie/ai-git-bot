@@ -6,8 +6,8 @@ services:
     ports:
       - "8080:8080"
     environment:
-      SPRING_PROFILES_ACTIVE: docker
-      DATABASE_URL: jdbc:postgresql://db:5432/giteabot
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-docker}
+      DATABASE_URL: ${DATABASE_URL:-jdbc:postgresql://db:5432/giteabot}
       DATABASE_USERNAME: ${DATABASE_USERNAME:-giteabot}
       DATABASE_PASSWORD: ${DATABASE_PASSWORD:-giteabot}
       # Encryption key for API keys stored in database (optional, but recommended for production)
