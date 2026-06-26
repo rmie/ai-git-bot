@@ -99,8 +99,8 @@ RUN set -eux; \
     fi; \
     groupadd -g 1000 appgroup; \
     useradd -m -u 1000 -g appgroup -s /bin/bash appuser; \
-    mkdir -p /app /app/prompts; \
-    chown -R appuser:appgroup /app /home/appuser
+    mkdir -p /app /app/prompts /data; \
+    chown -R appuser:appgroup /app /data /home/appuser
 
 # ---------------------------------------------------------------------------
 # Playwright + Cypress — installed GLOBALLY under /usr/local/lib/node_modules
@@ -161,7 +161,6 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
 ENTRYPOINT ["/usr/bin/tini", "--", "java", \
     "-XX:+UseContainerSupport", \
     "-XX:MaxRAMPercentage=75.0", \
-    "-jar", "app.jar", \
-    "--spring.profiles.active=docker"]
+    "-jar", "app.jar"]
 
 
