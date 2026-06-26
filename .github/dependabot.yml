@@ -6,6 +6,15 @@ updates:
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 10
+    # Limit Spring Boot to patch updates only within the 4.0.x line (ignore major/minor updates)
+    ignore:
+      - dependency-name: "org.springframework.boot:*"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
+    # Group all dependency updates into a single Pull Request
+    groups:
+      all-dependencies:
+        patterns:
+          - "*"
 
   # Keep GitHub Actions up-to-date
   - package-ecosystem: "github-actions"
