@@ -113,17 +113,16 @@ public class ToolCatalog {
                     "List a directory recursively. Args: [\"src\"] or [\"src\", \"3\"] (depth).",
                     varargsSchema()),
             entry("ctags-signatures", ToolKind.CONTEXT, EnumSet.of(Role.CODING, Role.WRITER),
-                    "Extract function, class, method, and interface signatures from a source file "
-                            + "using Universal Ctags. Returns a compact structural map — NO implementation "
-                            + "details. Use this to understand a file's architecture without consuming full "
+                    "Extract function, class, method, and interface signatures from a source file. "
+                            + "Use this to understand a file's architecture without consuming full "
                             + "content. Args: [\"path/to/file\"] or [\"path/to/file\", \"limit\"] (default: 100).",
                     objectSchema(
                             prop("path",  "string",  "Repository-relative path to the file."),
                             prop("limit", "integer", "Max signatures to return (default: 100)."),
                             required("path"))),
             entry("ctags-deps", ToolKind.CONTEXT, EnumSet.of(Role.CODING, Role.WRITER),
-                    "Extract imports, includes, and namespace/package declarations from a source file "
-                            + "using Universal Ctags. Returns JSON with the declared namespace and all "
+                    "Extract imports, includes, and namespace/package declarations from a source file. "
+                            + "Returns JSON with the declared namespace and all "
                             + "external dependencies. Use this to understand which modules a file depends on. "
                             + "Args: [\"path/to/file\"].",
                     objectSchema(
