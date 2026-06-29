@@ -14,13 +14,25 @@ This guide covers deploying the AI-Git-Bot Gateway using Docker Compose.
 
 ## Quick Start
 
+### PostgreSQL (default)
+
 ```bash
 docker compose up --build -d
 ```
 
-This starts:
-- The bot application on port **8080**
-- A **PostgreSQL 17** database for configuration and session persistence
+This starts the bot application on port **8080** together with a
+**PostgreSQL 17** database container. Data is persisted in a Docker
+volume.
+
+### H2 (embedded — no external database)
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.h2.yml up --build -d
+```
+
+This starts only the bot application with an embedded H2 file database.
+No external database container is required — suitable for small teams,
+personal projects, or evaluation.
 
 Then:
 1. Navigate to `http://localhost:8080` to complete initial setup
@@ -32,7 +44,10 @@ See the [User Guide](USER_GUIDE.md) for detailed instructions.
 
 ## Docker Compose Template
 
-Save the following as `docker-compose.yml`:
+### PostgreSQL (default)
+
+The bundled `docker-compose.yml` starts the bot with a PostgreSQL 17
+database container:
 
 ```yaml
 services:
@@ -72,6 +87,28 @@ volumes:
   pgdata:
 ```
 
+### H2 (embedded — no external database)
+
+For H2, use the `docker-compose.h2.yml` override or add the H2
+configuration manually:
+
+```yaml
+services:
+  app:
+    image: tmseidel/ai-git-bot:latest
+    ports:
+      - "8080:8080"
+    environment:
+      SPRING_PROFILES_ACTIVE: docker,h2
+      APP_ENCRYPTION_KEY: your-secure-encryption-key-here
+    volumes:
+      - h2data:/data
+    restart: unless-stopped
+
+volumes:
+  h2data:
+```
+
 > **Note:** Replace placeholders with your actual values. For sensitive values, consider using a `.env` file or Docker secrets.
 
 ## Environment Variables
@@ -81,9 +118,9 @@ volumes:
 | Variable | Description |
 |----------|-------------|
 | `APP_ENCRYPTION_KEY` | Encryption key for sensitive data (API keys, tokens). Set to a fixed value for persistence across restarts. If not set, a random key is generated (data won't survive restarts). |
-| `DATABASE_URL` | JDBC connection URL (default: `jdbc:postgresql://db:5432/giteabot`) |
-| `DATABASE_USERNAME` | Database username (default: `giteabot`) |
-| `DATABASE_PASSWORD` | Database password |
+| `DATABASE_URL` | JDBC connection URL. Defaults are profile-dependent: `jdbc:postgresql://db:5432/giteabot` for PostgreSQL, `jdbc:h2:file:/data/giteabot` for H2. |
+| `DATABASE_USERNAME` | Database username (default: `giteabot` for PostgreSQL, `sa` for H2) |
+| `DATABASE_PASSWORD` | Database password (default: `giteabot` for PostgreSQL, empty for H2) |
 
 ### Agent Configuration (Optional)
 
@@ -151,15 +188,37 @@ Key features:
 
 ## Database
 
-- PostgreSQL 17 (Alpine) is included in the Docker Compose setup
+The application supports two database backends, selected at deployment
+time via Spring profiles:
+
+### PostgreSQL (default)
+
+- PostgreSQL 17 (Alpine) container included in `docker-compose.yml`
 - Data is persisted in the `pgdata` Docker volume
-- Schema is automatically managed by Hibernate (`ddl-auto=update`)
-- The database stores:
-  - Admin users
-  - AI integrations (with encrypted API keys)
-  - Git integrations (with encrypted tokens)
-  - Bots
-  - Review sessions and conversation history
+- Activated via `SPRING_PROFILES_ACTIVE=docker` (PostgreSQL is the default in the `docker` profile)
+- Suitable for production, larger deployments, or when a dedicated database is preferred
+- Schema is managed by Flyway using the `db/migration/postgresql/` scripts
+
+### H2 (embedded — opt-in)
+
+- No external database container required
+- File-based, persisted in the `h2data` Docker volume at `/data`
+- Activated via `SPRING_PROFILES_ACTIVE=docker,h2` (use the `docker-compose.h2.yml` override)
+- Suitable for small teams, personal projects, or evaluation
+- Schema is managed by Flyway using the `db/migration/h2/` scripts
+
+### Switching backends
+
+The database backend is determined entirely by `SPRING_PROFILES_ACTIVE`
+and `DATABASE_URL`. No code changes are required. The application
+already maintains parallel Flyway migration scripts for both databases.
+
+Both backends store:
+- Admin users
+- AI integrations (with encrypted API keys)
+- Git integrations (with encrypted tokens)
+- Bots
+- Review sessions and conversation history
 
 ## Health Check
 
@@ -174,6 +233,11 @@ Use this for load balancer health checks or container orchestration.
 ## Stopping
 
 ```bash
+# PostgreSQL (default)
 docker compose down        # Stop containers (data preserved in pgdata volume)
 docker compose down -v     # Stop and remove volumes (deletes all data)
+
+# H2
+docker compose -f docker-compose.yml -f docker-compose.h2.yml down
+docker compose -f docker-compose.yml -f docker-compose.h2.yml down -v
 ```
