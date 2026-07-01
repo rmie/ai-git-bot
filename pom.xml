@@ -213,26 +213,23 @@
                                         <exclude>*</exclude>
                                     </excludes>
                                     <includes>
-                                        <include>org.springframework.boot:spring-boot-starter-web</include>
-                                        <include>org.springframework.boot:spring-boot-starter-actuator</include>
-                                        <include>org.springframework.boot:spring-boot-starter-validation</include>
-                                        <include>org.springframework.boot:spring-boot-starter-flyway</include>
-                                        <include>org.springframework.boot:spring-boot-starter-thymeleaf</include>
-                                        <include>org.springframework.boot:spring-boot-starter-security</include>
-                                        <include>org.thymeleaf.extras:thymeleaf-extras-springsecurity6</include>
-                                        <include>org.apache.httpcomponents.client5:httpclient5</include>
-                                        <include>io.modelcontextprotocol.sdk:mcp</include>
+                                        <!-- Spring ecosystem: covers all starters, spring-data, spring-security, etc. -->
+                                        <include>org.springframework</include>
+                                        <include>org.springframework.boot</include>
+                                        <include>org.springframework.data</include>
+                                        <include>org.springframework.security</include>
+                                        <include>org.thymeleaf.extras</include>
+
+                                        <!-- Non-Spring third-party libs (one per line, explicitly reviewed) -->
+                                        <include>com.h2database:h2</include>
                                         <include>com.networknt:json-schema-validator</include>
+                                        <include>com.tngtech.archunit:archunit-junit5</include>
                                         <include>io.micrometer:micrometer-core</include>
-                                        <include>org.springframework.boot:spring-boot-starter-data-jpa</include>
+                                        <include>io.modelcontextprotocol.sdk:mcp</include>
+                                        <include>org.apache.httpcomponents.client5:httpclient5</include>
                                         <include>org.flywaydb:flyway-database-postgresql</include>
                                         <include>org.postgresql:postgresql</include>
-                                        <include>com.h2database:h2</include>
                                         <include>org.projectlombok:lombok</include>
-                                        <include>org.springframework.boot:spring-boot-starter-test</include>
-                                        <include>org.springframework.boot:spring-boot-webmvc-test</include>
-                                        <include>org.springframework.security:spring-security-test</include>
-                                        <include>com.tngtech.archunit:archunit-junit5</include>
                                     </includes>
                                     <message>A new direct dependency was added to pom.xml. Any dependency changes must be explicitly whitelisted in the enforcer configuration.</message>
                                 </bannedDependencies>
