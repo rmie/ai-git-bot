@@ -73,6 +73,15 @@ class AgentMetricsTest {
     }
 
     @Test
+    void recordCriticOutcome_incrementsTaggedCounter() {
+        metrics.recordCriticOutcome("APPROVE");
+        Counter c = registry.find("agent.critic.outcome_total")
+                .tag("outcome", "approve").counter();
+        assertThat(c).isNotNull();
+        assertThat(c.count()).isEqualTo(1.0);
+    }
+
+    @Test
     void holder_returnsRegisteredInstance_andStaticHelpersDelegate() {
         metrics.publishHolder();
         assertThat(AgentMetricsHolder.get()).isSameAs(metrics);
@@ -82,6 +91,12 @@ class AgentMetricsTest {
                 .tag("mode", "legacy").tag("provider", "googleaiclient").counter();
         assertThat(c).isNotNull();
         assertThat(c.count()).isEqualTo(1.0);
+
+        AgentMetricsHolder.recordCriticOutcome("ITERATE");
+        Counter c2 = registry.find("agent.critic.outcome_total")
+                .tag("outcome", "iterate").counter();
+        assertThat(c2).isNotNull();
+        assertThat(c2.count()).isEqualTo(1.0);
     }
 }
 
