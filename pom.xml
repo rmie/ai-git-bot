@@ -115,6 +115,11 @@
             <groupId>io.micrometer</groupId>
             <artifactId>micrometer-core</artifactId>
         </dependency>
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-registry-prometheus</artifactId>
+            <scope>runtime</scope>
+        </dependency>
 
         <!-- Spring Data JPA -->
         <dependency>
@@ -225,6 +230,7 @@
                                         <include>com.networknt:json-schema-validator</include>
                                         <include>com.tngtech.archunit:archunit-junit5</include>
                                         <include>io.micrometer:micrometer-core</include>
+                                        <include>io.micrometer:micrometer-registry-prometheus</include>
                                         <include>io.modelcontextprotocol.sdk:mcp</include>
                                         <include>org.apache.httpcomponents.client5:httpclient5</include>
                                         <include>org.flywaydb:flyway-database-postgresql</include>
