@@ -3,6 +3,7 @@ package org.remus.giteabot.prworkflow;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.remus.giteabot.admin.Bot;
+import org.remus.giteabot.ai.AiAuditContext;
 import org.remus.giteabot.gitea.model.WebhookPayload;
 import org.remus.giteabot.prworkflow.config.WorkflowSelectionService;
 import org.remus.giteabot.prworkflow.review.ReviewWorkflow;
@@ -143,6 +144,7 @@ public class PrWorkflowOrchestrator {
                 hints == null ? Map.of() : hints);
 
         try {
+            AiAuditContext.setActivityType(workflowKey);
             WorkflowResult result = workflow.run(context);
             if (result == null) {
                 throw new IllegalStateException("PrWorkflow '" + workflow.key()
