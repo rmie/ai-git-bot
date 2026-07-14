@@ -70,7 +70,8 @@ public class AiClientFactory {
         RestClient restClient = provider.buildRestClient(integration, decryptedApiKey);
         AiClient client = provider.createClient(restClient, integration);
 
-        AiAuditRecorder recorder = new IntegrationAuditRecorder(integration.getName(), aiUsageService);
+        AiAuditRecorder recorder = new IntegrationAuditRecorder(integration.getName(),
+                integration.getProviderType(), integration.getModel(), aiUsageService);
         if (client instanceof AbstractAiClient abstractClient) {
             abstractClient.setAuditRecorder(recorder);
         }
@@ -83,11 +84,14 @@ public class AiClientFactory {
      * the {@link AiAuditContext} thread-local.
      */
     private record IntegrationAuditRecorder(String integrationName,
+                                            String providerType,
+                                            String model,
                                             AiUsageService aiUsageService) implements AiAuditRecorder {
 
         @Override
         public void recordUsage(long inputTokens, long outputTokens) {
-            aiUsageService.recordUsage(integrationName, AiAuditContext.getSessionId(),
+            aiUsageService.recordUsage(integrationName, providerType, model,
+                    AiAuditContext.getSessionId(), AiAuditContext.getRepo(), AiAuditContext.getActivityType(),
                     inputTokens, outputTokens);
         }
 

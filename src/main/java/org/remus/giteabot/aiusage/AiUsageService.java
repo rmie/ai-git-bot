@@ -2,6 +2,9 @@ package org.remus.giteabot.aiusage;
 
 import com.fasterxml.jackson.core.JsonGenerator;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.DistributionSummary;
+import io.micrometer.core.instrument.MeterRegistry;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -15,6 +18,7 @@ import java.io.OutputStream;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.time.Instant;
+import java.util.Locale;
 import java.util.Set;
 
 /**
@@ -41,6 +45,7 @@ public class AiUsageService {
 
     private final AiUsageLogRepository usageRepository;
     private final AiErrorLogRepository errorRepository;
+    private final MeterRegistry meterRegistry;
 
     /**
      * Records the token usage of a single AI interaction. Persistence problems
@@ -61,6 +66,34 @@ public class AiUsageService {
         } catch (Exception e) {
             log.warn("Failed to persist AI usage entry: {}", e.getMessage());
         }
+    }
+
+    /**
+     * Records token usage and increments Prometheus counters tagged with
+     * integration, provider, model, repo and activity dimensions.
+     */
+    @Transactional
+    public void recordUsage(String aiIntegrationName, String providerType, String model,
+                            String sessionId, String repo, String activityType,
+                            long inputTokens, long outputTokens) {
+        // 1. Delegate to existing DB recording
+        recordUsage(aiIntegrationName, sessionId, inputTokens, outputTokens);
+
+        // 2. Increment Prometheus counters
+        incrementCounter("ai.input_tokens_total",
+                "Total input/prompt tokens consumed",
+                aiIntegrationName, providerType, model, repo, activityType, inputTokens);
+        incrementCounter("ai.output_tokens_total",
+                "Total output/completion tokens consumed",
+                aiIntegrationName, providerType, model, repo, activityType, outputTokens);
+                
+        // 3. Record histograms for Pareto distribution analysis (excluding repo/model for cardinality)
+        recordDistribution("ai.input_tokens_per_call",
+                "Distribution of input tokens per API call",
+                aiIntegrationName, providerType, activityType, inputTokens);
+        recordDistribution("ai.output_tokens_per_call",
+                "Distribution of output tokens per API call",
+                aiIntegrationName, providerType, activityType, outputTokens);
     }
 
     /**
@@ -197,5 +230,50 @@ public class AiUsageService {
             return value;
         }
         return value.substring(0, maxLength);
+    }
+
+    private void incrementCounter(String metricName, String description,
+                                  String aiIntegration, String provider, String model,
+                                  String repo, String activityType, long amount) {
+        if (amount <= 0) {
+            return;
+        }
+        String safeIntegration = normalise(aiIntegration);
+        String safeProvider = normalise(provider);
+        String safeModel = normalise(model);
+        String safeRepo = normalise(repo);
+        String safeActivity = normalise(activityType);
+        
+        Counter.builder(metricName)
+                .description(description)
+                .tag("ai_integration", safeIntegration)
+                .tag("provider", safeProvider)
+                .tag("model", safeModel)
+                .tag("repo", safeRepo)
+                .tag("activity", safeActivity)
+                .register(meterRegistry)
+                .increment(amount);
+    }
+
+    private void recordDistribution(String metricName, String description,
+                                    String aiIntegration, String provider, String activityType, long amount) {
+        if (amount <= 0) {
+            return;
+        }
+        DistributionSummary.builder(metricName)
+                .description(description)
+                .publishPercentileHistogram()
+                .tag("ai_integration", normalise(aiIntegration))
+                .tag("provider", normalise(provider))
+                .tag("activity", normalise(activityType))
+                .register(meterRegistry)
+                .record(amount);
+    }
+
+    private static String normalise(String value) {
+        if (value == null || value.isBlank()) {
+            return "unknown";
+        }
+        return value.trim().toLowerCase(Locale.ROOT);
     }
 }
