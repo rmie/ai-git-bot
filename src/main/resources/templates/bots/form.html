@@ -164,6 +164,17 @@
                         </div>
 
                         <div class="col-12">
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" id="runOnPrUpdate"
+                                       th:field="*{runOnPrUpdate}"/>
+                                <label class="form-check-label" for="runOnPrUpdate">Run workflow when PR head is updated</label>
+                            </div>
+                            <div class="form-text">
+                                When enabled, the bot executes its configured PR workflow on every <code>synchronized</code> event (new commits pushed to the PR branch). Supported on GitHub and Gitea only. Existing installations default to off.
+                            </div>
+                        </div>
+
+                        <div class="col-12">
                             <label for="deploymentTargetId" class="form-label">Deployment Target <span class="text-secondary">(optional)</span></label>
                             <select class="form-select" id="deploymentTargetId" name="deploymentTargetId">
                                 <option value="">(none — preview-aware workflows will be skipped)</option>
@@ -250,6 +261,20 @@
                             <div class="accordion-item">
                                 <h2 class="accordion-header">
                                     <button class="accordion-button collapsed" type="button"
+                                            data-bs-toggle="collapse" data-bs-target="#previewCollapseReviewAgent"
+                                            aria-expanded="false" aria-controls="previewCollapseReviewAgent">
+                                        Review-Agent System-Prompt
+                                    </button>
+                                </h2>
+                                <div id="previewCollapseReviewAgent" class="accordion-collapse collapse">
+                                    <div class="accordion-body">
+                                        <div class="bg-body-tertiary text-body rounded p-3" id="reviewAgentPromptPreview"></div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="accordion-item">
+                                <h2 class="accordion-header">
+                                    <button class="accordion-button collapsed" type="button"
                                             data-bs-toggle="collapse" data-bs-target="#previewCollapseAgent"
                                             aria-expanded="false" aria-controls="previewCollapseAgent">
                                         Issue-Agent System-Prompt
@@ -314,6 +339,48 @@
                                 <div id="previewCollapseE2ERunner" class="accordion-collapse collapse">
                                     <div class="accordion-body">
                                         <div class="bg-body-tertiary text-body rounded p-3" id="e2eRunnerPromptPreview"></div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="accordion-item">
+                                <h2 class="accordion-header">
+                                    <button class="accordion-button collapsed" type="button"
+                                            data-bs-toggle="collapse" data-bs-target="#previewCollapseUnitTestAuthor"
+                                            aria-expanded="false" aria-controls="previewCollapseUnitTestAuthor">
+                                        Unit-Test Author System-Prompt
+                                    </button>
+                                </h2>
+                                <div id="previewCollapseUnitTestAuthor" class="accordion-collapse collapse">
+                                    <div class="accordion-body">
+                                        <div class="bg-body-tertiary text-body rounded p-3" id="unitTestAuthorPromptPreview"></div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="accordion-item">
+                                <h2 class="accordion-header">
+                                    <button class="accordion-button collapsed" type="button"
+                                            data-bs-toggle="collapse" data-bs-target="#previewCollapseReadmeSync"
+                                            aria-expanded="false" aria-controls="previewCollapseReadmeSync">
+                                        README Sync System-Prompt
+                                    </button>
+                                </h2>
+                                <div id="previewCollapseReadmeSync" class="accordion-collapse collapse">
+                                    <div class="accordion-body">
+                                        <div class="bg-body-tertiary text-body rounded p-3" id="readmeSyncPromptPreview"></div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="accordion-item">
+                                <h2 class="accordion-header">
+                                    <button class="accordion-button collapsed" type="button"
+                                            data-bs-toggle="collapse" data-bs-target="#previewCollapseI18nCoverage"
+                                            aria-expanded="false" aria-controls="previewCollapseI18nCoverage">
+                                        i18n Coverage System-Prompt
+                                    </button>
+                                </h2>
+                                <div id="previewCollapseI18nCoverage" class="accordion-collapse collapse">
+                                    <div class="accordion-body">
+                                        <div class="bg-body-tertiary text-body rounded p-3" id="i18nCoveragePromptPreview"></div>
                                     </div>
                                 </div>
                             </div>
@@ -382,11 +449,15 @@
                 const previewButton = document.getElementById('previewSystemPrompt');
                 const previewTitle = document.getElementById('systemPromptPreviewTitle');
                 const reviewPreview = document.getElementById('reviewPromptPreview');
+                const reviewAgentPreview = document.getElementById('reviewAgentPromptPreview');
                 const agentPreview = document.getElementById('agentPromptPreview');
                 const writerPreview = document.getElementById('writerPromptPreview');
                 const e2ePlannerPreview = document.getElementById('e2ePlannerPromptPreview');
                 const e2eAuthorPreview = document.getElementById('e2eAuthorPromptPreview');
                 const e2eRunnerPreview = document.getElementById('e2eRunnerPromptPreview');
+                const unitTestAuthorPreview = document.getElementById('unitTestAuthorPromptPreview');
+                const readmeSyncPreview = document.getElementById('readmeSyncPromptPreview');
+                const i18nCoveragePreview = document.getElementById('i18nCoveragePromptPreview');
                 const botTypeSelect = document.getElementById('botType');
                 const agentContainer = document.getElementById('agentEnabledContainer');
                 const agentEnabled = document.getElementById('agentEnabled');
@@ -435,11 +506,15 @@
                         .then(function(selectedPrompt) {
                             previewTitle.textContent = selectedPrompt.name + ' Preview';
                             reviewPreview.innerHTML = renderMarkdown(selectedPrompt.reviewSystemPrompt);
+                            reviewAgentPreview.innerHTML = renderMarkdown(selectedPrompt.reviewAgentSystemPrompt);
                             agentPreview.innerHTML = renderMarkdown(selectedPrompt.issueAgentSystemPrompt);
                             writerPreview.innerHTML = renderMarkdown(selectedPrompt.writerAgentSystemPrompt);
                             e2ePlannerPreview.innerHTML = renderMarkdown(selectedPrompt.e2ePlannerSystemPrompt);
                             e2eAuthorPreview.innerHTML = renderMarkdown(selectedPrompt.e2eAuthorSystemPrompt);
                             e2eRunnerPreview.innerHTML = renderMarkdown(selectedPrompt.e2eRunnerSystemPrompt);
+                            unitTestAuthorPreview.innerHTML = renderMarkdown(selectedPrompt.unitTestAuthorSystemPrompt);
+                            readmeSyncPreview.innerHTML = renderMarkdown(selectedPrompt.readmeSyncSystemPrompt);
+                            i18nCoveragePreview.innerHTML = renderMarkdown(selectedPrompt.i18nCoverageSystemPrompt);
                             previewModal.show();
                         })
                         .catch(function(error) {

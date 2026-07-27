@@ -11,16 +11,20 @@ import org.remus.giteabot.ai.AiAuditContext;
 import org.remus.giteabot.ai.AiClient;
 import org.remus.giteabot.config.AgentConfigProperties;
 import org.remus.giteabot.config.PromptService;
+import org.remus.giteabot.eventhook.EventHookEventType;
+import org.remus.giteabot.eventhook.EventHookPublisher;
 import org.remus.giteabot.gitea.model.WebhookPayload;
 import org.remus.giteabot.mcp.McpOrchestrationService;
 import org.remus.giteabot.prworkflow.PrWorkflowContext;
 import org.remus.giteabot.prworkflow.PrWorkflowOrchestrator;
+import org.remus.giteabot.prworkflow.agentreview.AgentReviewSlashCommandHandler;
+import org.remus.giteabot.prworkflow.agentreview.AgentReviewWorkflow;
 import org.remus.giteabot.prworkflow.config.WorkflowSelectionService;
 import org.remus.giteabot.prworkflow.e2e.E2ETestWorkflow;
 import org.remus.giteabot.prworkflow.e2e.E2eTestPrCloseHandler;
 import org.remus.giteabot.prworkflow.e2e.E2eTestSlashCommandHandler;
-import org.remus.giteabot.prworkflow.agentreview.AgentReviewSlashCommandHandler;
-import org.remus.giteabot.prworkflow.agentreview.AgentReviewWorkflow;
+import org.remus.giteabot.prworkflow.i18n.I18nCoverageSlashCommandHandler;
+import org.remus.giteabot.prworkflow.readmesync.ReadmeSyncSlashCommandHandler;
 import org.remus.giteabot.prworkflow.review.ReviewWorkflow;
 import org.remus.giteabot.prworkflow.unittest.UnitTestSlashCommandHandler;
 import org.remus.giteabot.prworkflow.unittest.UnitTestWorkflow;
@@ -31,9 +35,9 @@ import org.remus.giteabot.systemsettings.McpToolSelectionService;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
-import io.micrometer.core.instrument.MeterRegistry;
 
 /**
  * Handles webhook events for persisted {@link Bot} entities using their
@@ -59,9 +63,11 @@ public class BotWebhookService {
     private final E2eTestSlashCommandHandler e2eTestSlashCommandHandler;
     private final UnitTestSlashCommandHandler unitTestSlashCommandHandler;
     private final AgentReviewSlashCommandHandler agentReviewSlashCommandHandler;
+    private final ReadmeSyncSlashCommandHandler readmeSyncSlashCommandHandler;
+    private final I18nCoverageSlashCommandHandler i18nCoverageSlashCommandHandler;
     private final WorkflowSelectionService workflowSelectionService;
+    private final EventHookPublisher eventHookPublisher;
     private final AgentServiceFactory agentServiceFactory;
-    private final MeterRegistry meterRegistry;
 
     public BotWebhookService(AiClientFactory aiClientFactory,
                              GiteaClientFactory giteaClientFactory,
@@ -80,8 +86,10 @@ public class BotWebhookService {
                              E2eTestSlashCommandHandler e2eTestSlashCommandHandler,
                              UnitTestSlashCommandHandler unitTestSlashCommandHandler,
                              AgentReviewSlashCommandHandler agentReviewSlashCommandHandler,
+                             ReadmeSyncSlashCommandHandler readmeSyncSlashCommandHandler,
+                             I18nCoverageSlashCommandHandler i18nCoverageSlashCommandHandler,
                              WorkflowSelectionService workflowSelectionService,
-                             MeterRegistry meterRegistry) {
+                             EventHookPublisher eventHookPublisher) {
         this.giteaClientFactory = giteaClientFactory;
         this.agentSessionService = agentSessionService;
         this.botService = botService;
@@ -90,21 +98,13 @@ public class BotWebhookService {
         this.e2eTestSlashCommandHandler = e2eTestSlashCommandHandler;
         this.unitTestSlashCommandHandler = unitTestSlashCommandHandler;
         this.agentReviewSlashCommandHandler = agentReviewSlashCommandHandler;
+        this.readmeSyncSlashCommandHandler = readmeSyncSlashCommandHandler;
+        this.i18nCoverageSlashCommandHandler = i18nCoverageSlashCommandHandler;
         this.workflowSelectionService = workflowSelectionService;
-        this.meterRegistry = meterRegistry;
+        this.eventHookPublisher = eventHookPublisher;
         this.agentServiceFactory = new AgentServiceFactory(aiClientFactory, giteaClientFactory,
                 promptService, agentConfig, agentSessionService, toolExecutionService, toolCatalog,
                 workspaceService, mcpOrchestrationService, mcpToolSelectionService, botToolSelectionService);
-    }
-
-    private void recordOutcome(String repo, String eventType, String outcome) {
-        if (repo == null) repo = "unknown";
-        io.micrometer.core.instrument.Counter.builder("webhook.events_total")
-                .tag("repo", repo)
-                .tag("event_type", eventType)
-                .tag("outcome", outcome)
-                .register(meterRegistry)
-                .increment();
     }
 
     /**
@@ -115,24 +115,18 @@ public class BotWebhookService {
     @Async
     public void reviewPullRequest(Bot bot, WebhookPayload payload) {
         AiAuditContext.setSessionId(auditSessionId(payload));
-        AiAuditContext.setRepo(auditRepo(payload));
-        AiAuditContext.setActivityType("review");
         if (bot.getBotType() == BotType.WRITER) {
             log.debug("[Bot '{}'] Writer bot ignores pull request review event", bot.getName());
-            recordOutcome(auditRepo(payload), "pull_request", "ignored_wrong_bot_type");
             return;
         }
         if (!isCallerAllowed(bot, payload)) {
-            recordOutcome(auditRepo(payload), "pull_request", "ignored_unauthorized");
             return;
         }
         try {
             prWorkflowOrchestrator.runAll(bot, payload);
-            recordOutcome(auditRepo(payload), "pull_request", "processed");
         } catch (Exception e) {
             log.error("[Bot '{}'] Failed to run PR workflows: {}", bot.getName(), e.getMessage(), e);
             botService.recordError(bot, e.getMessage());
-            recordOutcome(auditRepo(payload), "pull_request", "failed");
         }
     }
 
@@ -155,50 +149,45 @@ public class BotWebhookService {
     @Async
     public void handleBotCommand(Bot bot, WebhookPayload payload) {
         AiAuditContext.setSessionId(auditSessionId(payload));
-        AiAuditContext.setRepo(auditRepo(payload));
-        AiAuditContext.setActivityType("review");
         if (!isPullRequestAuthor(payload)) {
             log.debug("[Bot '{}'] Ignoring pull request command from non-author", bot.getName());
-            recordOutcome(auditRepo(payload), "bot_command", "ignored_not_author");
             return;
         }
         if (bot.getBotType() == BotType.WRITER) {
             log.debug("[Bot '{}'] Writer bot ignores pull request command", bot.getName());
-            recordOutcome(auditRepo(payload), "bot_command", "ignored_wrong_bot_type");
             return;
         }
         if (!isCallerAllowed(bot, payload)) {
-            recordOutcome(auditRepo(payload), "bot_command", "ignored_unauthorized");
             return;
         }
         try {
             if (e2eTestSlashCommandHandler.tryHandle(bot, payload)) {
-                recordOutcome(auditRepo(payload), "bot_command", "processed");
                 return;
             }
             if (unitTestSlashCommandHandler.tryHandle(bot, payload)) {
-                recordOutcome(auditRepo(payload), "bot_command", "processed");
                 return;
             }
             if (agentReviewSlashCommandHandler.tryHandle(bot, payload)) {
-                recordOutcome(auditRepo(payload), "bot_command", "processed");
+                return;
+            }
+            if (readmeSyncSlashCommandHandler.tryHandle(bot, payload)) {
+                return;
+            }
+            if (i18nCoverageSlashCommandHandler.tryHandle(bot, payload)) {
                 return;
             }
             if (isWorkflowEnabled(bot, ReviewWorkflow.KEY)) {
                 // Route through the PrWorkflow orchestrator for uniform lifecycle management.
                 var hints = Map.of(ReviewWorkflow.HINT_REVIEW_ACTION, ReviewWorkflow.ACTION_BOT_COMMAND);
                 prWorkflowOrchestrator.run(bot, payload, ReviewWorkflow.KEY, hints);
-                recordOutcome(auditRepo(payload), "bot_command", "processed");
                 return;
             }
             log.info("[Bot '{}'] Comment mentions bot but no slash command matched and review workflow is not enabled — replying with unrecognised-command notice",
                     bot.getName());
             postUnrecognisedCommandComment(bot, payload);
-            recordOutcome(auditRepo(payload), "bot_command", "ignored_unsupported_action");
         } catch (Exception e) {
             log.error("[Bot '{}'] Failed to handle command: {}", bot.getName(), e.getMessage(), e);
             botService.recordError(bot, e.getMessage());
-            recordOutcome(auditRepo(payload), "bot_command", "failed");
         }
     }
 
@@ -216,15 +205,11 @@ public class BotWebhookService {
     @Async
     public void handlePrComment(Bot bot, WebhookPayload payload) {
         AiAuditContext.setSessionId(auditSessionId(payload));
-        AiAuditContext.setRepo(auditRepo(payload));
-        AiAuditContext.setActivityType("review");
         if (bot.getBotType() == BotType.WRITER) {
             log.debug("[Bot '{}'] Writer bot ignores pull request comment", bot.getName());
-            recordOutcome(auditRepo(payload), "pr_comment", "ignored_wrong_bot_type");
             return;
         }
         if (!isPrCommenterAllowed(bot, payload)) {
-            recordOutcome(auditRepo(payload), "pr_comment", "ignored_unauthorized");
             return;
         }
         String owner = payload.getRepository().getOwner().getLogin();
@@ -240,43 +225,41 @@ public class BotWebhookService {
             log.debug("[Bot '{}'] Agent session found for PR #{}, routing to agent", bot.getName(), prNumber);
             try {
                 createIssueImplementationService(bot).handleIssueComment(payload);
-                recordOutcome(auditRepo(payload), "pr_comment", "processed");
             } catch (Exception e) {
                 log.error("[Bot '{}'] Failed to handle PR comment via agent: {}", bot.getName(), e.getMessage(), e);
                 botService.recordError(bot, e.getMessage());
-                recordOutcome(auditRepo(payload), "pr_comment", "failed");
             }
         } else {
             log.debug("[Bot '{}'] No agent session for PR #{}, routing to code-review handler",
                     bot.getName(), prNumber);
             try {
                 if (e2eTestSlashCommandHandler.tryHandle(bot, payload)) {
-                    recordOutcome(auditRepo(payload), "pr_comment", "processed");
                     return;
                 }
                 if (unitTestSlashCommandHandler.tryHandle(bot, payload)) {
-                    recordOutcome(auditRepo(payload), "pr_comment", "processed");
                     return;
                 }
                 if (agentReviewSlashCommandHandler.tryHandle(bot, payload)) {
-                    recordOutcome(auditRepo(payload), "pr_comment", "processed");
+                    return;
+                }
+                if (readmeSyncSlashCommandHandler.tryHandle(bot, payload)) {
+                    return;
+                }
+                if (i18nCoverageSlashCommandHandler.tryHandle(bot, payload)) {
                     return;
                 }
                 if (isWorkflowEnabled(bot, ReviewWorkflow.KEY)) {
                     // Route through the PrWorkflow orchestrator for uniform lifecycle management.
                     var hints = Map.of(ReviewWorkflow.HINT_REVIEW_ACTION, ReviewWorkflow.ACTION_BOT_COMMAND);
                     prWorkflowOrchestrator.run(bot, payload, ReviewWorkflow.KEY, hints);
-                    recordOutcome(auditRepo(payload), "pr_comment", "processed");
                     return;
                 }
                 log.info("[Bot '{}'] Comment mentions bot but no slash command matched and review workflow is not enabled — replying with unrecognised-command notice",
                         bot.getName());
                 postUnrecognisedCommandComment(bot, payload);
-                recordOutcome(auditRepo(payload), "pr_comment", "ignored_unsupported_action");
             } catch (Exception e) {
                 log.error("[Bot '{}'] Failed to handle PR comment via review handler: {}", bot.getName(), e.getMessage(), e);
                 botService.recordError(bot, e.getMessage());
-                recordOutcome(auditRepo(payload), "pr_comment", "failed");
             }
         }
     }
@@ -288,27 +271,21 @@ public class BotWebhookService {
     @Async
     public void handleInlineComment(Bot bot, WebhookPayload payload) {
         AiAuditContext.setSessionId(auditSessionId(payload));
-        AiAuditContext.setRepo(auditRepo(payload));
-        AiAuditContext.setActivityType("review");
         if (!isPullRequestAuthor(payload)) {
             log.debug("[Bot '{}'] Ignoring inline review comment from non-author", bot.getName());
-            recordOutcome(auditRepo(payload), "inline_comment", "ignored_not_author");
             return;
         }
         if (bot.getBotType() == BotType.WRITER) {
             log.debug("[Bot '{}'] Writer bot ignores inline review comment", bot.getName());
-            recordOutcome(auditRepo(payload), "inline_comment", "ignored_wrong_bot_type");
             return;
         }
         if (!isCallerAllowed(bot, payload)) {
-            recordOutcome(auditRepo(payload), "inline_comment", "ignored_unauthorized");
             return;
         }
         boolean agenticEnabled = isWorkflowEnabled(bot, AgentReviewWorkflow.KEY);
         boolean reviewEnabled  = isWorkflowEnabled(bot, ReviewWorkflow.KEY);
         if (!agenticEnabled && !reviewEnabled) {
             log.debug("[Bot '{}'] Neither review nor agentic-review enabled — ignoring inline review comment", bot.getName());
-            recordOutcome(auditRepo(payload), "inline_comment", "ignored_unconfigured");
             return;
         }
         try {
@@ -317,16 +294,13 @@ public class BotWebhookService {
                 var hints = Map.of(PrWorkflowContext.HINT_AGENTIC_REVIEW_CLARIFICATION,
                         question != null ? question : "");
                 prWorkflowOrchestrator.run(bot, payload, AgentReviewWorkflow.KEY, hints);
-                recordOutcome(auditRepo(payload), "inline_comment", "processed");
                 return;
             }
             var hints = Map.of(ReviewWorkflow.HINT_REVIEW_ACTION, ReviewWorkflow.ACTION_INLINE_COMMENT);
             prWorkflowOrchestrator.run(bot, payload, ReviewWorkflow.KEY, hints);
-            recordOutcome(auditRepo(payload), "inline_comment", "processed");
         } catch (Exception e) {
             log.error("[Bot '{}'] Failed to handle inline comment via workflow: {}", bot.getName(), e.getMessage(), e);
             botService.recordError(bot, e.getMessage());
-            recordOutcome(auditRepo(payload), "inline_comment", "failed");
         }
     }
 
@@ -337,40 +311,36 @@ public class BotWebhookService {
     @Async
     public void handleReviewSubmitted(Bot bot, WebhookPayload payload) {
         AiAuditContext.setSessionId(auditSessionId(payload));
-        AiAuditContext.setRepo(auditRepo(payload));
-        AiAuditContext.setActivityType("review");
         if (bot.getBotType() == BotType.WRITER) {
             log.debug("[Bot '{}'] Writer bot ignores submitted review", bot.getName());
-            recordOutcome(auditRepo(payload), "review_submitted", "ignored_wrong_bot_type");
             return;
         }
         if (!isCallerAllowed(bot, payload)) {
-            recordOutcome(auditRepo(payload), "review_submitted", "ignored_unauthorized");
             return;
         }
         boolean agenticEnabled = isWorkflowEnabled(bot, AgentReviewWorkflow.KEY);
         boolean reviewEnabled  = isWorkflowEnabled(bot, ReviewWorkflow.KEY);
         if (!agenticEnabled && !reviewEnabled) {
             log.debug("[Bot '{}'] Neither review nor agentic-review enabled — ignoring submitted review", bot.getName());
-            recordOutcome(auditRepo(payload), "review_submitted", "ignored_unconfigured");
             return;
         }
         try {
             if (agenticEnabled) {
                 String question = extractReviewBody(payload);
-                var hints = Map.of(PrWorkflowContext.HINT_AGENTIC_REVIEW_CLARIFICATION,
-                        question != null ? question : "");
+                if (!mentionsBot(bot, question)) {
+                    log.debug("[Bot '{}'] Submitted review does not mention the bot — ignoring (agentic-review only responds when addressed)",
+                            bot.getName());
+                    return;
+                }
+                var hints = Map.of(PrWorkflowContext.HINT_AGENTIC_REVIEW_CLARIFICATION, question);
                 prWorkflowOrchestrator.run(bot, payload, AgentReviewWorkflow.KEY, hints);
-                recordOutcome(auditRepo(payload), "review_submitted", "processed");
                 return;
             }
             var hints = Map.of(ReviewWorkflow.HINT_REVIEW_ACTION, ReviewWorkflow.ACTION_REVIEW_SUBMITTED);
             prWorkflowOrchestrator.run(bot, payload, ReviewWorkflow.KEY, hints);
-            recordOutcome(auditRepo(payload), "review_submitted", "processed");
         } catch (Exception e) {
             log.error("[Bot '{}'] Failed to handle review submitted via workflow: {}", bot.getName(), e.getMessage(), e);
             botService.recordError(bot, e.getMessage());
-            recordOutcome(auditRepo(payload), "review_submitted", "failed");
         }
     }
 
@@ -389,21 +359,16 @@ public class BotWebhookService {
     public void handlePrClosed(Bot bot, WebhookPayload payload) {
         try {
             AiAuditContext.setSessionId(auditSessionId(payload));
-            AiAuditContext.setRepo(auditRepo(payload));
-            AiAuditContext.setActivityType("review");
             if (bot.getBotType() == BotType.WRITER) {
                 log.debug("[Bot '{}'] Writer bot ignores pull request closed event", bot.getName());
-                recordOutcome(auditRepo(payload), "pr_closed", "ignored_wrong_bot_type");
                 return;
             }
-            boolean isFailed = false;
             try {
                 var hints = Map.of(ReviewWorkflow.HINT_REVIEW_ACTION, ReviewWorkflow.ACTION_PR_CLOSED);
                 prWorkflowOrchestrator.run(bot, payload, ReviewWorkflow.KEY, hints);
             } catch (RuntimeException e) {
                 log.warn("[Bot '{}'] CodeReviewService.handlePrClosed threw {} — continuing with E2E teardown",
                         bot.getName(), e.toString());
-                isFailed = true;
             }
             try {
                 Long prNumber = payload.getPullRequest() == null
@@ -421,9 +386,7 @@ public class BotWebhookService {
             } catch (RuntimeException e) {
                 log.warn("[Bot '{}'] E2eTestPrCloseHandler threw {} — ignoring",
                         bot.getName(), e.toString());
-                isFailed = true;
             }
-            recordOutcome(auditRepo(payload), "pr_closed", isFailed ? "failed" : "processed");
         } finally {
             AiAuditContext.clear();
         }
@@ -436,37 +399,59 @@ public class BotWebhookService {
     @Async
     public void handleIssueAssigned(Bot bot, WebhookPayload payload) {
         AiAuditContext.setSessionId(auditSessionId(payload));
-        AiAuditContext.setRepo(auditRepo(payload));
         if (!isCallerAllowed(bot, payload)) {
-            recordOutcome(auditRepo(payload), "issue_assigned", "ignored_unauthorized");
             return;
         }
         if (bot.getBotType() == BotType.WRITER) {
-            AiAuditContext.setActivityType("writer-agent");
             try {
+                publishIssueEvent(EventHookEventType.ISSUE_ASSIGNMENT_STARTED, bot, payload, null, true);
                 createWriterAgentService(bot).handleIssueAssigned(payload);
-                recordOutcome(auditRepo(payload), "issue_assigned", "processed");
+                publishIssueEvent(EventHookEventType.ISSUE_ASSIGNMENT_COMPLETED, bot, payload, null, false);
             } catch (Exception e) {
                 log.error("[Bot '{}'] Failed to handle writer issue assignment: {}", bot.getName(), e.getMessage(), e);
                 botService.recordError(bot, e.getMessage());
-                recordOutcome(auditRepo(payload), "issue_assigned", "failed");
+                publishIssueEvent(EventHookEventType.ISSUE_ASSIGNMENT_FAILED, bot, payload, e.getMessage(), false);
             }
             return;
         }
         if (!bot.isAgentEnabled()) {
             log.debug("[Bot '{}'] Agent feature disabled, ignoring issue assignment", bot.getName());
-            recordOutcome(auditRepo(payload), "issue_assigned", "ignored_disabled");
             return;
         }
-        AiAuditContext.setActivityType("coding-agent");
         try {
+            publishIssueEvent(EventHookEventType.ISSUE_ASSIGNMENT_STARTED, bot, payload, null, true);
             createIssueImplementationService(bot).handleIssueAssigned(payload);
-            recordOutcome(auditRepo(payload), "issue_assigned", "processed");
+            publishIssueEvent(EventHookEventType.ISSUE_ASSIGNMENT_COMPLETED, bot, payload, null, false);
         } catch (Exception e) {
             log.error("[Bot '{}'] Failed to handle issue assignment: {}", bot.getName(), e.getMessage(), e);
             botService.recordError(bot, e.getMessage());
-            recordOutcome(auditRepo(payload), "issue_assigned", "failed");
+            publishIssueEvent(EventHookEventType.ISSUE_ASSIGNMENT_FAILED, bot, payload, e.getMessage(), false);
         }
+    }
+
+    /**
+     * Emits an outgoing-webhook event for an issue assignment: STARTED before the
+     * delegation (with the issue title), COMPLETED on successful return, FAILED in
+     * the catch (with the error). The issue number rides in the envelope's issue
+     * slot; {@code pullRequest} stays null. The publisher never throws.
+     */
+    private void publishIssueEvent(EventHookEventType type, Bot bot, WebhookPayload payload,
+                                   String error, boolean includeTitle) {
+        String owner = payload.getRepository() != null && payload.getRepository().getOwner() != null
+                ? payload.getRepository().getOwner().getLogin() : null;
+        String repo = payload.getRepository() != null ? payload.getRepository().getName() : null;
+        Long issueNumber = payload.getIssue() != null ? payload.getIssue().getNumber() : null;
+        Map<String, Object> data = new LinkedHashMap<>();
+        if (issueNumber != null) {
+            data.put("issueNumber", issueNumber);
+        }
+        if (includeTitle && payload.getIssue() != null && payload.getIssue().getTitle() != null) {
+            data.put("issueTitle", payload.getIssue().getTitle());
+        }
+        if (error != null) {
+            data.put("error", error);
+        }
+        eventHookPublisher.publish(type, bot, owner, repo, null, issueNumber, data);
     }
 
     /**
@@ -476,36 +461,27 @@ public class BotWebhookService {
     @Async
     public void handleIssueComment(Bot bot, WebhookPayload payload) {
         AiAuditContext.setSessionId(auditSessionId(payload));
-        AiAuditContext.setRepo(auditRepo(payload));
         if (!isCallerAllowed(bot, payload)) {
-            recordOutcome(auditRepo(payload), "issue_comment", "ignored_unauthorized");
             return;
         }
         if (bot.getBotType() == BotType.WRITER) {
-            AiAuditContext.setActivityType("writer-agent");
             try {
                 createWriterAgentService(bot).handleIssueComment(payload);
-                recordOutcome(auditRepo(payload), "issue_comment", "processed");
             } catch (Exception e) {
                 log.error("[Bot '{}'] Failed to handle writer issue comment: {}", bot.getName(), e.getMessage(), e);
                 botService.recordError(bot, e.getMessage());
-                recordOutcome(auditRepo(payload), "issue_comment", "failed");
             }
             return;
         }
         if (!bot.isAgentEnabled()) {
             log.debug("[Bot '{}'] Agent feature disabled, ignoring issue comment", bot.getName());
-            recordOutcome(auditRepo(payload), "issue_comment", "ignored_disabled");
             return;
         }
-        AiAuditContext.setActivityType("coding-agent");
         try {
             createIssueImplementationService(bot).handleIssueComment(payload);
-            recordOutcome(auditRepo(payload), "issue_comment", "processed");
         } catch (Exception e) {
             log.error("[Bot '{}'] Failed to handle issue comment: {}", bot.getName(), e.getMessage(), e);
             botService.recordError(bot, e.getMessage());
-            recordOutcome(auditRepo(payload), "issue_comment", "failed");
         }
     }
 
@@ -611,15 +587,6 @@ public class BotWebhookService {
         return payload.getRepository().getOwner().getLogin() + "/"
                 + payload.getRepository().getName()
                 + (number != null ? "#" + number : "");
-    }
-
-    private String auditRepo(WebhookPayload payload) {
-        if (payload == null || payload.getRepository() == null
-                || payload.getRepository().getOwner() == null) {
-            return null;
-        }
-        return payload.getRepository().getOwner().getLogin() + "/"
-                + payload.getRepository().getName();
     }
 
     private Long resolvePrOrIssueNumber(WebhookPayload payload) {
@@ -751,6 +718,19 @@ public class BotWebhookService {
             return "";
         }
         return "@" + username;
+    }
+
+    /**
+     * Returns {@code true} when {@code text} @-mentions the bot. Used to gate
+     * agentic responses so the bot only reacts when it is explicitly addressed,
+     * never on unrelated activity (e.g. another reviewer's approval or comment).
+     */
+    private boolean mentionsBot(Bot bot, String text) {
+        if (text == null || text.isBlank()) {
+            return false;
+        }
+        String alias = getBotAlias(bot);
+        return !alias.isEmpty() && text.contains(alias);
     }
 
     public boolean isPullRequestAuthor(WebhookPayload payload) {

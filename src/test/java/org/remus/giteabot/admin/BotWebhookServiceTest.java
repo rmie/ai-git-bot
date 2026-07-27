@@ -43,7 +43,9 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyMap;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.ArgumentMatchers.startsWith;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.doThrow;
@@ -76,8 +78,11 @@ class BotWebhookServiceTest {
     @Mock private org.remus.giteabot.prworkflow.e2e.E2eTestSlashCommandHandler e2eTestSlashCommandHandler;
     @Mock private org.remus.giteabot.prworkflow.unittest.UnitTestSlashCommandHandler unitTestSlashCommandHandler;
     @Mock private org.remus.giteabot.prworkflow.agentreview.AgentReviewSlashCommandHandler agentReviewSlashCommandHandler;
+    @Mock private org.remus.giteabot.prworkflow.readmesync.ReadmeSyncSlashCommandHandler readmeSyncSlashCommandHandler;
+    @Mock private org.remus.giteabot.prworkflow.i18n.I18nCoverageSlashCommandHandler i18nCoverageSlashCommandHandler;
     @Mock private org.remus.giteabot.prworkflow.config.WorkflowSelectionService workflowSelectionService;
     @Mock private ReviewChunkingProperties chunkingProperties;
+    @Mock private org.remus.giteabot.eventhook.EventHookPublisher eventHookPublisher;
 
     private BotWebhookService botWebhookService;
 
@@ -92,7 +97,8 @@ class BotWebhookServiceTest {
                 mcpOrchestrationService, mcpToolSelectionService, botToolSelectionService,
                 prWorkflowOrchestrator, e2eTestPrCloseHandler,
                 e2eTestSlashCommandHandler, unitTestSlashCommandHandler,
-                agentReviewSlashCommandHandler, workflowSelectionService);
+                agentReviewSlashCommandHandler, readmeSyncSlashCommandHandler,
+                i18nCoverageSlashCommandHandler, workflowSelectionService, eventHookPublisher);
         lenient().when(mcpOrchestrationService.discoverTools(any())).thenReturn(McpToolCatalog.empty());
         lenient().when(mcpToolSelectionService.filterCatalogForPrompt(any(), any()))
                 .thenAnswer(invocation -> invocation.getArgument(1));
@@ -124,7 +130,7 @@ class BotWebhookServiceTest {
         // the existing handlePrComment / handleBotCommand routing tests
         // keep observing the same downstream side-effects on `sessionService`.
         lenient().when(codeReviewServiceFactory.create(any(Bot.class),
-                        any(RepositoryApiClient.class), eq(120000), eq(8), eq(60000)))
+                        any(RepositoryApiClient.class), eq(120000), eq(8), eq(60000), any()))
                 .thenAnswer(invocation -> {
                     Bot b = invocation.getArgument(0);
                     return new org.remus.giteabot.review.CodeReviewService(
@@ -132,7 +138,7 @@ class BotWebhookServiceTest {
                             b.getUsername(), new ReviewConfigProperties(),
                             "system-prompt:" + b.getSystemPrompt().getId(),
                             b.getSystemPrompt().getReviewSystemPrompt(),
-                            120000, 8, 60000);
+                            120000, 8, 60000, "");
                 });
         // Step 7.2 — provide a real BudgetConfig so production code that reads
         // agentConfig.getBudget().getMaxTokensPerCall() does not NPE on the mock.
@@ -1096,7 +1102,7 @@ class BotWebhookServiceTest {
         Bot bot = createBotWithWorkflows("agentic-bot", "claude_bot", true,
                 java.util.List.of("agentic-review"));
         WebhookPayload payload = buildReviewSubmittedPayload("Test", "my-repo", 140L,
-                "I reviewed your changes. Can you explain the error handling strategy?");
+                "@claude_bot I reviewed your changes. Can you explain the error handling strategy?");
 
         botWebhookService.handleReviewSubmitted(bot, payload);
 
@@ -1107,7 +1113,7 @@ class BotWebhookServiceTest {
         assertThat(key.getValue()).isEqualTo(AgentReviewWorkflow.KEY);
         assertThat(hints.getValue())
                 .containsEntry(PrWorkflowContext.HINT_AGENTIC_REVIEW_CLARIFICATION,
-                        "I reviewed your changes. Can you explain the error handling strategy?");
+                        "@claude_bot I reviewed your changes. Can you explain the error handling strategy?");
     }
 
     @Test
@@ -1141,15 +1147,26 @@ class BotWebhookServiceTest {
     }
 
     @Test
-    void reviewSubmitted_noReviewBody_agenticReviewStillDispatches() {
+    void reviewSubmitted_noReviewBody_agenticReviewIgnored() {
         Bot bot = createBotWithWorkflows("agentic-bot", "claude_bot", true,
                 java.util.List.of("agentic-review"));
         WebhookPayload payload = buildReviewSubmittedPayload("Test", "my-repo", 140L, null);
 
         botWebhookService.handleReviewSubmitted(bot, payload);
 
-        verify(prWorkflowOrchestrator).run(eq(bot), eq(payload),
-                eq(AgentReviewWorkflow.KEY), any());
+        verify(prWorkflowOrchestrator, never()).run(any(), any(), any(), any());
+    }
+
+    @Test
+    void reviewSubmitted_bodyWithoutBotMention_agenticReviewIgnored() {
+        Bot bot = createBotWithWorkflows("agentic-bot", "claude_bot", true,
+                java.util.List.of("agentic-review"));
+        WebhookPayload payload = buildReviewSubmittedPayload("Test", "my-repo", 140L,
+                "LGTM, approving this from another reviewer.");
+
+        botWebhookService.handleReviewSubmitted(bot, payload);
+
+        verify(prWorkflowOrchestrator, never()).run(any(), any(), any(), any());
     }
 
     @Test
@@ -1167,6 +1184,85 @@ class BotWebhookServiceTest {
     }
 
     // ---- helpers ----
+
+    // ---------- Outgoing-webhook events for issue assignment ----------
+
+    @Test
+    void issueAssignment_publishesStartedAndCompletedEventsOnSuccess() {
+        Bot bot = createBot("writer", "writer_bot", false);
+        bot.setBotType(BotType.WRITER);
+        WebhookPayload payload = buildIssuePayload("Test", "my-repo", 12L, "Vague issue", "Do something");
+        AgentSession session = new AgentSession("Test", "my-repo", 12L, "Vague issue");
+
+        when(giteaClientFactory.getApiClient(any())).thenReturn(repositoryApiClient);
+        when(aiClientFactory.getClient(any())).thenReturn(aiClient);
+        when(agentSessionService.getSessionByIssue("Test", "my-repo", 12L)).thenReturn(Optional.empty());
+        when(repositoryApiClient.getIssueDetails("Test", "my-repo", 12L))
+                .thenReturn(java.util.Map.of("user", java.util.Map.of("login", "tom")));
+        when(agentSessionService.createSession("Test", "my-repo", 12L, "Vague issue",
+                AgentSession.AgentSessionType.WRITER, "tom")).thenReturn(session);
+        when(repositoryApiClient.getDefaultBranch("Test", "my-repo")).thenReturn("main");
+        when(workspaceService.prepareWorkspace(eq("Test"), eq("my-repo"), eq("main"), any(), any(), any()))
+                .thenReturn(WorkspaceResult.success(Path.of("/tmp/writer-test-workspace")));
+        when(repositoryApiClient.getRepositoryTree("Test", "my-repo", "main")).thenReturn(java.util.List.of());
+        when(agentSessionService.toAiMessages(session)).thenReturn(java.util.List.of());
+        when(aiClient.chat(any(), any(), startsWith("Writer prompt"), any(), eq(4096))).thenReturn("""
+                {"qualityAssessment":"ok","revisedIssueDraft":"## Goal\\nDo something testable","assumptions":[],"openQuestions":[],"readyToCreate":true}
+                """);
+        when(repositoryApiClient.createIssue(eq("Test"), eq("my-repo"), eq("AI Created Issue: Vague issue"), any()))
+                .thenReturn(99L);
+
+        botWebhookService.handleIssueAssigned(bot, payload);
+
+        var order = inOrder(eventHookPublisher);
+        order.verify(eventHookPublisher).publish(
+                eq(org.remus.giteabot.eventhook.EventHookEventType.ISSUE_ASSIGNMENT_STARTED),
+                eq(bot), eq("Test"), eq("my-repo"), isNull(), eq(12L),
+                argThat(data -> Long.valueOf(12L).equals(data.get("issueNumber"))
+                        && "Vague issue".equals(data.get("issueTitle"))));
+        order.verify(eventHookPublisher).publish(
+                eq(org.remus.giteabot.eventhook.EventHookEventType.ISSUE_ASSIGNMENT_COMPLETED),
+                eq(bot), eq("Test"), eq("my-repo"), isNull(), eq(12L),
+                argThat(data -> Long.valueOf(12L).equals(data.get("issueNumber"))
+                        && !data.containsKey("error")));
+    }
+
+    @Test
+    void issueAssignment_publishesStartedAndFailedEventsOnException() {
+        Bot bot = createBot("writer", "writer_bot", false);
+        bot.setBotType(BotType.WRITER);
+        WebhookPayload payload = buildIssuePayload("Test", "my-repo", 12L, "Vague issue", "Do something");
+
+        when(giteaClientFactory.getApiClient(any())).thenThrow(new RuntimeException("gitea down"));
+
+        botWebhookService.handleIssueAssigned(bot, payload);
+
+        var order = inOrder(eventHookPublisher);
+        order.verify(eventHookPublisher).publish(
+                eq(org.remus.giteabot.eventhook.EventHookEventType.ISSUE_ASSIGNMENT_STARTED),
+                eq(bot), eq("Test"), eq("my-repo"), isNull(), eq(12L), anyMap());
+        order.verify(eventHookPublisher).publish(
+                eq(org.remus.giteabot.eventhook.EventHookEventType.ISSUE_ASSIGNMENT_FAILED),
+                eq(bot), eq("Test"), eq("my-repo"), isNull(), eq(12L),
+                argThat(data -> "gitea down".equals(data.get("error"))));
+        verify(eventHookPublisher, never()).publish(
+                eq(org.remus.giteabot.eventhook.EventHookEventType.ISSUE_ASSIGNMENT_COMPLETED),
+                any(), any(), any(), any(), any(), anyMap());
+    }
+
+    @Test
+    void issueAssignment_publishesNothingWhenCallerNotAllowed() {
+        Bot bot = createBot("writer", "writer_bot", false);
+        bot.setBotType(BotType.WRITER);
+        WebhookPayload payload = buildIssuePayload("Test", "my-repo", 12L, "Vague issue", "Do something");
+
+        when(botService.getAllowedUsernames(bot)).thenReturn(Set.of("someone-else"));
+        when(botService.isUsernameInSet(any(), any())).thenReturn(false);
+
+        botWebhookService.handleIssueAssigned(bot, payload);
+
+        verify(eventHookPublisher, never()).publish(any(), any(), any(), any(), any(), any(), anyMap());
+    }
 
     private Bot createBot(String name, String username, boolean agentEnabled) {
         Bot bot = new Bot();

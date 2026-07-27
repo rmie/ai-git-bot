@@ -3,6 +3,7 @@ package org.remus.giteabot.gitea;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.remus.giteabot.admin.Bot;
@@ -14,6 +15,7 @@ import java.util.HashMap;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.mockito.Mockito.*;
 
 /**
@@ -105,6 +107,33 @@ class GiteaWebhookHandlerTest {
         verify(botWebhookService, never()).handleIssueComment(any(), any());
     }
 
+    @Test
+    void prConversationComment_withoutTopLevelPullRequest_routesToHandlePrComment() {
+        // Real Gitea delivers a PR-conversation comment as an issue_comment event with
+        // issue.pull_request set but NO top-level pull_request. It must route to
+        // handlePrComment (review/slash commands), not the agent-gated handleIssueComment.
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("action", "created");
+        payload.put("sender", ownerMap("tom"));
+        payload.put("repository", repositoryMap());
+        payload.put("issue", issueMap(140L, true));   // issue WITH pull_request link
+        // deliberately no top-level "pull_request" key
+        payload.put("comment", commentMap(1055L, BOT_ALIAS + " please re-review", null));
+
+        ResponseEntity<String> response = handler.handleWebhook(bot, payload);
+
+        assertEquals("pr comment received", response.getBody());
+        ArgumentCaptor<WebhookPayload> captor = ArgumentCaptor.forClass(WebhookPayload.class);
+        verify(botWebhookService).handlePrComment(eq(bot), captor.capture());
+        verify(botWebhookService, never()).handleIssueComment(any(), any());
+        // Downstream handlePrComment dereferences payload.getPullRequest().getNumber();
+        // the handler must promote a top-level PR so it does not NPE.
+        WebhookPayload routed = captor.getValue();
+        assertNotNull(routed.getPullRequest(),
+                "PR conversation comment must carry a promoted top-level pull_request");
+        assertEquals(140L, routed.getPullRequest().getNumber());
+    }
+
     // ---- Bot's own events are ignored ----
 
     @Test
@@ -156,12 +185,24 @@ class GiteaWebhookHandlerTest {
 
     @Test
     void prSynchronizedEvent_routesToReviewPullRequest() {
+        // runOnPrUpdate defaults to false — synchronized is ignored without the opt-in.
         Map<String, Object> payload = buildPrEventPayload("synchronized");
 
         ResponseEntity<String> response = handler.handleWebhook(bot, payload);
 
         assertEquals("ignored", response.getBody());
         verify(botWebhookService, never()).reviewPullRequest(any(), any());
+    }
+
+    @Test
+    void prSynchronizedEvent_withRunOnPrUpdate_triggersReview() {
+        bot.setRunOnPrUpdate(true);
+        Map<String, Object> payload = buildPrEventPayload("synchronized");
+
+        ResponseEntity<String> response = handler.handleWebhook(bot, payload);
+
+        assertEquals("review triggered", response.getBody());
+        verify(botWebhookService).reviewPullRequest(eq(bot), any(WebhookPayload.class));
     }
 
     @Test
@@ -187,15 +228,40 @@ class GiteaWebhookHandlerTest {
         verify(botWebhookService).reviewPullRequest(eq(bot), any(WebhookPayload.class));
     }
 
+    // ---- PR reopened routing ----
+
     @Test
-    void prSynchronizedEvent_withRunOnPrCreation_isStillIgnored() {
-        bot.setRunOnPrCreation(true);
-        Map<String, Object> payload = buildPrEventPayload("synchronized");
+    void prReopenedEvent_routesToReviewPullRequest() {
+        // Bot is reviewer by default in buildPrEventPayload — reopened triggers review.
+        Map<String, Object> payload = buildPrEventPayload("reopened");
+
+        ResponseEntity<String> response = handler.handleWebhook(bot, payload);
+
+        assertEquals("review triggered", response.getBody());
+        verify(botWebhookService).reviewPullRequest(eq(bot), any(WebhookPayload.class));
+    }
+
+    @Test
+    void prReopenedEvent_withoutBotReviewer_isIgnored() {
+        Map<String, Object> payload = buildPrEventPayload("reopened");
+        ((Map<String, Object>) payload.get("pull_request")).put("requested_reviewers", java.util.List.of());
 
         ResponseEntity<String> response = handler.handleWebhook(bot, payload);
 
         assertEquals("ignored", response.getBody());
         verify(botWebhookService, never()).reviewPullRequest(any(), any());
+    }
+
+    @Test
+    void prReopenedEvent_withRunOnPrCreation_triggersReviewWithoutBotReviewer() {
+        bot.setRunOnPrCreation(true);
+        Map<String, Object> payload = buildPrEventPayload("reopened");
+        ((Map<String, Object>) payload.get("pull_request")).put("requested_reviewers", java.util.List.of());
+
+        ResponseEntity<String> response = handler.handleWebhook(bot, payload);
+
+        assertEquals("review triggered", response.getBody());
+        verify(botWebhookService).reviewPullRequest(eq(bot), any(WebhookPayload.class));
     }
 
     @Test
