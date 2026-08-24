@@ -4,6 +4,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Builder;
 import lombok.Data;
 import java.util.List;
+
 /**
  * Anthropic Messages-API request payload.
  *
@@ -19,10 +20,23 @@ public class AnthropicRequest {
     private String model;
     @JsonProperty("max_tokens")
     private int maxTokens;
-    private String system;
+    private List<ContentBlock> system;
     private List<Message> messages;
     /** Tools advertised to the model (Step 6). */
     private List<Tool> tools;
+    /**
+     * Optional extended-thinking configuration. When {@code null} (the
+     * default) the model has no separate reasoning channel and its narration
+     * ends up inline in the {@code text} blocks; when set, reasoning is
+     * returned in dedicated {@code thinking} blocks that the client discards.
+     */
+    private Thinking thinking;
+    /**
+     * Effort steering sent alongside {@link #thinking} when adaptive extended
+     * thinking is enabled. Omitted (null) otherwise.
+     */
+    @JsonProperty("output_config")
+    private OutputConfig outputConfig;
     @Data
     @Builder
     @JsonInclude(JsonInclude.Include.NON_NULL)
@@ -58,6 +72,9 @@ public class AnthropicRequest {
          * "Extra inputs are not permitted" on {@code tool_result} blocks.
          */
         private Object content;
+
+        @JsonProperty("cache_control")
+        private CacheControl cacheControl;
     }
     @Data
     @Builder
@@ -68,4 +85,36 @@ public class AnthropicRequest {
         @JsonProperty("input_schema")
         private Object inputSchema;
     }
+
+    /**
+     * Adaptive extended-thinking block. {@code type} is {@code "adaptive"}:
+     * the model decides per request whether and how much to think, steered by
+     * {@link OutputConfig#getEffort()}.
+     */
+    @Data
+    @Builder
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public static class Thinking {
+        private String type;
+    }
+
+    /**
+     * Effort steering for adaptive thinking. {@code effort} is one of
+     * {@code low}, {@code medium}, {@code high}, {@code xhigh} or {@code max}.
+     */
+    @Data
+    @Builder
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public static class OutputConfig {
+        private String effort;
+    }
+
+    @Data
+    @Builder
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public static class CacheControl {
+        @Builder.Default
+        private String type = "ephemeral";
+        private String ttl;
+}
 }

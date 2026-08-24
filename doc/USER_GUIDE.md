@@ -45,7 +45,11 @@ The Usage page (`/usage`) audits all AI provider interactions. It contains two c
 
 ### AI usage
 
-A paginated table (20 entries per page) of every AI interaction with the columns **Timestamp**, **AI-Integration**, **Session-ID**, **Input tokens**, and **Output tokens**. The Session-ID has the form `owner/repo#number` and identifies the pull request or issue that triggered the interaction. Click a column header to sort ascending/descending. Use **Clear all** in the section header (a confirmation dialog is shown) to remove all recorded usage entries.
+A paginated table (20 entries per page) of every AI interaction with the columns **Timestamp**, **AI-Integration**, **Session-ID**, **Input tokens**, **Output tokens**, **Cache creation input tokens**, **Cache read input tokens**, and **Details**. The Session-ID has the form `owner/repo#number` and identifies the pull request or issue that triggered the interaction. Click a column header to sort ascending/descending. Use **Clear all** in the section header (a confirmation dialog is shown) to remove all recorded usage entries.
+
+Click the **Raw** button in the **Details** column to open a modal showing the raw JSON request sent to the AI provider and the raw JSON response received back. This is useful for debugging provider-specific behavior, token accounting discrepancies, or unexpected completions.
+
+Raw payload capture is **disabled by default** because the payloads can be large and may contain sensitive prompt content. When disabled, the **Details** column is hidden from the AI usage table entirely. To enable it, set the configuration property `ai-usage.raw-payloads-enabled=true` (for example, in `application.properties`, `application.yml`, or via the `AI_USAGE_RAW_PAYLOADS_ENABLED` environment variable when running under Docker). You can also cap the stored payload size with `ai-usage.max-raw-payload-length` (default: 65535, which matches the `ai_usage_log.raw_request` / `raw_response` column size). The modal shows **—** when a payload is not available.
 
 ### Errors
 
@@ -273,7 +277,6 @@ Bots are the core entities that connect an AI provider with a Git provider. Navi
    - **Git Integration**: Select a Git integration from the dropdown
    - **User Whitelist** *(optional)*: Restrict AI-spending interactions to a set of Git usernames. This is recommended for public repositories.
    - **Enabled**: Whether the bot is active
-   - **Agent Enabled**: Whether the AI agent feature (issue implementation) is active for a coding bot. This option is hidden for writer bots.
 3. Click **Save**
 
 ## Workflow Configurations
@@ -475,7 +478,7 @@ Coding bots use an explicit-request review workflow:
 - Review pull requests only when the PR/MR is created with the bot as reviewer, the bot is added/re-requested as reviewer, or (Bitbucket) the PR author comments a request such as `@ai_bot - Review the Pull-Request again`.
 - Do not automatically re-review when new commits are pushed.
 - Respond to bot mentions in PR comments and inline review comments from the PR/MR author.
-- If **Agent Enabled** is selected, start the issue implementation workflow when the bot is assigned to an issue.
+- Start the issue implementation workflow when the bot is assigned to an issue.
 
 #### Writer bot
 

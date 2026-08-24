@@ -16,6 +16,7 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -38,21 +39,71 @@ import java.util.Set;
 @Slf4j
 public class AnthropicAiClient extends AbstractAiClient {
 
+    /**
+     * Distance between message cache breakpoints in content blocks. A
+     * breakpoint only finds a cached predecessor within a 20-block lookback,
+     * and an agent round adds ~2 blocks ({@code tool_use} + {@code
+     * tool_result}), so anchoring every 16 blocks (~8 rounds) keeps the
+     * trail within reach of the lookback window.
+     */
+    static final int CACHE_BREAKPOINT_STRIDE = 16;
+
+    /**
+     * Message-side breakpoints per request. Together with the system-block
+     * breakpoint this stays within Anthropic's limit of 4 breakpoints.
+     */
+    static final int MAX_MESSAGE_BREAKPOINTS = 3;
+
     private final RestClient restClient;
     private final boolean nativeToolsEnabled;
+    private final boolean promptCachingEnabled;
+    private final boolean extendedThinkingEnabled;
+    private final String extendedThinkingEffort;
     private final ObjectMapper jackson = AgentJackson.mapper();
 
 
     public AnthropicAiClient(RestClient restClient, String model, int maxTokens,
-                             boolean nativeToolsEnabled) {
+                             boolean nativeToolsEnabled, boolean promptCachingEnabled,
+                             boolean extendedThinkingEnabled, String extendedThinkingEffort) {
         super(model, maxTokens);
         this.restClient = restClient;
         this.nativeToolsEnabled = nativeToolsEnabled;
+        this.promptCachingEnabled = promptCachingEnabled;
+        this.extendedThinkingEnabled = extendedThinkingEnabled;
+        this.extendedThinkingEffort = extendedThinkingEffort;
     }
 
     @Override
     public boolean supportsNativeTools() {
         return nativeToolsEnabled;
+    }
+
+    /**
+     * Builds the optional {@code thinking} request object. Returns {@code null}
+     * when extended thinking is disabled, so the field is omitted from the
+     * serialized payload entirely (no-op for every provider behaviour).
+     */
+    private AnthropicRequest.Thinking thinking() {
+        if (!extendedThinkingEnabled) {
+            return null;
+        }
+        return AnthropicRequest.Thinking.builder()
+                .type("adaptive")
+                .build();
+    }
+
+    /**
+     * Builds the optional {@code output_config} request object that steers
+     * adaptive thinking effort. Returns {@code null} when extended thinking is
+     * disabled, mirroring {@link #thinking()}.
+     */
+    private AnthropicRequest.OutputConfig outputConfig() {
+        if (!extendedThinkingEnabled) {
+            return null;
+        }
+        return AnthropicRequest.OutputConfig.builder()
+                .effort(extendedThinkingEffort)
+                .build();
     }
 
     // ---------------------------------------------------------------------
@@ -65,7 +116,9 @@ public class AnthropicAiClient extends AbstractAiClient {
         AnthropicRequest request = AnthropicRequest.builder()
                 .model(effectiveModel)
                 .maxTokens(maxTokens)
-                .system(systemPrompt)
+                .system(toSystemBlocks(systemPrompt))
+                .thinking(thinking())
+                .outputConfig(outputConfig())
                 .messages(List.of(
                         AnthropicRequest.Message.builder()
                                 .role("user")
@@ -75,7 +128,7 @@ public class AnthropicAiClient extends AbstractAiClient {
                 .build();
 
         AnthropicResponse response = executeRequest(request);
-        return extractText(response, "review");
+        return extractText(request, response, "review");
     }
 
     @Override
@@ -88,12 +141,14 @@ public class AnthropicAiClient extends AbstractAiClient {
         AnthropicRequest request = AnthropicRequest.builder()
                 .model(effectiveModel)
                 .maxTokens(maxTokens)
-                .system(systemPrompt)
+                .system(toSystemBlocks(systemPrompt))
+                .thinking(thinking())
+                .outputConfig(outputConfig())
                 .messages(anthropicMessages)
                 .build();
 
         AnthropicResponse response = executeRequest(request);
-        return extractText(response, "chat");
+        return extractText(request, response, "chat");
     }
 
     private AnthropicRequest.Message toLegacyMessage(AiMessage m) {
@@ -138,14 +193,25 @@ public class AnthropicAiClient extends AbstractAiClient {
 
         List<AnthropicRequest.Message> messages = buildToolMessages(fullHistory);
 
+        // Tool definitions sit at the very front of the rendered prefix
+        // (tools -> system -> messages), so a non-deterministic tool order
+        // would silently invalidate every cache entry. Sort by name to keep
+        // the prefix byte-stable across requests.
         List<AnthropicRequest.Tool> toolPayloads = tools.stream()
+                .sorted(Comparator.comparing(ToolDescriptor::name))
                 .map(this::toToolPayload)
                 .toList();
+
+        if (promptCachingEnabled) {
+            applyCacheBreakpoints(messages);
+        }
 
         AnthropicRequest request = AnthropicRequest.builder()
                 .model(effectiveModel)
                 .maxTokens(effectiveMaxTokens)
-                .system(systemPrompt)
+                .system(toSystemBlocks(systemPrompt))
+                .thinking(thinking())
+                .outputConfig(outputConfig())
                 .messages(messages)
                 .tools(toolPayloads)
                 .build();
@@ -154,7 +220,7 @@ public class AnthropicAiClient extends AbstractAiClient {
                 effectiveModel, toolPayloads.size(), messages.size());
 
         AnthropicResponse response = executeRequest(request);
-        return interpret(response);
+        return interpret(request, response);
     }
 
     /**
@@ -317,6 +383,48 @@ public class AnthropicAiClient extends AbstractAiClient {
         return out;
     }
 
+    /**
+     * Places prompt-caching breakpoints on the assembled message list:
+     * a rolling one on the very last content block (so round N+1 reads
+     * round N's whole prefix at the 0.1x cache-read price) plus anchor
+     * breakpoints every {@link #CACHE_BREAKPOINT_STRIDE} blocks walking
+     * backwards. The anchors keep older parts of the conversation reachable:
+     * a breakpoint only finds a cached predecessor within a 20-block
+     * lookback, so a lone rolling breakpoint loses the trail once the tail
+     * grows past that window.
+     *
+     * <p>String message contents are normalized to a single text content
+     * block (semantically equivalent on the wire) so any position can carry
+     * a breakpoint; blank strings are left untouched because empty text
+     * blocks are rejected by the API.</p>
+     */
+    private void applyCacheBreakpoints(List<AnthropicRequest.Message> messages) {
+        List<AnthropicRequest.ContentBlock> blocks = new ArrayList<>();
+        for (AnthropicRequest.Message m : messages) {
+            if (m.getContent() instanceof List<?> list) {
+                for (Object o : list) {
+                    if (o instanceof AnthropicRequest.ContentBlock cb) {
+                        blocks.add(cb);
+                    }
+                }
+            } else if (m.getContent() instanceof String text && !text.isBlank()) {
+                AnthropicRequest.ContentBlock cb = AnthropicRequest.ContentBlock.builder()
+                        .type("text")
+                        .text(text)
+                        .build();
+                m.setContent(new ArrayList<>(List.of(cb)));
+                blocks.add(cb);
+            }
+        }
+        int index = blocks.size() - 1;
+        int placed = 0;
+        while (index >= 0 && placed < MAX_MESSAGE_BREAKPOINTS) {
+            blocks.get(index).setCacheControl(AnthropicRequest.CacheControl.builder().build());
+            placed++;
+            index -= CACHE_BREAKPOINT_STRIDE;
+        }
+    }
+
     private Set<String> collectToolResultIds(AnthropicRequest.Message m) {
         if (m == null || !"user".equals(m.getRole()) || !(m.getContent() instanceof List<?> blocks)) {
             return Set.of();
@@ -363,7 +471,7 @@ public class AnthropicAiClient extends AbstractAiClient {
                 .build();
     }
 
-    private ChatTurn interpret(AnthropicResponse response) {
+    private ChatTurn interpret(AnthropicRequest request, AnthropicResponse response) {
         if (response == null || response.getContent() == null || response.getContent().isEmpty()) {
             log.warn("Empty response from Anthropic tool-call request");
             return ChatTurn.text("Unable to generate response - empty reply from AI.");
@@ -389,11 +497,21 @@ public class AnthropicAiClient extends AbstractAiClient {
         long inputTokens = 0L;
         long outputTokens = 0L;
         if (response.getUsage() != null) {
-            inputTokens = response.getUsage().getInputTokens();
-            outputTokens = response.getUsage().getOutputTokens();
-            log.info("Anthropic chat-with-tools: {} input tokens, {} output tokens, {} tool_use block(s)",
-                    inputTokens, outputTokens, calls.size());
-            reportUsage(inputTokens, outputTokens);
+            AnthropicResponse.Usage usage = response.getUsage();
+            // With prompt caching, input_tokens only counts the uncached
+            // remainder; the total prompt size (what the context window and
+            // compaction threshold care about) is the sum of all three.
+            inputTokens = usage.getInputTokens()
+                    + usage.getCacheCreationInputTokens()
+                    + usage.getCacheReadInputTokens();
+            outputTokens = usage.getOutputTokens();
+            log.info("Anthropic chat-with-tools: {} input tokens ({} uncached, {} cache write, "
+                            + "{} cache read), {} output tokens, {} tool_use block(s)",
+                    inputTokens, usage.getInputTokens(), usage.getCacheCreationInputTokens(),
+                    usage.getCacheReadInputTokens(), outputTokens, calls.size());
+            reportUsage(inputTokens, outputTokens,
+                    usage.getCacheCreationInputTokens(), usage.getCacheReadInputTokens(),
+                    request, response);
         }
         return new ChatTurn(text.toString(), calls, reason, inputTokens, outputTokens);
     }
@@ -420,7 +538,7 @@ public class AnthropicAiClient extends AbstractAiClient {
         return normalized.contains("prompt is too long") || normalized.contains("maximum");
     }
 
-    private String extractText(AnthropicResponse response, String context) {
+    private String extractText(AnthropicRequest request, AnthropicResponse response, String context) {
         if (response == null || response.getContent() == null || response.getContent().isEmpty()) {
             log.warn("Empty response from Anthropic API");
             return "Unable to generate " + context + " - empty response from AI.";
@@ -432,12 +550,20 @@ public class AnthropicAiClient extends AbstractAiClient {
                 .reduce("", (a, b) -> a + b);
 
         if (response.getUsage() != null) {
-            log.info("Anthropic {} response: {} input tokens, {} output tokens",
+            AnthropicResponse.Usage usage = response.getUsage();
+            long totalInput = usage.getInputTokens() + usage.getCacheCreationInputTokens()
+                    + usage.getCacheReadInputTokens();
+            log.info("Anthropic {} response: {} input tokens ({} uncached, {} cache write, "
+                            + "{} cache read), {} output tokens",
                     context,
-                    response.getUsage().getInputTokens(),
-                    response.getUsage().getOutputTokens());
-            reportUsage(response.getUsage().getInputTokens(),
-                    response.getUsage().getOutputTokens());
+                    totalInput,
+                    usage.getInputTokens(),
+                    usage.getCacheCreationInputTokens(),
+                    usage.getCacheReadInputTokens(),
+                    usage.getOutputTokens());
+            reportUsage(totalInput, usage.getOutputTokens(),
+                    usage.getCacheCreationInputTokens(), usage.getCacheReadInputTokens(),
+                    request, response);
         }
         return result;
     }
@@ -448,6 +574,24 @@ public class AnthropicAiClient extends AbstractAiClient {
                 .body(request)
                 .retrieve()
                 .body(AnthropicResponse.class);
+    }
+
+    /**
+     * Wraps a plain system-prompt string as a single-element content-block
+     * list, the shape required since {@link AnthropicRequest#getSystem()}
+     * became cache-controllable (must be an array, not a bare string). When
+     * prompt caching is enabled the block carries the static-head
+     * breakpoint: everything before it (tool definitions + system prompt)
+     * is shared by every round of the agentic loop and is cached once.
+     */
+    private List<AnthropicRequest.ContentBlock> toSystemBlocks(String systemPrompt) {
+        AnthropicRequest.ContentBlock.ContentBlockBuilder block = AnthropicRequest.ContentBlock.builder()
+                .type("text")
+                .text(systemPrompt);
+        if (promptCachingEnabled) {
+            block.cacheControl(AnthropicRequest.CacheControl.builder().build());
+        }
+        return List.of(block.build());
     }
 }
 

@@ -4,14 +4,14 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.remus.giteabot.agent.tools.ToolCatalog;
 import org.remus.giteabot.config.AgentConfigProperties;
+import org.remus.giteabot.util.ProcessSupport;
 import org.springframework.stereotype.Service;
 
-import java.io.BufferedReader;
 import java.io.File;
 import java.io.IOException;
-import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -567,7 +567,8 @@ public class ToolExecutionService {
         List<String> matches = new ArrayList<>();
         try (Stream<Path> stream = Files.walk(basePath, MAX_SEARCH_DEPTH)) {
             List<Path> files = stream
-                    .filter(Files::isRegularFile)
+                    .filter(this::isVisibleWorkspacePath)
+                    .filter(path -> Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS))
                     .filter(this::isReasonableTextFile)
                     .sorted()
                     .toList();
@@ -686,7 +687,8 @@ public class ToolExecutionService {
         try (Stream<Path> stream = Files.walk(basePath)) {
             List<String> matches = stream
                     .filter(path -> !path.equals(basePath))
-                    .filter(Files::isRegularFile)
+                    .filter(this::isVisibleWorkspacePath)
+                    .filter(path -> Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS))
                     .sorted()
                     .map(workspaceDir::relativize)
                     .map(Path::toString)
@@ -896,6 +898,7 @@ public class ToolExecutionService {
 
         try (Stream<Path> stream = Files.walk(basePath, maxDepth)) {
             List<String> lines = stream
+                    .filter(this::isVisibleWorkspacePath)
                     .sorted(Comparator.naturalOrder())
                     .map(path -> formatTreeEntry(basePath, path))
                     .toList();
@@ -1252,21 +1255,26 @@ public class ToolExecutionService {
 
 
     private Path resolveWorkspacePath(Path workspaceDir, String relativePath) throws IOException {
-        // Stage 1: normalize() resolves any ".." segments without touching the filesystem.
-        Path normalized = workspaceDir.resolve(relativePath).normalize();
-        if (!normalized.startsWith(workspaceDir.normalize())) {
-            throw new IOException("Path escapes workspace: " + relativePath);
+        try {
+            return org.remus.giteabot.util.WorkspacePaths.resolveInsideWorkspace(workspaceDir, relativePath);
+        } catch (IllegalArgumentException e) {
+            throw new IOException(e.getMessage(), e);
         }
-        // Stage 2: if the target already exists, re-check after symlink resolution so that
-        // a symlink inside the workspace pointing outside is also caught.
-        if (Files.exists(normalized)) {
-            Path realBase = workspaceDir.toRealPath();
-            Path realPath = normalized.toRealPath();
-            if (!realPath.startsWith(realBase)) {
-                throw new IOException("Path escapes workspace via symlink: " + relativePath);
+    }
+
+    /** True when any path segment belongs to the repository's internal Git metadata. */
+    private boolean isGitInternalPath(Path path) {
+        for (Path segment : path) {
+            if (".git".equalsIgnoreCase(segment.toString())) {
+                return true;
             }
         }
-        return normalized;
+        return false;
+    }
+
+    /** Symlinks can point outside the workspace even when recursive walks do not follow directories. */
+    private boolean isVisibleWorkspacePath(Path path) {
+        return !isGitInternalPath(path) && !Files.isSymbolicLink(path);
     }
 
     private ToolResult executeCommand(Path workspaceDir, String[] command) {
@@ -1274,34 +1282,30 @@ public class ToolExecutionService {
             ProcessBuilder pb = new ProcessBuilder(command);
             pb.directory(workspaceDir.toFile());
             pb.redirectErrorStream(true);
-
-            Process process = pb.start();
-
-            StringBuilder output = new StringBuilder();
-            try (BufferedReader reader = new BufferedReader(
-                    new InputStreamReader(process.getInputStream()))) {
-                String line;
-                while ((line = reader.readLine()) != null) {
-                    output.append(line).append("\n");
-                }
-            }
+            // Untrusted repository code (package-manager scripts, test fixtures) must
+            // never see application secrets such as database or AI provider keys.
+            ProcessSupport.scrubEnvironment(pb);
 
             int timeoutSeconds = agentConfig.getValidation().getToolTimeoutSeconds();
-            boolean finished = process.waitFor(timeoutSeconds, TimeUnit.SECONDS);
+            // The byte cap is the hard memory bound while draining the pipe; the
+            // character cap below is the presentation limit. The +1_000 headroom
+            // makes the char cap the effective limit for ASCII-dominant output,
+            // while multi-byte-heavy output may hit the byte cap first.
+            ProcessSupport.CommandResult result = ProcessSupport.run(pb, timeoutSeconds,
+                    TimeUnit.SECONDS, MAX_TOOL_OUTPUT_CHARS + 1_000);
 
-            if (!finished) {
-                process.destroyForcibly();
+            if (!result.finished()) {
                 return new ToolResult(false, -1, "",
                         "Tool execution timed out after " + timeoutSeconds + " seconds");
             }
 
-            int exitCode = process.exitValue();
+            int exitCode = result.exitCode();
             boolean success = exitCode == 0;
 
             log.info("Tool {} with exit code {}",
                     success ? "succeeded" : "failed", exitCode);
 
-            return new ToolResult(success, exitCode, truncateOutput(output.toString()), "");
+            return new ToolResult(success, exitCode, truncateOutput(result.output()), "");
 
         } catch (IOException e) {
             log.error("Failed to execute tool: {}", e.getMessage());
